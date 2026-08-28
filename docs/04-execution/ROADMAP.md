@@ -12,7 +12,7 @@ later · stateless about business data · systemd on the host, no container runt
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 000 | scaffold-and-standards | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz | `go test ./...` green in CI; `/healthz` 200 |
+| 000 | scaffold-and-standards *(active)* | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz, `mxsim` | `go test ./...` green in CI; `/healthz` 200 |
 | 001 | http-verify-service | port the lab prober; `POST /verify` single address; auth; timeouts; graceful shutdown | `curl /verify` returns a correct verdict for a known good + known bad address |
 | 002 | ssrf-guard-and-safety | resolver SSRF guard (no private/loopback MX); "us ≠ address" verdict rules enforced | probe of a domain whose MX points at `127.0.0.1` is refused, not attempted |
 | 003 | central-redis-limiter | make the shared token bucket THE limiter; per-MX AIMD; fail-closed on Redis down | two concurrent `/verify` bursts to one MX stay under the band; Redis down → `unknown`, no send |

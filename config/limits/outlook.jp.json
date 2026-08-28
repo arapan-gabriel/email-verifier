@@ -1,0 +1,16 @@
+{
+  "profile": "outlook.jp",
+  "target": "outlook.jp",
+  "min_rate_per_sec": 0.5,
+  "max_rate_per_sec": 1.0,
+  "min_concurrency": 1,
+  "max_concurrency": 1,
+  "burst": 1,
+  "cooldown_seconds": 300,
+  "recommended_pause_seconds": 600,
+  "confidence": "guess",
+  "notes": [
+    "Outlook/Exchange Online: start 1 req/s, floor 0.5, backoff 5-15 min.",
+    "Init band, microsoft family. Not calibrated."
+  ]
+}

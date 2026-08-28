@@ -1,0 +1,15 @@
+{
+  "profile": "mail.ru",
+  "target": "mail.ru",
+  "min_rate_per_sec": 0.2,
+  "max_rate_per_sec": 0.5,
+  "min_concurrency": 1,
+  "max_concurrency": 1,
+  "burst": 1,
+  "cooldown_seconds": 600,
+  "recommended_pause_seconds": 900,
+  "confidence": "guess",
+  "notes": [
+    "Init band, Mail.ru/VK. Conservative start, not calibrated."
+  ]
+}

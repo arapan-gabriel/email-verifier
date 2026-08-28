@@ -1,0 +1,40 @@
+# Strict, high-reputation provider. Throttles on connection count and on RCPT
+# rate per source IP, and punishes an overrun with a multi-minute cooldown
+# during which every connection is refused with 421.
+name: gmail
+domains: [gmail-sim.test, googlemail-sim.test]
+listen: ["127.0.0.1:2525"]
+banner: "220 mx.gmail-sim.test ESMTP mxsim - gsmtp"
+ehlo_caps: [PIPELINING, "SIZE 35882577", 8BITMIME, SMTPUTF8]
+
+limits:
+  max_concurrent_conns: 3
+  too_many_conns: "421 4.7.0 Too many concurrent SMTP connections from this IP"
+  conn_rate:
+    count: 10
+    window: 60s
+    on_exceed: "421 4.7.0 Our system has detected an unusual rate of traffic from your IP"
+  rcpt_rate:
+    count: 20
+    window: 60s
+    on_exceed: "421 4.7.0 Our system has detected an unusual rate of traffic from your IP"
+  rcpt_per_conn: 10
+  cooldown_after_exceed: 5m
+
+behaviour:
+  tarpit_banner: 0s
+  greylist: false
+  catch_all: false
+  accept: "250 2.1.5 OK"
+  reject_unknown: "550 5.1.1 The email account that you tried to reach does not exist"
+
+recipients:
+  exists: [valid@, ceo@, support@, gabriel@]
+  bounce: [nope@, ghost@, doesnotexist@]
+  timeout: [blackhole@]
+  drop: [reset@]
+
+chaos:
+  temp_error_rate: 0.0
+  drop_rate: 0.0
+  seed: 1337

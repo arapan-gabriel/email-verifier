@@ -1,0 +1,16 @@
+{
+  "profile": "icloud.com",
+  "target": "icloud.com",
+  "min_rate_per_sec": 0.2,
+  "max_rate_per_sec": 0.5,
+  "min_concurrency": 1,
+  "max_concurrency": 1,
+  "burst": 1,
+  "cooldown_seconds": 600,
+  "recommended_pause_seconds": 900,
+  "confidence": "guess",
+  "notes": [
+    "iCloud: start 0.5, floor 0.2, backoff 10-20 min.",
+    "Init band, icloud family. Not calibrated."
+  ]
+}

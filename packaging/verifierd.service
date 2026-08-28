@@ -1,0 +1,64 @@
+# verifierd — isolated-IP mail edge. Installed verbatim by plan 013.
+# No container runtime (ADR-005); the sandboxing below is what a container
+# would otherwise have provided.
+
+[Unit]
+Description=verifierd — SMTP mailbox verification on an isolated IP
+Documentation=https://github.com/arapan-gabriel/email-verifier
+Wants=network-online.target
+After=network-online.target redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=verifierd
+Group=verifierd
+SupplementaryGroups=redis
+
+# Plan 013 wires the preflight as a hard start gate here — GO is a precondition,
+# not advisory (RUNBOOK). Left commented until that plan installs the script.
+#ExecStartPre=/usr/local/bin/verifierd-preflight
+ExecStart=/usr/local/bin/verifierd -config /etc/verifierd/verifierd.yaml
+EnvironmentFile=-/etc/verifierd/env
+
+Restart=on-failure
+RestartSec=5s
+
+# Verification opens one short-lived socket per address; the pacer bounds the
+# rate, not the file-descriptor table.
+LimitNOFILE=65535
+
+# SIGTERM starts the graceful drain in cmd/verifierd; give it room to finish
+# in-flight SMTP dialogues rather than cutting them mid-session.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+StateDirectory=verifierd
+ReadWritePaths=/var/lib/verifierd
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+# Slow and greylisting. Every first sighting of an (IP, recipient) tuple gets
+# 450; the same tuple after greylist_delay gets a real answer. Combined with a
+# banner tarpit this is the profile that breaks naive timeout and concurrency
+# settings.
+name: yahoo
+domains: [yahoo-sim.test, ymail-sim.test]
+listen: ["127.0.0.1:2527"]
+banner: "220 mx.yahoo-sim.test ESMTP ready (mxsim)"
+ehlo_caps: [PIPELINING, "SIZE 41943040", 8BITMIME]
+
+limits:
+  max_concurrent_conns: 2
+  conn_rate:
+    count: 12
+    window: 60s
+    on_exceed: "421 4.7.0 [TSS04] Messages from this IP temporarily deferred"
+  rcpt_rate:
+    count: 12
+    window: 60s
+    on_exceed: "421 4.7.0 [TSS04] Messages from this IP temporarily deferred"
+  rcpt_per_conn: 5
+  cooldown_after_exceed: 15m
+
+behaviour:
+  tarpit_banner: 3s
+  tarpit_rcpt: 500ms
+  greylist: true
+  greylist_delay: 5m
+  greylist_reply: "451 4.7.1 Greylisted, please try again later"
+  catch_all: false
+  accept: "250 2.1.5 Recipient ok"
+  reject_unknown: "554 5.7.1 Recipient address rejected: undeliverable"
+
+recipients:
+  exists: [valid@, contact@]
+  bounce: [nope@]
+  timeout: [blackhole@]
+  drop: [reset@]
+
+chaos:
+  temp_error_rate: 0.0
+  drop_rate: 0.0
+  seed: 909

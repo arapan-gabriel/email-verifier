@@ -3,6 +3,36 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 000: scaffold, gates, systemd unit, mxsim ported
+
+- **First code.** Module `github.com/arapan-gabriel/email-verifier`, Go 1.25, one dependency
+  (`gopkg.in/yaml.v3`, pulled in by config parsing and the ported mxsim profiles).
+- `internal/config` — the single config source: defaults → optional YAML → `VERIFIERD_*` env, then
+  validation. The service refuses to boot on a bad or missing required value instead of starting
+  half-configured; `auth.enabled` without `auth.api_key` is one of the refusals.
+- `internal/api` — router, canonical `{"error":{"code","message"}}` shape, `GET /healthz`,
+  `GET /readyz`, JSON 404 for anything else. `Options.Authenticated` is the seam plan 001 hangs
+  `POST /verify` on, so no route can quietly skip the guard (invariant 11).
+- `cmd/verifierd` — config load, `log/slog` JSON logging, graceful drain on SIGTERM/SIGINT.
+- **`mxsim` ported** from `../ds-smtp-retry/mxsim` into `internal/mxsim/{smtp,policy,clock,metrics,
+  admin}` plus `cmd/mxsim`, profiles in `config/mxsim/`. It was pulled into this plan because plans
+  001, 003, 006 and 012 all name it in their Definition of Done and none of them tasked porting it —
+  001 would have been blocked on unplanned work. Its tests pass unchanged in this module; it is
+  linted loosely on purpose (`.golangci.yml`) so upstream fixes stay easy to apply.
+- Also ported: `scripts/preflight.sh`, `config/limiter/token_bucket.lua` into the location the docs
+  already cite, and the seed rate bands as `config/limits/` (71 provider files).
+- `Makefile` carries the static build flags (ADR-005: the binary is the artifact); `make gate` is
+  the Phase-4 gate verbatim. CI runs the same four steps and then asserts the built binary is
+  statically linked.
+- `packaging/verifierd.service` — hardened unit with `LimitNOFILE=65535`, SIGTERM drain inside
+  `TimeoutStopSec=30s`, `RestrictAddressFamilies=AF_INET AF_UNIX` (which also happens to enforce
+  invariant 3 at the kernel level), empty capability set. Verified with `systemd-analyze` on the
+  real host.
+- `readyz` dials the configured Redis endpoint rather than issuing a real `PING` — the RESP client
+  arrives in plan 003. Recorded in `api.md` so the contract does not overstate what is checked.
+- Gate green: `go test -race`, `go vet`, `gofmt -l`, `golangci-lint run`. Full results in the plan.
+- Plan 000 stays **Active** pending manual sign-off; it is not moved to `completed/` yet.
+
 ## 2026-08-28 — Invariants renumbered 1–11; IPv4-only promoted to a hard invariant
 
 - **`CLAUDE.md`'s hard-invariant list is now 1–11 with no gaps or letters.** The old list ran

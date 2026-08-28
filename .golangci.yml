@@ -1,0 +1,31 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - unconvert
+  exclusions:
+    rules:
+      # Ported wholesale from ../ds-smtp-retry; kept close to the original so
+      # upstream fixes stay easy to apply. It is test infrastructure, not the
+      # service. See plan 000.
+      - path: internal/mxsim/
+        linters: [revive, gosec, errcheck, staticcheck, noctx, errorlint]
+      - path: cmd/mxsim/
+        linters: [revive, gosec, errcheck, noctx]
+      - path: _test\.go
+        linters: [gosec, noctx]
+
+formatters:
+  enable:
+    - gofmt

@@ -1,0 +1,22 @@
+# Accepts every recipient. A validator must report "risky", never "valid":
+# this profile is the regression test for catch-all detection.
+name: catchall
+domains: [catchall-sim.test]
+listen: ["127.0.0.1:2528"]
+banner: "220 mx.catchall-sim.test ESMTP mxsim"
+
+limits:
+  max_concurrent_conns: 10
+  rcpt_per_conn: 100
+  cooldown_after_exceed: 1m
+
+behaviour:
+  catch_all: true
+  accept: "250 2.1.5 Ok"
+
+recipients: {}
+
+chaos:
+  temp_error_rate: 0.0
+  drop_rate: 0.0
+  seed: 7

@@ -1,6 +1,6 @@
 # Plan 000 — scaffold-and-standards
 
-**Status:** Planned
+**Status:** Active
 **Phase:** A
 **Depends on:** none
 
@@ -22,7 +22,7 @@ client, report). This plan brings up structure and gates only — no verificatio
 - `internal/config` — the single config source: struct loaded from env + optional YAML
   (`config/verifierd.yaml`). No hardcoded IPs/secrets (invariant 10).
 - `internal/api` — router + auth middleware stub (real auth in 001), JSON error shape.
-- Go module `github.com/<org>/email-verifier`, Go 1.25.
+- Go module `github.com/arapan-gabriel/email-verifier`, Go 1.25.
 - Tooling parity with Data Scout's rigor: `go test -race`, `go vet`, `gofmt`, `golangci-lint`.
 - `.github/workflows/ci.yml` running exactly the Phase-4 gate.
 - **Release artifact: one static binary, no container runtime.** `CGO_ENABLED=0 go build -trimpath
@@ -38,29 +38,68 @@ client, report). This plan brings up structure and gates only — no verificatio
   is one command locally and byte-identical in CI.
 - Local dev expects a Redis on `127.0.0.1:6379`; the repo does not prescribe how it is started.
 - Port `scripts/preflight.sh` from `ds-smtp-retry` unchanged.
+- **Port `mxsim`** — the lab's fake MX (`../ds-smtp-retry/mxsim`, a separate module: SMTP server,
+  policy engine with 421/greylist/catch-all/tarpit profiles, injectable clock, admin API, metrics).
+  It lands here as `internal/mxsim/*` plus `cmd/mxsim`, so tests can drive it in-process. It belongs
+  in the scaffold because plans 001, 003, 006 and 012 all name it in their Definition of Done and
+  none of them tasks porting it — 001 would otherwise be blocked on unplanned work.
 
 ## Tasks
 
-- [ ] `go mod init`; commit `go.mod`/`go.sum`
-- [ ] `cmd/verifierd` with config load, HTTP server, healthz/readyz, graceful shutdown
-- [ ] `internal/config` with env+file loading and validation
-- [ ] `internal/api` router + JSON error middleware + auth stub
-- [ ] `golangci-lint` config; `gofmt`/`vet` clean
-- [ ] `.github/workflows/ci.yml` (test-race, vet, fmt-check, lint) + a static-build step publishing
+- [x] `go mod init`; commit `go.mod`/`go.sum`
+- [x] `cmd/verifierd` with config load, HTTP server, healthz/readyz, graceful shutdown
+- [x] `internal/config` with env+file loading and validation
+- [x] `internal/api` router + JSON error middleware + auth stub
+- [x] `golangci-lint` config; `gofmt`/`vet` clean
+- [x] `.github/workflows/ci.yml` (test-race, vet, fmt-check, lint) + a static-build step publishing
       the binary as a CI artifact
-- [ ] `Makefile` (build/test/lint/fmt/run) — static build flags live here
-- [ ] `packaging/verifierd.service` — hardened systemd unit (`LimitNOFILE`, SIGTERM drain, sandbox)
-- [ ] port `scripts/preflight.sh`
-- [ ] `internal/config` unit test; a healthz handler test
+- [x] `Makefile` (build/test/lint/fmt/run) — static build flags live here
+- [x] `packaging/verifierd.service` — hardened systemd unit (`LimitNOFILE`, SIGTERM drain, sandbox)
+- [x] port `scripts/preflight.sh`
+- [x] port `mxsim` into `internal/mxsim/*` + `cmd/mxsim`; profiles under `config/mxsim/`
+- [x] `internal/config` unit test; a healthz handler test
 
 ## Definition of Done
 
-- [ ] CI green: `go test -race -count=1 ./...`, `go vet ./...`, `gofmt -l .` empty, `golangci-lint run`
-- [ ] `go run ./cmd/verifierd` serves `/healthz` → 200 and shuts down cleanly on SIGTERM
-- [ ] `make build` produces a static binary — `ldd bin/verifierd` reports "not a dynamic executable"
-- [ ] `systemd-analyze verify packaging/verifierd.service` clean
-- [ ] `docs/06-generated/api.md` seeded with healthz/readyz
-- [ ] changelog entry; Status → Complete; moved to `completed/`; ROADMAP row updated
+Verified locally 2026-08-28 (see Results below).
+
+- [x] CI green: `go test -race -count=1 ./...`, `go vet ./...`, `gofmt -l .` empty, `golangci-lint run`
+- [x] `go run ./cmd/verifierd` serves `/healthz` → 200 and shuts down cleanly on SIGTERM
+- [x] `make build` produces a static binary — `ldd bin/verifierd` reports "not a dynamic executable"
+- [x] `systemd-analyze verify packaging/verifierd.service` clean
+- [x] `mxsim` builds and its ported tests pass in this module
+- [x] `docs/06-generated/api.md` seeded with healthz/readyz
+- [x] changelog entry
+- [ ] Status → Complete; moved to `completed/`; ROADMAP row updated — pending manual sign-off
+
+## Results (2026-08-28)
+
+Gate, in CI order:
+
+| Step | Result |
+|---|---|
+| `go test -race -count=1 ./...` | pass — `internal/api`, `internal/config`, and the ported `internal/mxsim/{admin,smtp}` suites |
+| `go vet ./...` | clean |
+| `gofmt -l .` | empty |
+| `golangci-lint run` | clean (v2.13.2) |
+
+Behaviour:
+
+| Check | Result |
+|---|---|
+| `GET /healthz` | `200 {"status":"ok"}` |
+| `GET /readyz`, store unreachable | `503 {"status":"not ready","reason":"dial unix …: no such file or directory"}` |
+| `GET /readyz`, store reachable | `200 {"status":"ready"}` |
+| `GET /nope` | `404 {"error":{"code":"not_found","message":"no such endpoint"}}` |
+| SIGTERM | drains and exits 0; logs `stopped cleanly` |
+| Bad config (`VERIFIERD_LOG_LEVEL=verbose`) | refuses to boot, exit 1, names the offending key |
+| `make build` | `statically linked`; `ldd` → `not a dynamic executable`; 6.2 MB |
+| `systemd-analyze verify` on the real host | only remark is the not-yet-installed `/usr/local/bin/verifierd`; `redis-server.service` resolves and every sandbox directive is accepted |
+| Logs | structured JSON via `log/slog`, warning emitted while auth is disabled |
+
+One deviation worth noting: `ExecStartPre` for the preflight gate is present but commented out in
+`packaging/verifierd.service`. The script it points at is installed by plan 013, and an unresolvable
+`ExecStartPre` would fail both `systemd-analyze verify` here and the service start there.
 
 ## Notes / decisions / deviations
 

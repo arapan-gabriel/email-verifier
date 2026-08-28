@@ -1,0 +1,41 @@
+# Microsoft-style: the throttle is a slow-burn reputation counter rather than a
+# hard burst limit, and it answers 451 4.7.650 rather than 421. This is the
+# profile that punishes a calibrator which only measures short bursts.
+name: outlook
+domains: [outlook-sim.test, hotmail-sim.test]
+listen: ["127.0.0.1:2526"]
+banner: "220 mx.outlook-sim.test Microsoft ESMTP MAIL Service (mxsim)"
+ehlo_caps: [PIPELINING, "SIZE 157286400", 8BITMIME, SMTPUTF8, CHUNKING]
+
+limits:
+  max_concurrent_conns: 2
+  too_many_conns: "421 4.7.0 Too many concurrent connections"
+  conn_rate:
+    count: 20
+    window: 300s
+    on_exceed: "451 4.7.650 The mail server has exceeded the maximum number of connections"
+  rcpt_rate:
+    count: 60
+    window: 300s
+    on_exceed: "451 4.7.650 The mail server IP connecting has exceeded the rate limit"
+  rcpt_per_conn: 20
+  cooldown_after_exceed: 10m
+
+behaviour:
+  tarpit_banner: 0s
+  tarpit_rcpt: 0s
+  greylist: false
+  catch_all: false
+  accept: "250 2.1.5 Recipient OK"
+  reject_unknown: "550 5.4.1 Recipient address rejected: Access denied"
+
+recipients:
+  exists: [valid@, admin@, info@]
+  bounce: [nope@, ghost@]
+  timeout: [blackhole@]
+  drop: [reset@]
+
+chaos:
+  temp_error_rate: 0.0
+  drop_rate: 0.0
+  seed: 4242

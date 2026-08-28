@@ -3,14 +3,22 @@
 Kept in sync with `internal/api/*` in the same change. Authenticated (mTLS or API key) except health
 probes. JSON in/out; error shape `{error:{code,message}}`.
 
-> Greenfield — endpoints appear here as their plans land. Rows below are the planned contract.
+> Endpoints appear here as their plans land. Rows marked **live** are implemented; the rest are the
+> planned contract.
 
-## Health (unauthenticated)
+## Health (unauthenticated) — **live** (plan 000)
 
-| Method | Path | Plan | Response |
-|---|---|---|---|
-| GET | `/healthz` | 000 | `200 {"status":"ok"}` — liveness |
-| GET | `/readyz` | 000 | `200` when Redis reachable; `503` otherwise |
+The only two routes that are not authenticated, and they must stay that way (invariant 11).
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/healthz` | `200 {"status":"ok"}` — liveness; the process is up and serving |
+| GET | `/readyz` | `200 {"status":"ready"}` when the operational store is reachable; `503 {"status":"not ready","reason":"…"}` otherwise |
+
+`/readyz` currently dials the configured Redis endpoint. Plan 003 upgrades it to a real `PING` over
+the RESP client — a successful dial is the honest extent of what can be asserted before that.
+
+Any unmatched route returns `404 {"error":{"code":"not_found","message":"no such endpoint"}}`.
 
 ## Verify
 

@@ -1,0 +1,15 @@
+{
+  "profile": "qq.com",
+  "target": "qq.com",
+  "min_rate_per_sec": 0.1,
+  "max_rate_per_sec": 0.3,
+  "min_concurrency": 1,
+  "max_concurrency": 1,
+  "burst": 1,
+  "cooldown_seconds": 600,
+  "recommended_pause_seconds": 900,
+  "confidence": "guess",
+  "notes": [
+    "Init band, Tencent QQ. Conservative start, not calibrated."
+  ]
+}

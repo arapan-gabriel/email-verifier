@@ -1,0 +1,16 @@
+{
+  "profile": "proton.me",
+  "target": "proton.me",
+  "min_rate_per_sec": 0.2,
+  "max_rate_per_sec": 0.5,
+  "min_concurrency": 1,
+  "max_concurrency": 1,
+  "burst": 1,
+  "cooldown_seconds": 300,
+  "recommended_pause_seconds": 600,
+  "confidence": "guess",
+  "notes": [
+    "Proton: start 0.5, floor 0.2, backoff.",
+    "Init band, proton family. Not calibrated."
+  ]
+}

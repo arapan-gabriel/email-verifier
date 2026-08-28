@@ -1,0 +1,25 @@
+# Example configuration. Every value may be overridden by VERIFIERD_* env vars;
+# secrets belong in the systemd EnvironmentFile, never here (invariant 10).
+
+http:
+  addr: "127.0.0.1:8080"
+  read_timeout: 10s
+  write_timeout: 30s
+  idle_timeout: 60s
+  shutdown_timeout: 30s
+
+redis:
+  # "unix:/path" or "host:port". The socket keeps Redis off the network entirely.
+  addr: "unix:/run/redis/redis-server.sock"
+  dial_timeout: 2s
+
+auth:
+  # False while /healthz and /readyz are the only routes — they are
+  # unauthenticated by design. Plan 001 adds POST /verify and flips this to
+  # true; the service then refuses to boot without api_key (invariant 11).
+  enabled: false
+  # api_key: set via VERIFIERD_AUTH_API_KEY, not in this file.
+
+log:
+  level: info
+  format: json
