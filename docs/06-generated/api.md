@@ -66,7 +66,19 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 - `paused` — this MX is standing down for its cooldown after being throttled at the floor of its
   band. Normal operation.
 
-All three return `connected:false` and `accepted:null`. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
+All three return `connected:false` and `accepted:null`.
+
+**`retry_after_seconds`** is present only on classes that mean "come back later" — `deferred`,
+`throttled`, `no_budget`, `paused`. For `paused` it is exact, because the pacer knows when the
+cooldown ends; otherwise it is parsed from the server's reply when it offers a number and falls back
+to `probe.deferral_retry`. It is always clamped, so a server does not get to set the caller's
+schedule. An answered address (`valid`, `invalid`) carries no hint.
+
+**There is no retry queue here.** A retry this service performed would produce a verdict with
+nowhere to go — the row, the job and the quota are Data Scout's. It already has Celery backoff; what
+this endpoint owes it is a deferral it can schedule against. See
+`docs/03-engineering/patterns/retry-greylist.md`, including the tuple constraint that makes a retry
+work at all. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
 own words and `err` the transport error, both for the audit trail.
 
 **`catch_all` and `randomiser` answer different questions.** `catch_all` is about the *domain*: it

@@ -84,6 +84,8 @@ type Options struct {
 	// Profiles remembers randomiser verdicts. Nil means every request
 	// rediscovers them.
 	Profiles Profiles
+	// DeferralRetry is the retry hint given when the server offers none.
+	DeferralRetry time.Duration
 	// CatchAllProbes is how many known-bad local parts to try. One is enough to
 	// catch a plain catch-all but not a host that answers by coin flip, where a
 	// single probe reports catch-all on one run and clean on the next.
@@ -125,6 +127,15 @@ func (o Options) port() string {
 		return o.Port
 	}
 	return "25"
+}
+
+// deferralRetry is how long to tell the caller to wait when the server gives no
+// hint of its own. Most greylisters open after five to fifteen minutes.
+func (o Options) deferralRetry() time.Duration {
+	if o.DeferralRetry > 0 {
+		return o.DeferralRetry
+	}
+	return 15 * time.Minute
 }
 
 func (o Options) catchAllProbes() int {
@@ -186,6 +197,11 @@ type Result struct {
 	Class        Class  `json:"class"`
 	Reply        string `json:"reply,omitempty"`
 	Err          string `json:"err,omitempty"`
+	// RetryAfterSeconds is set only when the class means "come back later". It
+	// is exact for a paused MX and a hint otherwise. Blind backoff retries a
+	// greylisted address seconds later, when the window has not opened, and
+	// burns a token to be told the same thing.
+	RetryAfterSeconds int `json:"retry_after_seconds,omitempty"`
 }
 
 // Response carries one Result per requested address.
@@ -272,14 +288,16 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	// the shape invariant 1 demands: a refusal of *us* is never a statement
 	// about a mailbox, so Accepted stays nil and Connected is false.
 	fail := func(class Class, code int, reply, errText string) (map[string]Result, catchAllVerdict) {
+		hint := retryHint(class, reply, p.opts.deferralRetry())
 		for _, a := range addrs {
 			out[a] = Result{
-				Connected:    ptrBool(false),
-				Class:        class,
-				SMTPCode:     code,
-				EnhancedCode: EnhancedCode(reply),
-				Reply:        reply,
-				Err:          errText,
+				Connected:         ptrBool(false),
+				Class:             class,
+				SMTPCode:          code,
+				EnhancedCode:      EnhancedCode(reply),
+				Reply:             reply,
+				Err:               errText,
+				RetryAfterSeconds: hint,
 			}
 		}
 		return out, catchAllVerdict{}
@@ -289,7 +307,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	// the probe is not sent at all (invariant 5) — the addresses come back
 	// unattempted, never as a verdict.
 	if err := p.acquire(ctx, req); err != nil {
-		return fail(budgetClass(err), 0, "", err.Error())
+		results, v := fail(budgetClass(err), 0, "", err.Error())
+		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
+		return results, v
 	}
 
 	// Resolve and vet before any socket exists. The address handed to the
@@ -400,7 +420,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 			}
 			return out, catchAllVerdict{}
 		}
-		r := rcptResult(code, text)
+		r := rcptResult(code, text, p.opts.deferralRetry())
 		p.observe(ctx, req.MXHost, r.Class)
 		out[addr] = r
 	}
@@ -512,14 +532,15 @@ func (p *Prober) dialAny(ctx context.Context, addrs []netip.Addr) (net.Conn, err
 // rcptResult turns one RCPT reply into a Result. Only ClassValid and
 // ClassInvalid are statements about the mailbox; every other class means the
 // question was not answered, so Accepted stays nil.
-func rcptResult(code int, text string) Result {
+func rcptResult(code int, text string, deferralRetry time.Duration) Result {
 	class := Classify(code, text)
 	r := Result{
-		Connected:    ptrBool(true),
-		Class:        class,
-		SMTPCode:     code,
-		EnhancedCode: EnhancedCode(text),
-		Reply:        text,
+		Connected:         ptrBool(true),
+		Class:             class,
+		SMTPCode:          code,
+		EnhancedCode:      EnhancedCode(text),
+		Reply:             text,
+		RetryAfterSeconds: retryHint(class, text, deferralRetry),
 	}
 	switch class {
 	case ClassValid:

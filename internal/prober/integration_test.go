@@ -19,17 +19,21 @@ import (
 // startMX runs one mxsim profile on an ephemeral port and returns host:port.
 // This is the integration seam the plans name: a fake MX that answers like the
 // real providers do, without touching anyone else's server.
-func startMX(t *testing.T, profileName string) (host, port string) {
+func startMX(t *testing.T, profileName string, tweak ...func(*policy.Profile)) (host, port string, clk *clock.Offsetting) {
 	t.Helper()
 	p, err := policy.LoadProfile(filepath.Join("..", "..", "config", "mxsim", profileName+".yaml"))
 	if err != nil {
 		t.Fatalf("load profile: %v", err)
 	}
+	for _, f := range tweak {
+		f(p)
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := smtp.New(policy.NewEngine(p, clock.New()), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	clk = clock.New()
+	srv := smtp.New(policy.NewEngine(p, clk), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -45,7 +49,7 @@ func startMX(t *testing.T, profileName string) (host, port string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return host, port
+	return host, port, clk
 }
 
 // loopbackResolver returns 127.0.0.1 without vetting it. Production must never
@@ -77,7 +81,7 @@ func probeAgainst(t *testing.T, port string, req prober.Request) prober.Response
 
 // The plan-001 gate: one session, correct per-address answers.
 func TestAgainstMxsimGmailProfile(t *testing.T) {
-	host, port := startMX(t, "gmail")
+	host, port, _ := startMX(t, "gmail")
 	resp := probeAgainst(t, port, prober.Request{
 		MXHost:       host,
 		Domain:       "gmail-sim.test",
@@ -104,7 +108,7 @@ func TestAgainstMxsimGmailProfile(t *testing.T) {
 
 // A 250 here proves nothing, and the caller must be told so (invariant 7).
 func TestAgainstMxsimCatchAllProfile(t *testing.T) {
-	host, port := startMX(t, "catchall")
+	host, port, _ := startMX(t, "catchall")
 	resp := probeAgainst(t, port, prober.Request{
 		MXHost:       host,
 		Domain:       "catchall-sim.test",
@@ -125,7 +129,7 @@ func TestAgainstMxsimCatchAllProfile(t *testing.T) {
 // statement about a mailbox (invariant 1) but it is the one signal that moves
 // the pacer (invariant 6).
 func TestAgainstMxsimThrottleIsNeverInvalid(t *testing.T) {
-	host, port := startMX(t, "gmail") // conn_rate 10 per 60s
+	host, port, _ := startMX(t, "gmail") // conn_rate 10 per 60s
 
 	var throttled bool
 	for i := range 14 {
@@ -152,5 +156,46 @@ func TestAgainstMxsimThrottleIsNeverInvalid(t *testing.T) {
 	}
 	if !throttled {
 		t.Fatal("the profile never throttled; the rate ceiling was not reached")
+	}
+}
+
+// Greylisting is a 4xx on first sight of a (sender, recipient, IP) tuple that
+// clears when the same tuple comes back. The retry queue is the caller's
+// (plan 006); what this service owes it is a deferral it can schedule against.
+func TestAgainstMxsimGreylisting(t *testing.T) {
+	host, port, clk := startMX(t, "yahoo", func(p *policy.Profile) {
+		// The profile tarpits the banner for three seconds on purpose; that is
+		// a different behaviour's test, and paying it twice here buys nothing.
+		p.Behaviour.TarpitBanner = 0
+		p.Behaviour.TarpitRcpt = 0
+	})
+
+	req := prober.Request{
+		MXHost: host, Domain: "yahoo-sim.test",
+		Emails: []string{"valid@yahoo-sim.test"},
+	}
+
+	first := probeAgainst(t, port, req).Results["valid@yahoo-sim.test"]
+	if first.Class != prober.ClassDeferred {
+		t.Fatalf("first sighting: class = %s, want deferred (reply %q)", first.Class, first.Reply)
+	}
+	if first.Accepted != nil {
+		t.Errorf("a greylisted address must not carry a verdict: Accepted = %v", *first.Accepted)
+	}
+	if first.RetryAfterSeconds <= 0 {
+		t.Error("no retry hint; the caller would have to guess when the window opens")
+	}
+
+	// The caller comes back after the window — same sender, same recipient,
+	// same IP, which is what makes the tuple match.
+	clk.Advance(6 * time.Minute)
+
+	second := probeAgainst(t, port, req).Results["valid@yahoo-sim.test"]
+	if second.Accepted == nil || !*second.Accepted {
+		t.Fatalf("after the window: Accepted = %v, class %s, reply %q",
+			second.Accepted, second.Class, second.Reply)
+	}
+	if second.RetryAfterSeconds != 0 {
+		t.Errorf("an answered address carries a retry hint: %d", second.RetryAfterSeconds)
 	}
 }

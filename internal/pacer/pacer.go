@@ -33,6 +33,25 @@ const (
 // verdict: the caller reports the addresses as unattempted.
 var ErrPaused = errors.New("pacer: mx is paused")
 
+// PausedError carries how much of the cooldown is left, so the caller can tell
+// its own scheduler exactly when to come back instead of guessing.
+type PausedError struct {
+	MXHost string
+	Until  time.Time
+}
+
+func (e *PausedError) Error() string {
+	return fmt.Sprintf("%s: %s, %s remaining", ErrPaused, e.MXHost, e.RetryAfter().Round(time.Second))
+}
+
+// Unwrap makes errors.Is(err, ErrPaused) work.
+func (e *PausedError) Unwrap() error { return ErrPaused }
+
+// RetryAfter is the remaining cooldown, never negative.
+func (e *PausedError) RetryAfter() time.Duration {
+	return max(0, time.Until(e.Until))
+}
+
 // Store is what the pacer needs from Redis. Declared in the consumer
 // (ENGINEERING-STANDARDS §2).
 type Store interface {
@@ -77,10 +96,10 @@ func (p *Pacer) Acquire(ctx context.Context, mxHost, domain string) error {
 	st := p.stateFor(ctx, mxHost, domain)
 
 	p.mu.Lock()
-	if now := time.Now(); now.Before(st.pausedUntil) {
-		left := st.pausedUntil.Sub(now)
+	if time.Now().Before(st.pausedUntil) {
+		until := st.pausedUntil
 		p.mu.Unlock()
-		return fmt.Errorf("%w for %s: %s remaining", ErrPaused, mxHost, left.Round(time.Second))
+		return &PausedError{MXHost: mxHost, Until: until}
 	}
 	rate, burst := st.rate, st.band.Burst
 	p.mu.Unlock()

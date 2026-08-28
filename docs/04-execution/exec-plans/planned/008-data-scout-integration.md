@@ -46,6 +46,15 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 - [ ] Data Scout: status reconciliation + store `source_ip`
 - [ ] Data Scout: retire `smtp_probe.py` in-process probing (keep as reference/tests)
 - [ ] Data Scout: the Celery task keeps driving the chunk loop; it calls `/probe` once per domain
+- [ ] **Data Scout owns the greylist retry** (plan 006). A `class:deferred` row is re-queued using
+      the existing Celery backoff, scheduled by `retry_after_seconds` rather than by blind
+      exponential backoff — the first blind attempt lands seconds later, before the window opens,
+      and burns a token to be told the same thing. Exhausted retries are `unknown` with the server's
+      own words, never `invalid`.
+- [ ] **Data Scout keeps the retry on the same tuple.** Greylisting keys on
+      `(sender, recipient, IP)`: a retry from a different node or with a different `MAIL FROM` is a
+      new tuple and restarts the window. Automatic with one node; a routing constraint the moment
+      there are two.
 - [ ] This service: auth between hosts; response completeness
 - [ ] Both: integration test of the end-to-end path
 - [ ] Docs both repos: Data Scout providers doc + this `changelog.md`

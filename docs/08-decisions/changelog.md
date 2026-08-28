@@ -3,6 +3,47 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 006: the greylist queue belongs to the caller
+
+The open question this plan had carried since ADR-006 — "a deferred retry has no synchronous caller
+to return to" — is resolved, and not by preference. **A retry this service performed by itself would
+produce a verdict with nowhere to go.** It is stateless about business data (ADR-003) and owns no
+jobs (ADR-006), so the row, the job and the quota are all Data Scout's, and Data Scout is the only
+place an answer can land. It already has Celery with exponential backoff. Pacing survives the move
+for free: a retry is just another `POST /probe` through the same bucket.
+
+Renamed from `greylist-retry-queue`; no queue, no callback, no result store — any of them would make
+this service stateful about who asked.
+
+- **`retry_after_seconds`** on every class that means "come back later" (`deferred`, `throttled`,
+  `no_budget`, `paused`), so the caller schedules instead of backing off blindly into a window that
+  has not opened. Blind exponential backoff retries seconds later and burns a token to be told the
+  same thing.
+- For `paused` the hint is **exact** — `pacer.PausedError` now carries the remaining cooldown.
+  Otherwise it is parsed from the reply when the server offers a number, and `probe.deferral_retry`
+  (15 minutes) when it does not.
+- **Clamped to [60s, 6h].** A server claiming "retry in 3 seconds" would have the caller burn a
+  token before the window opens; one claiming "in 30 days" would have it abandon a live address.
+  The parse itself is deliberately narrow — reading intent out of SMTP prose is guesswork, and the
+  configured default is a perfectly good answer.
+- An answered address carries no hint. Attaching a retry to a `valid` or an `invalid` would invite
+  the caller to re-ask a question that has been answered.
+- **The tuple constraint is now written down**, in `patterns/retry-greylist.md` and plan 008:
+  greylisting keys on `(sender, recipient, IP)`, so a retry from a different node or with a
+  different `MAIL FROM` is a new tuple and restarts the window — forever, if the caller keeps
+  rotating. Automatic with one node; a routing constraint the moment there are two, and one nothing
+  in this service can enforce.
+- Verified against `mxsim`'s greylisting profile with its clock advanced: first sighting defers with
+  a hint, the same tuple after the window is accepted and carries no hint.
+- `appendonly yes` stays required in `redis-contract.md` even though the queue it was justified by
+  is gone — the calibrated bands and the settled rate are worth keeping across a crash, and enabling
+  it cost nothing.
+- `452 4.2.2` is left classified as a deferral although, like `550 5.2.2`, it implies the mailbox
+  exists. The enhanced code travels with the result so Data Scout can score that inference where the
+  rest of the scoring lives; asserting it in the classifier would change the lab's measured
+  behaviour on the strength of an argument rather than a measurement.
+- Plan 006 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 005: telling a catch-all from a coin flip
 
 Renamed from `catch-all-and-classification`; two of its four design points were already gone. The
@@ -32,7 +73,7 @@ is moot under ADR-006, where this service returns facts and Data Scout scores th
 - `mxsim` has no randomising profile — its chaos knobs produce random 4xx deferrals, not random
   accept/reject — so the coin-flip host is covered by a scripted dialer. Noted as a possible
   follow-up rather than a reason to change ported code.
-- Plan 005 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`.
 
 ## 2026-08-28 — Plan 004: resolver control and an in-process cache
 

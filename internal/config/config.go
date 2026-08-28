@@ -96,7 +96,12 @@ type Probe struct {
 	// and clean on the next.
 	CatchAllProbes int `yaml:"catch_all_probes"`
 	// RandomiserTTL is how long a per-server randomiser verdict is remembered.
-	RandomiserTTL       time.Duration `yaml:"randomiser_ttl"`
+	RandomiserTTL time.Duration `yaml:"randomiser_ttl"`
+	// DeferralRetry is the retry hint returned when a greylisting server gives
+	// none of its own. The caller owns the queue (plan 006); this is what lets
+	// it schedule instead of backing off blindly into a window that has not
+	// opened.
+	DeferralRetry       time.Duration `yaml:"deferral_retry"`
 	MaxEmailsPerRequest int           `yaml:"max_emails_per_request"`
 }
 
@@ -167,6 +172,7 @@ func defaults() Config {
 			MaxRCPTPerSession:   50,
 			CatchAllProbes:      3,
 			RandomiserTTL:       24 * time.Hour,
+			DeferralRetry:       15 * time.Minute,
 			MaxEmailsPerRequest: 500,
 		},
 		// POST /probe exists from plan 001 on, so the edge is authenticated by
@@ -283,6 +289,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
 		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
+		func() error { return dur("PROBE_DEFERRAL_RETRY", &cfg.Probe.DeferralRetry) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
 		func() error { return boolean("AUTH_ENABLED", &cfg.Auth.Enabled) },
 	} {
@@ -371,6 +378,9 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.RandomiserTTL <= 0 {
 		add("probe.randomiser_ttl must be positive")
+	}
+	if c.Probe.DeferralRetry <= 0 {
+		add("probe.deferral_retry must be positive")
 	}
 	if c.Probe.MaxRCPTPerSession <= 0 {
 		add("probe.max_rcpt_per_session must be positive")
