@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"testing"
@@ -28,9 +29,16 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-// envFunc builds a getenv for run() so tests never mutate process state.
+// envFunc builds a getenv for run() so tests never mutate process state, with
+// the identity values the service refuses to boot without already filled in.
 func envFunc(kv map[string]string) func(string) string {
-	return func(k string) string { return kv[k] }
+	base := map[string]string{
+		config.EnvPrefix + "PROBE_HELO":      "mail.test",
+		config.EnvPrefix + "PROBE_MAIL_FROM": "verify@probe.test",
+		config.EnvPrefix + "AUTH_API_KEY":    "test-key",
+	}
+	maps.Copy(base, kv)
+	return func(k string) string { return base[k] }
 }
 
 func TestRunServesThenDrainsOnCancel(t *testing.T) {

@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/arapan-gabriel/email-verifier/internal/api"
 	"github.com/arapan-gabriel/email-verifier/internal/config"
+	"github.com/arapan-gabriel/email-verifier/internal/prober"
 )
 
 func main() {
@@ -48,17 +51,35 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	logger := newLogger(cfg.Log, stderr)
 
 	if !cfg.Auth.Enabled {
-		logger.Warn("authentication disabled; only health endpoints may be exposed " +
-			"(invariant 11 — real auth lands in plan 001)")
+		logger.Warn("authentication disabled — POST /probe is unguarded; " +
+			"acceptable for local development only (invariant 11)")
 	}
+	if !cfg.TLS.Enabled() {
+		logger.Warn("serving plain HTTP — the integration boundary is mTLS (ADR-006); " +
+			"acceptable for local development only")
+	} else if !cfg.TLS.MutualAuth() {
+		logger.Warn("TLS without client certificates — set tls.client_ca_file for mTLS (ADR-006)")
+	}
+
+	p := prober.New(prober.Options{
+		Helo:              cfg.Probe.Helo,
+		MailFrom:          cfg.Probe.MailFrom,
+		Timeout:           cfg.Probe.Timeout,
+		DialNetwork:       cfg.Probe.DialNetwork,
+		Port:              cfg.Probe.Port,
+		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
+	})
 
 	network, address := cfg.Redis.Endpoint()
 	srv := &http.Server{
 		Addr: cfg.HTTP.Addr,
 		Handler: api.NewRouter(api.Options{
-			Ready:       api.RedisReachable(network, address, cfg.Redis.DialTimeout),
-			AuthEnabled: cfg.Auth.Enabled,
-			APIKey:      cfg.Auth.APIKey,
+			Ready:               api.RedisReachable(network, address, cfg.Redis.DialTimeout),
+			Prober:              p,
+			SourceIP:            cfg.Probe.SourceIP,
+			MaxEmailsPerRequest: cfg.Probe.MaxEmailsPerRequest,
+			AuthEnabled:         cfg.Auth.Enabled,
+			APIKey:              cfg.Auth.APIKey,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -66,10 +87,27 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		ErrorLog:     slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
+	tlsCfg, err := clientAuthTLS(cfg.TLS)
+	if err != nil {
+		return err
+	}
+	srv.TLSConfig = tlsCfg
+
 	serveErr := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", cfg.HTTP.Addr, "redis", cfg.Redis.Addr)
-		err := srv.ListenAndServe()
+		logger.Info("listening",
+			"addr", cfg.HTTP.Addr,
+			"redis", cfg.Redis.Addr,
+			"tls", cfg.TLS.Enabled(),
+			"mtls", cfg.TLS.MutualAuth(),
+			"helo", cfg.Probe.Helo,
+			"source_ip", cfg.Probe.SourceIP)
+		var err error
+		if cfg.TLS.Enabled() {
+			err = srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}
@@ -93,6 +131,30 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	}
 	logger.Info("stopped cleanly")
 	return <-serveErr
+}
+
+// clientAuthTLS builds the listener's TLS configuration. When a client CA is
+// configured the handshake requires and verifies a client certificate, so a
+// scanner is turned away before its request reaches any handler (ADR-006).
+func clientAuthTLS(cfg config.TLS) (*tls.Config, error) {
+	if !cfg.Enabled() {
+		return nil, nil //nolint:nilnil // no TLS configured is a valid state, not an error
+	}
+	out := &tls.Config{MinVersion: tls.VersionTLS13}
+	if !cfg.MutualAuth() {
+		return out, nil
+	}
+	pem, err := os.ReadFile(cfg.ClientCAFile) //nolint:gosec // operator-supplied path
+	if err != nil {
+		return nil, fmt.Errorf("read tls.client_ca_file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("tls.client_ca_file %s contains no usable certificate", cfg.ClientCAFile)
+	}
+	out.ClientCAs = pool
+	out.ClientAuth = tls.RequireAndVerifyClientCert
+	return out, nil
 }
 
 func newLogger(cfg config.Log, w io.Writer) *slog.Logger {

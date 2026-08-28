@@ -1,0 +1,346 @@
+package prober
+
+import (
+	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strings"
+	"time"
+)
+
+// Dialer opens the connection to the recipient MX.
+//
+// Declared here, in the package that uses it, and holding the one method the
+// prober needs (ENGINEERING-STANDARDS §2). net.Dialer satisfies it; a test
+// satisfies it with a net.Pipe and never opens a socket.
+type Dialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// Options configures a Prober. Zero values fall back to safe defaults.
+type Options struct {
+	Helo     string
+	MailFrom string
+	// Timeout bounds the whole session, not one command.
+	Timeout time.Duration
+	// DialNetwork must be "tcp4" (invariant 3). A bare "tcp" on a dual-stack
+	// host prefers IPv6 and leaves from an address with no FCrDNS and no SPF,
+	// which providers answer with a 5.7.x that this service reads as
+	// ClassPolicy — every result would silently become unusable.
+	DialNetwork string
+	Port        string
+	// MaxRCPTPerSession splits a batch. An unbounded recipient list is itself
+	// a harvesting signal, and servers commonly cap it near 100.
+	MaxRCPTPerSession int
+	Dialer            Dialer
+}
+
+func (o Options) helo() string {
+	if o.Helo != "" {
+		return o.Helo
+	}
+	return "localhost"
+}
+
+func (o Options) mailFrom() string {
+	if o.MailFrom != "" {
+		return o.MailFrom
+	}
+	// An empty envelope sender is the polite choice, but many MXes treat <>
+	// plus RCPT as a bounce probe, so use a real-looking address.
+	return "verify@localhost"
+}
+
+func (o Options) timeout() time.Duration {
+	if o.Timeout > 0 {
+		return o.Timeout
+	}
+	return 20 * time.Second
+}
+
+func (o Options) network() string {
+	if o.DialNetwork != "" {
+		return o.DialNetwork
+	}
+	return "tcp4"
+}
+
+func (o Options) port() string {
+	if o.Port != "" {
+		return o.Port
+	}
+	return "25"
+}
+
+func (o Options) maxRCPT() int {
+	if o.MaxRCPTPerSession > 0 {
+		return o.MaxRCPTPerSession
+	}
+	return 50
+}
+
+func (o Options) dialer() Dialer {
+	if o.Dialer != nil {
+		return o.Dialer
+	}
+	return &net.Dialer{Timeout: o.timeout()}
+}
+
+// Request is one batch scoped to one recipient MX (ADR-006). The caller has
+// already run the cheap local layers, resolved the MX and grouped these
+// addresses by domain.
+type Request struct {
+	MXHost       string
+	Domain       string
+	Emails       []string
+	NeedCatchAll bool
+	Helo         string
+	MailFrom     string
+}
+
+// Result is what the session established about one address.
+//
+// Connected, Accepted and CatchAll are tri-state: nil means the server never
+// gave a usable answer, which is a different fact from false. They map
+// one-to-one onto Data Scout's existing ProbeResult.
+type Result struct {
+	Connected    *bool  `json:"connected"`
+	Accepted     *bool  `json:"accepted"`
+	CatchAll     *bool  `json:"catch_all"`
+	SMTPCode     int    `json:"smtp_code,omitempty"`
+	EnhancedCode string `json:"enhanced_code,omitempty"`
+	Class        Class  `json:"class"`
+	Reply        string `json:"reply,omitempty"`
+	Err          string `json:"err,omitempty"`
+}
+
+// Response carries one Result per requested address.
+type Response struct {
+	Results map[string]Result `json:"results"`
+}
+
+// teardownTimeout bounds the best-effort RSET/QUIT written after the answers
+// are already collected.
+const teardownTimeout = 2 * time.Second
+
+// Prober runs batched RCPT sessions. It is safe for concurrent use.
+type Prober struct {
+	opts Options
+}
+
+// New returns a Prober. It never returns an error: every option has a default.
+func New(opts Options) *Prober { return &Prober{opts: opts} }
+
+func ptrBool(b bool) *bool { return &b }
+
+// Probe asks one MX about every address in the request.
+//
+// The session is connect → EHLO → MAIL FROM → RCPT × N → (one bogus RCPT when
+// catch-all detection is asked for) → RSET → QUIT. **DATA is never sent**
+// (invariant 8): the probe asks the question and disconnects.
+func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
+	if req.MXHost == "" {
+		return Response{}, errors.New("prober: mx_host is required")
+	}
+	if len(req.Emails) == 0 {
+		return Response{}, errors.New("prober: emails is empty")
+	}
+
+	out := Response{Results: make(map[string]Result, len(req.Emails))}
+	catchAll := (*bool)(nil)
+
+	for i, chunk := range chunks(req.Emails, p.opts.maxRCPT()) {
+		// Catch-all is a property of the domain, not of a chunk: probe for it
+		// once and apply the answer to every address.
+		probeCatchAll := req.NeedCatchAll && i == 0
+		results, ca := p.session(ctx, req, chunk, probeCatchAll)
+		if probeCatchAll {
+			catchAll = ca
+		}
+		for addr, r := range results {
+			out.Results[addr] = r
+		}
+	}
+
+	if catchAll != nil {
+		for addr, r := range out.Results {
+			r.CatchAll = catchAll
+			out.Results[addr] = r
+		}
+	}
+	return out, nil
+}
+
+// session runs one SMTP dialogue over one connection.
+func (p *Prober) session(ctx context.Context, req Request, addrs []string, probeCatchAll bool) (map[string]Result, *bool) {
+	out := make(map[string]Result, len(addrs))
+
+	// fail records the same non-answer for every address in the chunk. It is
+	// the shape invariant 1 demands: a refusal of *us* is never a statement
+	// about a mailbox, so Accepted stays nil and Connected is false.
+	fail := func(class Class, code int, reply, errText string) (map[string]Result, *bool) {
+		for _, a := range addrs {
+			out[a] = Result{
+				Connected:    ptrBool(false),
+				Class:        class,
+				SMTPCode:     code,
+				EnhancedCode: EnhancedCode(reply),
+				Reply:        reply,
+				Err:          errText,
+			}
+		}
+		return out, nil
+	}
+
+	target := net.JoinHostPort(req.MXHost, p.opts.port())
+	conn, err := p.opts.dialer().DialContext(ctx, p.opts.network(), target)
+	if err != nil {
+		return fail(classifyNetErr(err), 0, "", err.Error())
+	}
+	defer func() { _ = conn.Close() }()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(p.opts.timeout()))
+	}
+	r := bufio.NewReader(conn)
+
+	var netErr error
+	step := func(cmd string) (int, string, bool) {
+		if cmd != "" {
+			if _, err := io.WriteString(conn, cmd+"\r\n"); err != nil {
+				netErr = err
+				return 0, "", false
+			}
+		}
+		code, text, err := readReply(r)
+		if err != nil {
+			netErr = err
+			return 0, "", false
+		}
+		return code, text, true
+	}
+
+	// Banner. A 421 here is the provider throttling the connection itself —
+	// it arrives before MAIL FROM and can never be a verdict on a mailbox.
+	code, text, ok := step("")
+	if !ok {
+		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
+	}
+	if code != 220 {
+		return fail(Classify(code, text), code, text, "")
+	}
+
+	helo := req.Helo
+	if helo == "" {
+		helo = p.opts.helo()
+	}
+	if code, text, ok = step("EHLO " + helo); !ok {
+		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
+	}
+	if code != 250 {
+		return fail(Classify(code, text), code, text, "")
+	}
+
+	from := req.MailFrom
+	if from == "" {
+		from = p.opts.mailFrom()
+	}
+	if code, text, ok = step("MAIL FROM:<" + from + ">"); !ok {
+		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
+	}
+	if code != 250 {
+		// Everything up to and including a failed MAIL FROM is about us.
+		return fail(Classify(code, text), code, text, "")
+	}
+
+	// Only past this point may a 5xx mean "no such mailbox" (invariant 1).
+	for i, addr := range addrs {
+		code, text, ok = step("RCPT TO:<" + addr + ">")
+		if !ok {
+			// The connection died mid-batch: the addresses already answered
+			// keep their answers, the rest are unattempted.
+			for _, rest := range addrs[i:] {
+				out[rest] = Result{
+					Connected: ptrBool(false),
+					Class:     classifyNetErr(netErr),
+					Err:       netErr.Error(),
+				}
+			}
+			return out, nil
+		}
+		out[addr] = rcptResult(code, text)
+	}
+
+	var catchAll *bool
+	if probeCatchAll {
+		bogus, err := bogusAddress(req.Domain)
+		if err == nil {
+			if code, text, ok = step("RCPT TO:<" + bogus + ">"); ok {
+				catchAll = ptrBool(Classify(code, text) == ClassValid)
+			}
+		}
+	}
+
+	// RSET abandons the transaction explicitly rather than leaving a bare QUIT
+	// after RCPTs, which reads as an aborted delivery attempt in a server log.
+	//
+	// Both writes are best-effort and get their own short deadline: the answers
+	// are already in hand, and a tarpitting server that stops reading must not
+	// be able to hold the session — and its slot in the rate budget — open for
+	// the remainder of the session timeout.
+	_ = conn.SetWriteDeadline(time.Now().Add(teardownTimeout))
+	_, _ = io.WriteString(conn, "RSET\r\n")
+	_, _ = io.WriteString(conn, "QUIT\r\n")
+	return out, catchAll
+}
+
+// rcptResult turns one RCPT reply into a Result. Only ClassValid and
+// ClassInvalid are statements about the mailbox; every other class means the
+// question was not answered, so Accepted stays nil.
+func rcptResult(code int, text string) Result {
+	class := Classify(code, text)
+	r := Result{
+		Connected:    ptrBool(true),
+		Class:        class,
+		SMTPCode:     code,
+		EnhancedCode: EnhancedCode(text),
+		Reply:        text,
+	}
+	switch class {
+	case ClassValid:
+		r.Accepted = ptrBool(true)
+	case ClassInvalid:
+		r.Accepted = ptrBool(false)
+	}
+	return r
+}
+
+// bogusAddress builds a local part no real mailbox can be, for catch-all
+// detection. It is random rather than a fixed string so a server cannot learn
+// to answer probes differently from ordinary traffic.
+func bogusAddress(domain string) (string, error) {
+	if domain == "" {
+		return "", errors.New("prober: domain is required for catch-all detection")
+	}
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("prober: random local part: %w", err)
+	}
+	return hex.EncodeToString(b[:]) + "@" + strings.TrimSuffix(domain, "."), nil
+}
+
+func chunks[T any](s []T, n int) [][]T {
+	var out [][]T
+	for len(s) > n {
+		out = append(out, s[:n])
+		s = s[n:]
+	}
+	return append(out, s)
+}
