@@ -74,6 +74,13 @@ cooldown ends; otherwise it is parsed from the server's reply when it offers a n
 to `probe.deferral_retry`. It is always clamped, so a server does not get to set the caller's
 schedule. An answered address (`valid`, `invalid`) carries no hint.
 
+**Policy-stop.** After `probe.policy_stop` *consecutive* replies that are about our client rather
+than about a recipient (`class:policy`), the session ends and the remaining addresses come back
+`connected:false`, `class:policy`, with `err` beginning `not attempted:`. A server that refuses us
+refuses us for the whole session, so continuing would spend a token per recipient on a known answer
+while hammering a server that has just said no. The count is consecutive: one `5.7.x` among ordinary
+answers is a per-recipient policy, not a refusal of the client.
+
 **There is no retry queue here.** A retry this service performed would produce a verdict with
 nowhere to go — the row, the job and the quota are Data Scout's. It already has Celery backoff; what
 this endpoint owes it is a deferral it can schedule against. See

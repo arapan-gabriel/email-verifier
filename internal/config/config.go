@@ -95,6 +95,9 @@ type Probe struct {
 	// answers by coin flip, where a single probe reports catch-all on one run
 	// and clean on the next.
 	CatchAllProbes int `yaml:"catch_all_probes"`
+	// PolicyStop ends a session after this many consecutive replies that are
+	// about our client rather than about a recipient. Zero disables it.
+	PolicyStop int `yaml:"policy_stop"`
 	// RandomiserTTL is how long a per-server randomiser verdict is remembered.
 	RandomiserTTL time.Duration `yaml:"randomiser_ttl"`
 	// DeferralRetry is the retry hint returned when a greylisting server gives
@@ -171,6 +174,7 @@ func defaults() Config {
 			Timeout:             20 * time.Second,
 			MaxRCPTPerSession:   50,
 			CatchAllProbes:      3,
+			PolicyStop:          5,
 			RandomiserTTL:       24 * time.Hour,
 			DeferralRetry:       15 * time.Minute,
 			MaxEmailsPerRequest: 500,
@@ -288,6 +292,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
+		func() error { return integer("PROBE_POLICY_STOP", &cfg.Probe.PolicyStop) },
 		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
 		func() error { return dur("PROBE_DEFERRAL_RETRY", &cfg.Probe.DeferralRetry) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
@@ -378,6 +383,11 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.RandomiserTTL <= 0 {
 		add("probe.randomiser_ttl must be positive")
+	}
+	// Not negative, and not one: a single 5.7.x can be a per-recipient policy,
+	// and stopping a whole batch on it would throw away answers we could have.
+	if c.Probe.PolicyStop < 0 || c.Probe.PolicyStop == 1 {
+		add("probe.policy_stop must be 0 (disabled) or at least 2, got %d", c.Probe.PolicyStop)
 	}
 	if c.Probe.DeferralRetry <= 0 {
 		add("probe.deferral_retry must be positive")

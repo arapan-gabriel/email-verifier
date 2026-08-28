@@ -89,6 +89,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		Port:              cfg.Probe.Port,
 		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
 		CatchAllProbes:    cfg.Probe.CatchAllProbes,
+		PolicyStop:        cfg.Probe.PolicyStop,
 		DeferralRetry:     cfg.Probe.DeferralRetry,
 		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
 	})

@@ -633,3 +633,165 @@ func TestEveryRecipientCostsAToken(t *testing.T) {
 		t.Errorf("took %d tokens for %d recipients, want one each", pc.acquires, len(emails))
 	}
 }
+
+// policyMX answers every RCPT with a reply about the *client*, which is what a
+// server that has decided against our IP does for the rest of the session.
+func policyMX(exempt ...string) Dialer {
+	return scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			for _, e := range exempt {
+				if strings.Contains(cmd, e) {
+					return "250 2.1.5 OK"
+				}
+			}
+			return "550 5.7.25 Forward-confirmed reverse DNS failed"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+}
+
+func addressList(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("u%02d@example.test", i)
+	}
+	return out
+}
+
+// Continuing past an unambiguous refusal spends a token per recipient on a
+// question whose answer is known, and keeps hammering a server that said no.
+func TestPolicyStopEndsTheSession(t *testing.T) {
+	pc := &recordingPacer{}
+	p := New(Options{
+		Dialer: policyMX(), Resolver: stubResolver{}, Pacer: pc,
+		PolicyStop: 5, CatchAllProbes: 3, Timeout: 5 * time.Second,
+	})
+	emails := addressList(20)
+
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test", Emails: emails, NeedCatchAll: true,
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(resp.Results) != 20 {
+		t.Fatalf("got %d results, want 20 — every address must be accounted for", len(resp.Results))
+	}
+
+	var attempted, notAttempted int
+	for _, r := range resp.Results {
+		if r.Class != ClassPolicy {
+			t.Errorf("Class = %s, want policy throughout", r.Class)
+		}
+		if r.Accepted != nil {
+			t.Errorf("a policy reply produced a verdict: %v", *r.Accepted)
+		}
+		if strings.Contains(r.Err, "not attempted") {
+			notAttempted++
+		} else {
+			attempted++
+		}
+	}
+	if attempted != 5 {
+		t.Errorf("sent %d probes before stopping, want 5", attempted)
+	}
+	if notAttempted != 15 {
+		t.Errorf("%d addresses marked unattempted, want 15", notAttempted)
+	}
+	// Budget is spent per question asked, so stopping early must save it.
+	if pc.acquires != 5 {
+		t.Errorf("spent %d tokens, want 5 — stopping early must stop spending", pc.acquires)
+	}
+	// Invariant 6: none of this is a rate signal.
+	if pc.throttles() != 0 {
+		t.Error("a policy block moved the pacer; slowing down does not grow a PTR record")
+	}
+}
+
+// One 5.7.x among ordinary answers is a per-recipient policy — a distribution
+// list rejecting external senders, say — not the server refusing the client.
+func TestPolicyStopCountsConsecutiveOnly(t *testing.T) {
+	// Every third address answers normally, so the run never reaches 5.
+	d := scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			if strings.Contains(cmd, "3@") || strings.Contains(cmd, "6@") || strings.Contains(cmd, "9@") {
+				return "250 2.1.5 OK"
+			}
+			return "550 5.7.1 Access denied"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+	p := New(Options{Dialer: d, Resolver: stubResolver{}, PolicyStop: 5, Timeout: 5 * time.Second})
+	emails := addressList(12)
+
+	resp, err := p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "example.test", Emails: emails})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	for addr, r := range resp.Results {
+		if strings.Contains(r.Err, "not attempted") {
+			t.Errorf("%s was skipped; an isolated policy reply must not stop the batch", addr)
+		}
+	}
+}
+
+func TestPolicyStopDisabled(t *testing.T) {
+	pc := &recordingPacer{}
+	p := New(Options{
+		Dialer: policyMX(), Resolver: stubResolver{}, Pacer: pc,
+		PolicyStop: 0, Timeout: 5 * time.Second,
+	})
+	emails := addressList(8)
+	resp, err := p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "example.test", Emails: emails})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	for addr, r := range resp.Results {
+		if strings.Contains(r.Err, "not attempted") {
+			t.Errorf("%s skipped with policy_stop disabled", addr)
+		}
+	}
+	if pc.acquires != len(emails) {
+		t.Errorf("spent %d tokens, want %d", pc.acquires, len(emails))
+	}
+}
+
+// A server refusing us cannot tell us which local parts exist.
+func TestPolicyStopSkipsCatchAllProbing(t *testing.T) {
+	var bogus int
+	var mu sync.Mutex
+	d := scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			if !strings.Contains(cmd, "@example.test") || !strings.Contains(cmd, "u") {
+				mu.Lock()
+				bogus++
+				mu.Unlock()
+			}
+			return "550 5.7.25 Forward-confirmed reverse DNS failed"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+	p := New(Options{
+		Dialer: d, Resolver: stubResolver{}, PolicyStop: 3, CatchAllProbes: 3,
+		Timeout: 5 * time.Second,
+	})
+	if _, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test", Emails: addressList(10), NeedCatchAll: true,
+	}); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if bogus != 0 {
+		t.Errorf("sent %d catch-all probes after the server refused us", bogus)
+	}
+}

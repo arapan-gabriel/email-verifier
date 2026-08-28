@@ -3,6 +3,30 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 007: policy-stop, all that was left of the bulk plan
+
+Renamed from `bulk-verify-and-queue`. ADR-006 left exactly one behaviour: the bulk endpoint, the job,
+the group-by-MX runner and the results retrieval are Data Scout's Celery task, and the
+transport-agnostic engine entrypoint the plan asked for is how `internal/prober` was built anyway.
+
+- **After `probe.policy_stop` consecutive `ClassPolicy` replies the session ends**, and the rest of
+  the batch comes back `connected:false`, `class:policy`, `not attempted: …`. A server that decides
+  against our client decides it for the whole session, so continuing spends a token per recipient on
+  an answer already known — up to forty-nine of them in a fifty-recipient batch — while hammering a
+  server that has just said no, which is how a soft block hardens.
+- **Consecutive, not cumulative**, and `1` is refused at startup. A single `5.7.x` can be a
+  per-recipient policy — a distribution list rejecting external senders — and stopping a batch on
+  one reply would throw away the rest of the answers. The counter resets on any non-policy reply.
+- Catch-all probing is skipped once the stop trips: a server refusing us cannot tell us which local
+  parts exist.
+- **The pacer sees none of it** (invariant 6), asserted. Slowing down does not grow a PTR record, and
+  if policy counted as throttling one blocked IP would calibrate every provider to zero.
+- **Remembering the refusal across requests is deliberately left to plan 010.** That is the same
+  signal as "our IP is burned", it belongs with the IP-health state and the alert, and the right
+  response there may be to pause the node rather than one server. A second overlapping mechanism
+  here would only let the two disagree.
+- Plan 007 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Cross-repo: Data Scout's plans brought in line (its ADR-009)
 
 Reviewed Data Scout's active plans against everything decided here. One of the seven was

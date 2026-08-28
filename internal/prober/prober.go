@@ -86,6 +86,12 @@ type Options struct {
 	Profiles Profiles
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
+	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
+	// Zero disables it. A server that refuses the client refuses it for the
+	// whole session, so every remaining RCPT spends a token on a question whose
+	// answer is already known — and keeps hammering a server that has just told
+	// us to go away.
+	PolicyStop int
 	// CatchAllProbes is how many known-bad local parts to try. One is enough to
 	// catch a plain catch-all but not a host that answers by coin flip, where a
 	// single probe reports catch-all on one run and clean on the next.
@@ -137,6 +143,8 @@ func (o Options) deferralRetry() time.Duration {
 	}
 	return 15 * time.Minute
 }
+
+func (o Options) policyStop() int { return o.PolicyStop }
 
 func (o Options) catchAllProbes() int {
 	if o.CatchAllProbes > 0 {
@@ -395,6 +403,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	}
 
 	// Only past this point may a 5xx mean "no such mailbox" (invariant 1).
+	policyRun, stopped := 0, false
 	for i, addr := range addrs {
 		// One token per recipient: the band is a rate of questions asked, and
 		// batching many RCPTs down one connection must not spend less budget
@@ -423,10 +432,33 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		r := rcptResult(code, text, p.opts.deferralRetry())
 		p.observe(ctx, req.MXHost, r.Class)
 		out[addr] = r
+
+		// Consecutive, not cumulative: one policy reply among ordinary answers
+		// is a per-recipient quirk — a distribution list rejecting external
+		// senders, say — not the server refusing the client.
+		if r.Class == ClassPolicy {
+			policyRun++
+		} else {
+			policyRun = 0
+		}
+		if stop := p.opts.policyStop(); stop > 0 && policyRun >= stop {
+			reason := fmt.Sprintf("not attempted: %d consecutive policy replies from this server", policyRun)
+			for _, rest := range addrs[i+1:] {
+				out[rest] = Result{
+					Connected: ptrBool(false),
+					Class:     ClassPolicy,
+					Err:       reason,
+				}
+			}
+			// A server refusing us cannot tell us which local parts exist, so
+			// the catch-all probes are pointless too.
+			stopped = true
+			break
+		}
 	}
 
 	var verdict catchAllVerdict
-	if probeCatchAll {
+	if probeCatchAll && !stopped {
 		accepted, answered := 0, 0
 		for range p.opts.catchAllProbes() {
 			bogus, err := bogusAddress(req.Domain)

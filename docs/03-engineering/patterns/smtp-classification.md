@@ -34,6 +34,21 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
   `IsThrottle()` (`421`/timeout/reset) moves the pacer; `IsTemp()` only schedules a retry. See
   `aimd-pacing.md`.
 
+## When a server has decided about us (plan 007)
+
+`ClassPolicy` is about the connecting client and holds for the whole session. After
+`probe.policy_stop` **consecutive** policy replies the session ends and the rest of the batch is
+reported `connected:false` with `not attempted:` — continuing would spend a token per recipient on an
+answer already known, and keep hammering a server that has just said no, which is how a soft block
+hardens.
+
+Consecutive matters. A single `5.7.x` can be a per-recipient policy — a distribution list that
+rejects external senders — and stopping a fifty-recipient batch on one reply would throw away
+forty-nine answers. The counter resets on any non-policy reply.
+
+None of this reaches the pacer (invariant 6). Remembering the refusal *across* requests is plan 010's
+job, where it belongs with IP health and the alert.
+
 ## Catch-all versus randomiser (plan 005)
 
 A `250` is only worth something if the server would have said `550` to a name that does not exist.
