@@ -4,6 +4,11 @@
 **Phase:** A
 **Depends on:** 001
 
+> **Which Redis.** The prober's own, on the local unix socket — not Data Scout's. "Central" in
+> ADR-004 means shared between probe nodes, not hosted on the application host; the rate limit
+> protects the sending IP and therefore has to be enforced where the socket opens, or any other
+> caller bypasses it. Reasoning: ARCHITECTURE §"Which Redis, and why not Data Scout's".
+
 ## Goal
 
 Make the shared Redis token bucket THE limiter for every probe, with per-MX AIMD bands, so pacing is

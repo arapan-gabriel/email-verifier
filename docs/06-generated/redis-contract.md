@@ -35,7 +35,9 @@ forever for a verdict that will not come.
 
 - **Take and refill in one round trip.** `token_bucket.lua` does both; two calls let concurrent
   workers (or nodes) double-spend. This is invariant 4.
-- **The bucket is central.** N nodes share one `rt:mx:<host>:bucket`. Never a per-process bucket.
+- **The bucket is central.** N probe nodes share one `rt:mx:<host>:bucket`. Never a per-process
+  bucket — and "central" means shared between probe nodes, not hosted on the application host. This
+  Redis belongs to the prober; see ARCHITECTURE §"Which Redis, and why not Data Scout's".
 - **Fail closed.** A Redis error on the pacing path means skip the probe (`unknown`), never send
   unpaced (invariant 5).
 - AIMD moves inside `[min_rate, max_rate]` only; a saved runtime rate may only ever *lower* the

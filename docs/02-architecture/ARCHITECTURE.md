@@ -106,6 +106,30 @@ scripts/preflight.sh         cold-IP go/no-go check                             
 This service has **no SQL database**. If it dies, nothing about a customer's data is lost — only the
 learned working point, which is re-learned. That is the whole point of the split.
 
+### Which Redis, and why not Data Scout's
+
+"Central" in ADR-004 means **shared between probe nodes** — one bucket per MX that node 1, node 2
+and node 3 all draw from. It does not mean "on the application host". The operational Redis lives
+next to the prober, currently on a unix socket with `port 0` set, and ADR-006 did not change that:
+it moved *job orchestration* to Data Scout, not operational state.
+
+Putting the bucket in Data Scout's Redis was considered and rejected:
+
+- **The rate limit protects the sending IP, so it has to be enforced where the socket opens.** A
+  limit applied by the caller is advisory: an operator running plan 012's calibration, a retry loop,
+  a second integration or a stray `curl` all bypass it, and unpaced traffic leaves the IP anyway.
+- **Take+refill runs once per probe.** A unix socket is microseconds; a cross-host round trip is
+  milliseconds, on the hot path, at volume.
+- **Fail-closed would become coupling.** Invariant 5 says no Redis, no probe — so a network blip
+  between the two hosts would stop all probing, re-coupling the very hosts this project exists to
+  separate.
+- **Redis is currently not on the network at all.** Sharing it across hosts means exposing a service
+  with no meaningful default authentication.
+
+Open for the multi-node plan: *where* the shared Redis physically sits once there is more than one
+probe node — on the first node, on a small dedicated host, or managed. ADR-004 fixes that it is
+shared, not where it lives.
+
 ## Invariants
 
 The binding list lives in `CLAUDE.md` ("Hard invariants"). The architectural ones:
