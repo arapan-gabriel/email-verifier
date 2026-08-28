@@ -65,6 +65,8 @@ Redis — no container runtime (ADR-005). Component:
   `packaging/verifierd.service` (000); config at `/etc/verifierd/verifierd.yaml`; secrets via
   `EnvironmentFile` — never in the unit, never in the repo (invariant 10).
 - Dedicated unprivileged `verifierd` user; `StateDirectory=verifierd`.
+- Redis **with AOF persistence** (`appendonly yes`, `appendfsync everysec`) — stock Debian ships RDB
+  snapshots only, which plan 006's retry queue cannot survive. See `redis-contract.md`.
 - Redis from the distro package, **not reachable over the network**: `port 0` +
   `unixsocket /run/redis/redis-server.sock` (+ `unixsocketperm 660`, `verifierd` in the `redis`
   group). If the RESP client ported in 003 is TCP-only, `bind 127.0.0.1` instead — see tech-debt.
@@ -88,6 +90,7 @@ Redis — no container runtime (ADR-005). Component:
 - [ ] Purge any inbound MTA; confirm nothing listens on `:25`; firewall inbound to 22 + API
 - [ ] Install binary + `packaging/verifierd.service`; `verifierd` user; secrets via EnvironmentFile
 - [ ] Redis from the distro package on a unix socket / loopback; no network exposure
+- [ ] Redis AOF enabled and verified (`CONFIG GET appendonly` → yes)
 - [ ] mTLS/API-key link to Data Scout
 - [ ] Preflight as `ExecStartPre` and CI deploy gate
 - [ ] Update `operations/deployment.md`, `SECURITY.md`, changelog

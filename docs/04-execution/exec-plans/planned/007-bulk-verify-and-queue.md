@@ -4,6 +4,16 @@
 **Phase:** A
 **Depends on:** 003, 004, 005
 
+> **Largely superseded by ADR-006.** There is no bulk endpoint and no job on this service: Data
+> Scout's Celery task already owns chunking, progress, quota metering, the result artifact and a
+> reaper for stalled jobs, and it calls `POST /probe` once per domain. Duplicating that here would
+> mean two definitions of "done" and left the resume-after-restart question unanswered.
+>
+> **What survives from this plan** is one behaviour that belongs in the prober: **policy-stop** —
+> after N consecutive `ClassPolicy` replies from one server, stop probing it and mark the remainder
+> `connected:false` with "not attempted: <reason>". Fold it into plan 001 or keep this plan as a
+> thin follow-up for that alone.
+
 ## Goal
 
 Verify a whole list as a job — paced per MX, catch-all-probed once per domain, greylist-retried —

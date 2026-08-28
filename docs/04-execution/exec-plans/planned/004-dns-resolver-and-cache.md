@@ -4,6 +4,13 @@
 **Phase:** A
 **Depends on:** 002
 
+> **Narrowed by ADR-006.** MX *discovery* stays in Data Scout (layer 5) — it already resolves MX to
+> group addresses by domain, and it sends the chosen `mx_host`. What this service resolves is that
+> host to A/AAAA, through the SSRF guard. `mx_host` is caller-supplied but still attacker-influenced
+> (a domain owner chose the record), so invariant 2 applies unchanged. The no-MX fallback and the
+> "no mail server" verdict move to Data Scout's side of the boundary; what remains here is A/AAAA
+> resolution, the guard, and the cache.
+
 ## Goal
 
 A proper MX/A resolver with caching, no-MX fallback, and a clean "no mail server" verdict — so the

@@ -4,7 +4,19 @@ The only durable state this service holds — operational, not business. Inherit
 `ds-smtp-retry` contract; kept in sync with `internal/{limiter,pacer,iphealth}` in the same change.
 
 > No SQL database exists by design (ARCHITECTURE §"State ownership"). If Redis is lost, only the
-> re-learnable working point is gone.
+> re-learnable working point is gone — **with one exception, which is why persistence is not
+> optional.**
+
+## Persistence is a requirement, not a default
+
+`appendonly yes` + `appendfsync everysec` must be set before plan 006 ships. Debian's stock Redis
+runs RDB snapshots only (`save 3600 1 300 100 60 10000`), which loses up to an hour of writes on a
+crash, an OOM kill or a power loss. A graceful restart saves, so a redeploy is safe either way.
+
+For the calibrated bands and the settled rate that hour is tolerable — they are re-learned by
+design. For the **greylist retry queue** it is not: plan 006 promises that a retry due in thirty
+minutes survives a restart, and losing it means an address is never re-asked and Data Scout waits
+forever for a verdict that will not come.
 
 ## Keys
 

@@ -6,8 +6,10 @@
 
 ## Goal
 
-Cut Data Scout over to this service: `email_verify.py` becomes a thin HTTP client to `/verify`, the
-in-process `smtp_probe.py` is retired, and port-25 traffic leaves the production host for good.
+Cut Data Scout over to this service: `smtp_probe.probe_many` becomes an HTTP client to `POST /probe`
+and port-25 traffic leaves the production host for good. Per ADR-006 the seam is the prober, not the
+provider — everything above it (layers 0–5, domain grouping, scoring, signals, the domain-profile
+cache, quota, suppression, the verdict table) is untouched.
 
 ## Context
 
@@ -18,9 +20,13 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 
 ## Design (Data Scout side — cross-repo)
 
-- Replace the in-process prober behind `app/core/providers/email_verify.py` with an HTTP client to
-  `POST /verify`, keeping the existing provider interface, timeout, and per-domain cache untouched
-  (Data Scout invariant 10) — layers 0–5 still run first in Data Scout; only survivors are sent here.
+- Replace the body of `app/core/verify/smtp_probe.probe_many` with an HTTP client to `POST /probe`.
+  `set_prober` stays the seam, so every existing fake prober and test keeps working. The provider
+  layer, `engine.verify_many`, the domain grouping (plan 067) and the timeout/cache contract (Data
+  Scout invariant 10) are all unchanged.
+- **A transport failure maps to `ProbeResult{connected: false}`** — never `accepted: false`.
+  Invariant 1 governs this hop as it governs SMTP; a redeploy of the probe mid-request must not be
+  able to condemn a mailbox.
 - Map this service's `{status,...}` onto `email_verifications.status` using the reconciliation from
   005. Store `source_ip` in `signals` — a verdict is bound to the IP that produced it.
 - Retire `app/core/verify/smtp_probe.py` and its in-process ceilings (superseded by this service's
@@ -35,10 +41,11 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 
 ## Tasks
 
-- [ ] Data Scout: `email_verify.py` → HTTP client; keep provider interface + timeout + cache
+- [ ] Data Scout: `smtp_probe.probe_many` → HTTP client over mTLS; `set_prober` seam preserved
+- [ ] Data Scout: transport failure → `connected:false`, asserted by test
 - [ ] Data Scout: status reconciliation + store `source_ip`
 - [ ] Data Scout: retire `smtp_probe.py` in-process probing (keep as reference/tests)
-- [ ] Data Scout: verify job → `/verify/bulk`
+- [ ] Data Scout: the Celery task keeps driving the chunk loop; it calls `/probe` once per domain
 - [ ] This service: auth between hosts; response completeness
 - [ ] Both: integration test of the end-to-end path
 - [ ] Docs both repos: Data Scout providers doc + this `changelog.md`

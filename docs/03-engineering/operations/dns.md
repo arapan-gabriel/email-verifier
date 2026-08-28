@@ -16,6 +16,7 @@ the verified state: plan 013. The shape:
 | A | `mail.<domain>` | the sending IP | **never behind a CDN proxy** — it must resolve to the host |
 | TXT | `<domain>` | `v=spf1 ip4:<ip> -all` | add `include:` before anything else sends from the domain |
 | TXT | `probe.<domain>` | `v=spf1 ip4:<ip> -all` | the verification `MAIL FROM` domain |
+| MX | `probe.<domain>` | the same routers as the root | **required**, see below |
 | TXT | `_dmarc.<domain>` | `v=DMARC1; p=none; sp=none; rua=...` | `sp=` set explicitly so tightening `p=` later does not silently tighten `probe.` |
 | TXT | `<selector>._domainkey.<domain>` | `v=DKIM1; k=rsa; p=...` | Phase C only — verification signs nothing |
 
@@ -24,4 +25,9 @@ the verified state: plan 013. The shape:
 - **The identity is IPv4-only.** Verify with the address family pinned (`swaks -4`, prober `tcp4`) —
   otherwise a dual-stack host tests a path it will not use in production, or worse, uses a path it
   never published (ARCHITECTURE §Invariants).
+- **The `MAIL FROM` sub-domain needs an MX of its own.** An SPF record alone is not enough: a server
+  doing sender-domain verification looks up MX (then A) for the envelope sender's domain, finds
+  nothing, and rejects with `554 5.1.8` — every probe, on every strict server. Measured against a
+  real MX on 2026-08-28. Pointing it at the same routers as the root also makes sender *callouts*
+  pass, not just the DNS existence check.
 - Rotate DKIM by adding a new selector, never by replacing an existing key in place.

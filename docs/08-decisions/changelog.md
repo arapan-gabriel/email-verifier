@@ -3,6 +3,100 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 001: the prober, and `POST /probe`
+
+- **Classifier ported verbatim** from `../ds-smtp-retry/ratecheck/internal/prober` into
+  `internal/prober/classify.go` — the reply→class map, `IsTemp`/`IsThrottle`, the RFC 3463 reader
+  and the hint lists, unchanged apart from doc comments the linter required. It is deliberately kept
+  close to upstream so measurements made in the lab still describe this code, and it is the single
+  place in the service where a code becomes a meaning.
+- **New batched session** (`internal/prober/prober.go`): connect → EHLO → MAIL FROM → RCPT × N →
+  one bogus RCPT for catch-all → RSET → QUIT, per ADR-006. `DATA` is never sent (invariant 8).
+  Batches split at `max_rcpt_per_session`; catch-all is probed once per request because it is a
+  property of the domain, not of a chunk.
+- `Connected`/`Accepted`/`CatchAll` are tri-state pointers marshalling to `null`, mapping one-to-one
+  onto Data Scout's existing `ProbeResult`. **Only `ClassValid` and `ClassInvalid` set `Accepted`;**
+  every other class leaves it nil, which is how invariant 1 is carried in the type rather than in a
+  convention someone has to remember.
+- **Invariant 3 is now enforced, not documented.** `probe.dial_network` must be exactly `tcp4` or
+  the service refuses to boot; `tcp`, `tcp6`, `udp` and empty are all rejected, with a test.
+- `POST /probe` behind `Options.Authenticated`, so the route cannot be registered without the guard.
+  The handler declares its own one-method `Prober` interface (ENGINEERING-STANDARDS §2), so the API
+  tests use a three-line fake and open no sockets.
+- **mTLS implemented but not enabled**: `tls.{cert_file,key_file,client_ca_file}` →
+  `RequireAndVerifyClientCert` with TLS 1.3 minimum. The CA and certificates come with plan 013;
+  until then the API key guards the route and startup warns about both plain HTTP and
+  TLS-without-client-certs. A half-configured listener (cert without key, CA without cert) is a
+  boot refusal, because it would otherwise serve plain HTTP on a port the caller believes is
+  protected.
+- **`auth.enabled` now defaults to true.** An authenticated route exists from this plan on, so the
+  edge is guarded by default and the service will not boot without a key (invariant 11).
+- Integration tests drive `internal/mxsim` in-process on an ephemeral port: gmail profile gives
+  `valid`/`invalid` correctly and `catch_all:false`; the catch-all profile gives `catch_all:true`;
+  the 11th connection in the rate window returns `class:throttled` with `connected:false` and
+  `accepted:null`. That last one is the whole point — the same `421`, arriving in the banner before
+  `MAIL FROM`, must be simultaneously "not a verdict about this mailbox" and "the one signal that
+  moves the pacer".
+- Found while testing: the teardown `RSET`/`QUIT` could block on a server that stops reading. The
+  answers are already collected by then, so both writes now get a short write deadline — a tarpit
+  must not be able to hold a session, and its slot in the rate budget, open for the full timeout.
+- `probe.port` added (25 in production) so a staging instance can be aimed at the lab MX.
+- **First run against real MXes found an invariant-1 violation in the ported classifier.** A
+  `554 5.1.8` about our envelope sender marked two live mailboxes `invalid`: RFC 3463 puts `X.1.7`
+  and `X.1.8` in the "addressing" subject next to the recipient codes, but they are about the
+  *sender*, and `classifyPermanent` read all of subject 1 as a statement about the recipient. Both
+  added to `senderCodes` (checked first), sender wording added to the hints, regression test added.
+  **`../ds-smtp-retry` still carries this bug** — port the fix back.
+- **`probe.datascoutmail.com` is not a routable sender domain.** It carries only the SPF TXT record;
+  a server doing sender-domain verification finds no MX and no A and rejects every probe with
+  `5.1.8`. Confirmed by switching to `verify@datascoutmail.com`, which the same server accepts. The
+  fix is an MX on the sub-domain pointing at the same Cloudflare routers as the root — verified that
+  Cloudflare answers `250` to a `RCPT` for it, so sender callouts pass and not just DNS lookups.
+  Until then the sub-domain isolation from ARCHITECTURE §"Sender identity" is not in effect.
+- **Consumer `gmail.com` does distinguish a real mailbox from a missing one.** Measured: our own
+  address `250 2.1.5`, a random local part `550 5.1.1 NoSuchUser`. `build-vs-buy` §4 assumes Gmail
+  "answers identically to an existing and a non-existing mailbox" and prices the project on that
+  assumption. That is not what consumer Gmail did here. Google Workspace-hosted domains are a
+  separate case and were not tested — but §4's estimate of what a self-hosted probe is worth looks
+  too pessimistic and should be re-checked before it is used for planning again.
+- **Signed off 2026-08-28.** Plan 001 is Complete and moved to `completed/`. Phase A continues at
+  plan 002 (ssrf-guard-and-safety), which is what makes the endpoint safe to expose at all.
+
+## 2026-08-28 — ADR-006: the seam is `probe_many`; no jobs here; Redis persistence required
+
+Three corrections found by reading the Data Scout side properly before starting plan 001, rather
+than after plan 008 would have forced them.
+
+- **ADR-006 accepted**, superseding ADR-003's transport shape and bulk handling. Its
+  "stateless about business data" decision is unchanged and carried further.
+- **The seam is `smtp_probe.probe_many`, not the provider.** Data Scout already resolves MX and
+  groups addresses by domain (its plan 067, done deliberately so "500 addresses no longer mean 500
+  connections"). Cutting at `verify(email)` would have issued one HTTP request per address and
+  destroyed that grouping. The contract is now `POST /probe {mx_host, domain, emails[],
+  need_catch_all}` → per-address results mapping one-to-one onto the existing `ProbeResult`.
+- **No jobs and no bulk endpoint on this service.** Data Scout's Celery already owns chunking,
+  progress, per-row quota metering, the result artifact and a reaper for stalled jobs. Duplicating
+  it here meant two definitions of "done" — and ROADMAP 007 never said what resumed an in-process
+  bulk worker after a restart. With no jobs here a redeploy costs at most one in-flight chunk, which
+  the caller retries. Plan 007 shrinks to policy-stop alone; plan 004 narrows to A/AAAA + the SSRF
+  guard (MX discovery stays in Data Scout); plan 008 becomes a change to one function plus mTLS.
+- **A transport failure between the two services is `unknown`, never `invalid`.** Invariant 1
+  governs the HTTP hop exactly as it governs SMTP — a probe redeploy mid-request must not be able to
+  condemn a mailbox. Recorded in ADR-006, `api.md`, `ARCHITECTURE.md` and plan 008.
+- **Authentication is mTLS**, with an API key as a second factor inside the tunnel for operator
+  routes. The host is on a public IP with `:25` open and is scanned continuously; mTLS ends the
+  handshake before a request reaches the application.
+- **Redis persistence is now a requirement, not a default.** Measured on the deployed node:
+  `appendonly no`, RDB only (`save 3600 1 300 100 60 10000`), so a crash or power loss drops up to
+  an hour of writes. Tolerable for calibrated bands, which are re-learned by design — **not**
+  tolerable for plan 006's greylist retry queue, whose whole promise is surviving a restart. A
+  losing retry means an address is never re-asked and the caller waits forever. `appendonly yes` +
+  `appendfsync everysec` added to plan 006, plan 013 and `redis-contract.md`.
+- Open question flagged in plan 006: with no job here to attach it to, a deferred retry has no
+  synchronous caller to return to. The option most consistent with the architecture is that the
+  retry queue is not this service's concern at all — return `class:deferred` and let Data Scout
+  re-queue. To be resolved before that plan is implemented.
+
 ## 2026-08-28 — Coding patterns fixed in ENGINEERING-STANDARDS, and retrofitted
 
 Chosen for what this service actually has to get right, not for novelty. Each rule is tied to an

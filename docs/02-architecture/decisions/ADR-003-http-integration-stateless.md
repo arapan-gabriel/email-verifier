@@ -1,6 +1,8 @@
 # ADR-003 — HTTP integration, stateless about business data
 
-**Status:** Accepted (2026-08-26)
+**Status:** Accepted (2026-08-26) · **transport shape and bulk handling superseded by
+[ADR-006](ADR-006-batch-probe-seam.md) (2026-08-28)**; the "stateless about business data" decision
+below still stands and ADR-006 carries it further.
 
 ## Context
 

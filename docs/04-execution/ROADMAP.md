@@ -5,21 +5,22 @@ before the next starts. Plans live in `exec-plans/{active,planned,completed}/`; 
 index and running order.
 
 Architecture is locked by the ADRs (`docs/02-architecture/decisions/`):
-Go on the `ds-smtp-retry` engine · scope = probe + relay (phased) · HTTP integration now, queue
-later · stateless about business data · systemd on the host, no container runtime.
+Go on the `ds-smtp-retry` engine · scope = probe + relay (phased) · stateless about business data ·
+systemd on the host, no container runtime · the seam is `probe_many`, orchestration stays in Data
+Scout (ADR-006).
 
 ## Phase A — Verification service (the reason this repo exists)
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
 | 000 | ~~scaffold-and-standards~~ **done 2026-08-28** | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz, `mxsim` | ✅ gate green; `/healthz` 200; drains on SIGTERM |
-| 001 | http-verify-service | port the lab prober; `POST /verify` single address; auth; timeouts; graceful shutdown | `curl /verify` returns a correct verdict for a known good + known bad address |
+| 001 | ~~http-verify-service~~ **done 2026-08-28** | lab prober ported; `POST /probe` batch-per-MX (ADR-006); auth; mTLS wired, enabled by 013 | ✅ correct per-address results in one session, against `mxsim` and against real MXes from the node |
 | 002 | ssrf-guard-and-safety | resolver SSRF guard (no private/loopback MX); "us ≠ address" verdict rules enforced | probe of a domain whose MX points at `127.0.0.1` is refused, not attempted |
 | 003 | central-redis-limiter | make the shared token bucket THE limiter; per-MX AIMD; fail-closed on Redis down | two concurrent `/verify` bursts to one MX stay under the band; Redis down → `unknown`, no send |
-| 004 | dns-resolver-and-cache | MX/A resolution, cache, no-MX fallback (implicit MX), "no mail server" verdict | `void`/`nomx` domains classified correctly; cache hit on repeat |
+| 004 | dns-resolver-and-cache | A/AAAA of the supplied `mx_host` + SSRF guard + cache (narrowed by ADR-006 — MX discovery stays in Data Scout) | guarded host refused; cache hit on repeat |
 | 005 | catch-all-and-classification | catch-all + randomiser detection; verdict vocabulary reconciled with Data Scout statuses | catch-all domain → `risky`; a real mailbox on a normal domain → `valid` |
 | 006 | greylist-retry-queue | persistent retry queue for 4xx/greylisting that survives restart | greylisted address is retried later and resolves; queue survives a process restart |
-| 007 | bulk-verify-and-queue | `POST /verify/bulk` job (id + poll); optional shared-queue worker mode | a 1k-address bulk job completes, paced per MX, results retrievable |
+| 007 | ~~bulk-verify-and-queue~~ **superseded by ADR-006** | only policy-stop survives (N consecutive policy blocks → stop probing that server); orchestration is Data Scout's Celery | policy-stop trips and the remainder is "not attempted" |
 | 008 | data-scout-integration | Data Scout `email_verify.py` → HTTP client to this service; retire in-process `smtp_probe` | Data Scout verify endpoint returns this service's verdict end-to-end |
 
 ## Phase B — Operations & hardening

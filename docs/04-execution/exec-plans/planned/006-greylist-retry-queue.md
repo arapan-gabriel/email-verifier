@@ -28,6 +28,9 @@ Greylisting is a `4xx` on first sight that clears on a later retry — per-recip
 
 ## Tasks
 
+- [ ] **Enable Redis persistence first** — `appendonly yes`, `appendfsync everysec`. Stock Debian
+      runs RDB snapshots only and loses up to an hour on a crash, which makes this plan's central
+      promise false. See `redis-contract.md`
 - [ ] Redis-backed retry queue (address, due time, attempt count)
 - [ ] Schedule on deferral; doubling backoff; budget cap → `unknown`
 - [ ] Startup re-read of pending retries (survives restart) — test
@@ -40,6 +43,7 @@ Greylisting is a `4xx` on first sight that clears on a later retry — per-recip
 - [ ] The doubling backoff and the due-time arithmetic are tested under `synctest` — a 30-minute
       retry must be asserted in microseconds, never slept through
 - [ ] Queue survives a simulated process restart — test
+- [ ] Queue survives a Redis restart — verified against a Redis with AOF on
 - [ ] Exhausted retries → `unknown`, never `invalid` — test
 - [ ] Deferrals never moved the pacer during all this — assert
 - [ ] gates clean; pr-checklist confirmed
@@ -48,3 +52,9 @@ Greylisting is a `4xx` on first sight that clears on a later retry — per-recip
 ## Notes / decisions / deviations
 
 Still no SQL DB — the queue is operational state in Redis.
+
+The retry result has no synchronous caller to return to, and under ADR-006 there is no job here to
+attach it to. Decide explicitly how the eventual verdict reaches Data Scout: the simplest option
+consistent with "stateless about business data" is that the retry queue is **not** this service's
+concern at all — a deferral comes back as `connected:true, accepted:null, class:deferred` and Data
+Scout re-queues the address through machinery it already has. Resolve this before implementing.
