@@ -1,0 +1,15 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "a@gmail.com": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "no_budget",
+      "connected": false,
+      "err": "pacer: no budget established for gmail-smtp-in.l.google.com: limiter: take for gmail-smtp-in.l.google.com: dial tcp 127.0.0.1:1: connect: connection refused",
+      "randomiser": null,
+      "retry_after_seconds": 900
+    }
+  },
+  "source_ip": "92.222.87.97"
+}

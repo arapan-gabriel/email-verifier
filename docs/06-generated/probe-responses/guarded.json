@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "a@evil.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "guarded",
+      "connected": false,
+      "err": "ssrf guard: localhost resolves to 127.0.0.1 (loopback)",
+      "randomiser": null
+    }
+  },
+  "source_ip": "92.222.87.97"
+}

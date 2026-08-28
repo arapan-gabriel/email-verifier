@@ -1,0 +1,80 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "u1@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": true,
+      "enhanced_code": "5.4.1",
+      "randomiser": null,
+      "reply": "550 5.4.1 Recipient address rejected: Access denied",
+      "smtp_code": 550
+    },
+    "u2@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": true,
+      "enhanced_code": "5.4.1",
+      "randomiser": null,
+      "reply": "550 5.4.1 Recipient address rejected: Access denied",
+      "smtp_code": 550
+    },
+    "u3@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": true,
+      "enhanced_code": "5.4.1",
+      "randomiser": null,
+      "reply": "550 5.4.1 Recipient address rejected: Access denied",
+      "smtp_code": 550
+    },
+    "u4@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": true,
+      "enhanced_code": "5.4.1",
+      "randomiser": null,
+      "reply": "550 5.4.1 Recipient address rejected: Access denied",
+      "smtp_code": 550
+    },
+    "u5@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": true,
+      "enhanced_code": "5.4.1",
+      "randomiser": null,
+      "reply": "550 5.4.1 Recipient address rejected: Access denied",
+      "smtp_code": 550
+    },
+    "u6@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": false,
+      "err": "not attempted: 5 consecutive policy replies from this server",
+      "randomiser": null
+    },
+    "u7@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": false,
+      "err": "not attempted: 5 consecutive policy replies from this server",
+      "randomiser": null
+    },
+    "u8@outlook-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "policy",
+      "connected": false,
+      "err": "not attempted: 5 consecutive policy replies from this server",
+      "randomiser": null
+    }
+  },
+  "source_ip": "92.222.87.97"
+}

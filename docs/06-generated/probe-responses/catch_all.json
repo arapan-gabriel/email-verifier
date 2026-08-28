@@ -1,0 +1,16 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "whoever@catchall-sim.test": {
+      "accepted": true,
+      "catch_all": true,
+      "class": "valid",
+      "connected": true,
+      "enhanced_code": "2.1.5",
+      "randomiser": false,
+      "reply": "250 2.1.5 Ok",
+      "smtp_code": 250
+    }
+  },
+  "source_ip": "92.222.87.97"
+}

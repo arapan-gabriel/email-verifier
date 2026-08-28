@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "valid@yahoo-sim.test": {
+      "accepted": null,
+      "catch_all": null,
+      "class": "deferred",
+      "connected": true,
+      "enhanced_code": "4.7.1",
+      "randomiser": null,
+      "reply": "451 4.7.1 Greylisted, please try again later",
+      "retry_after_seconds": 900,
+      "smtp_code": 451
+    }
+  },
+  "source_ip": "92.222.87.97"
+}
