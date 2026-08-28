@@ -28,6 +28,9 @@ type Options struct {
 	Metrics Metrics
 	// Logger receives one line per request. Nil discards them.
 	Logger *slog.Logger
+	// Health backs the operator's view of, and override on, the sending IP's
+	// standing. Nil leaves those routes unregistered.
+	Health HealthOverride
 }
 
 // Authenticated wraps h with the credential check required by invariant 11.
@@ -51,6 +54,11 @@ func NewRouter(opts Options) http.Handler {
 		// Operator surface, so it goes through the same guard as anything else
 		// that is not a health probe (invariant 11).
 		mux.Handle("GET /metrics", opts.Authenticated(handleMetrics(opts.Metrics)))
+	}
+
+	if opts.Health != nil {
+		mux.Handle("GET /admin/ip-health", opts.Authenticated(handleIPHealth(opts.Health)))
+		mux.Handle("POST /admin/ip-health/resume", opts.Authenticated(handleIPHealthResume(opts.Health)))
 	}
 
 	if opts.Prober != nil {

@@ -3,6 +3,39 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 010: IP health, designed around the false positive
+
+Standing the node down automatically is the point of this plan and also its danger: **a false
+positive is a self-inflicted outage.** Three ways to get one, all measured on our own address rather
+than imagined, and each shaped a decision.
+
+- **A DNSBL query through a stub answers "listed" for every zone.** The deployed node's resolver is
+  `systemd-resolved` on `127.0.0.53` — exactly that case. So checking is **off unless
+  `ip_health.resolvers` names one explicitly**, with no fallback, and whatever is named must pass a
+  **self-test** against each zone's documented test points (`2.0.0.127` listed, `1.0.0.127` not)
+  before a single real answer is acted on. Verified against the real stub: it is refused, the
+  service still starts and serves, and a probe afterwards returns `no_budget` — not `ip_burned`.
+- **UCEPROTECT L3 lists a whole ASN.** Our address is on it because AS16276 is, while Spamhaus,
+  SpamCop and UCEPROTECT L1/L2 were clean and both Gmail and Microsoft accepted the session. No
+  delisting clears it. It is not in the default zones, and the reason is recorded where someone
+  would otherwise add it.
+- **One server refusing us is not the IP being burned.** Policy replies are counted across
+  *distinct* MX hosts and raise a signal an operator reads — they never pause. Pausing on them would
+  hand any misconfigured or hostile MX a way to stand the node down. Plan 007 already stops probing
+  a single server that refuses us.
+- **Confidence decides consequence**: a confirmed listing from a self-tested resolver pauses the
+  node; an inference only alerts; a failed query is ignored, because a failure is not a listing.
+- A burned node refuses probes with `class:ip_burned`, `connected:false`, `accepted:null` — our
+  refusal, never a verdict. `GET /admin/ip-health` shows the standing and
+  `POST /admin/ip-health/resume` clears a pause **without a redeploy**, because the check can be
+  wrong and the cost of being wrong is answering nothing.
+- `ip_health_listed{ip,list}` joins the registry; it is absent until a check has run, and absent
+  means checking is off.
+- Documented alongside: `class` is an open set, and a caller's mapping must treat anything that is
+  not `valid` or `invalid` as no verdict. `ip_burned` is the fourth such class and will not be the
+  last; a mapping that enumerates them breaks by silently mis-scoring rather than by raising.
+- Plan 010 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 009: observability, and the memory leak it uncovered
 
 - **No Prometheus client library.** It pulls protobuf, procfs and expfmt into a repository with one

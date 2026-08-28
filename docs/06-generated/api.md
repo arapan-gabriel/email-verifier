@@ -65,6 +65,8 @@ addresses; this endpoint asks one server about several mailboxes in one session.
   (invariant 5). This is an incident: the node's Redis is unreachable and `/readyz` is already 503.
 - `paused` — this MX is standing down for its cooldown after being throttled at the floor of its
   band. Normal operation.
+- `ip_burned` — **this node** is standing down: its sending address is listed somewhere that
+  matters, so probing on would deepen the damage and produce nothing worth having.
 
 All three return `connected:false` and `accepted:null`.
 
@@ -122,6 +124,13 @@ stores it in `email_verifications.signals`.
 | POST | `/send` | 014 | `{from, to, subject, ...}` | `{message_id, queued_at}` |
 
 ## Operator (internal)
+
+| Method | Path | Plan | Purpose |
+|---|---|---|---|
+| GET | `/admin/ip-health` | 010 | whether this node has stood itself down, and why |
+| POST | `/admin/ip-health/resume` | 010 | clear the pause without a redeploy — the next scheduled check re-evaluates, so this overrides a verdict rather than disabling checking |
+
+
 
 | Method | Path | Plan | Purpose |
 |---|---|---|---|

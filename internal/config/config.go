@@ -28,14 +28,15 @@ const EnvPrefix = "VERIFIERD_"
 
 // Config is the fully resolved configuration.
 type Config struct {
-	HTTP  HTTP  `yaml:"http"`
-	TLS   TLS   `yaml:"tls"`
-	Redis Redis `yaml:"redis"`
-	DNS   DNS   `yaml:"dns"`
-	Pacer Pacer `yaml:"pacer"`
-	Probe Probe `yaml:"probe"`
-	Auth  Auth  `yaml:"auth"`
-	Log   Log   `yaml:"log"`
+	HTTP     HTTP     `yaml:"http"`
+	TLS      TLS      `yaml:"tls"`
+	Redis    Redis    `yaml:"redis"`
+	DNS      DNS      `yaml:"dns"`
+	Pacer    Pacer    `yaml:"pacer"`
+	IPHealth IPHealth `yaml:"ip_health"`
+	Probe    Probe    `yaml:"probe"`
+	Auth     Auth     `yaml:"auth"`
+	Log      Log      `yaml:"log"`
 }
 
 // TLS configures the listener. ADR-006 settles the boundary as mTLS: the host
@@ -82,6 +83,26 @@ type Pacer struct {
 	IdleTTL    time.Duration `yaml:"idle_ttl"`
 	MaxTracked int           `yaml:"max_tracked"`
 }
+
+// IPHealth watches whether the sending IP is still usable.
+//
+// Checking is **opt-in**: without a resolver that can answer DNSBL queries it
+// stays off, because the deployed node's resolver is a stub and a stub answers
+// "listed" to every zone. Acting on that would pause the node for a resolver
+// misconfiguration.
+type IPHealth struct {
+	// Resolvers are "host:port" servers able to answer DNSBL queries. Empty
+	// disables checking entirely — there is no fallback to the host's resolver.
+	Resolvers []string `yaml:"resolvers"`
+	// Zones to query. Empty uses the package default (Spamhaus ZEN, SpamCop).
+	// UCEPROTECT L3 is deliberately not among them: it lists a whole ASN.
+	Zones    []string      `yaml:"zones"`
+	Interval time.Duration `yaml:"interval"`
+	Timeout  time.Duration `yaml:"timeout"`
+}
+
+// Enabled reports whether DNSBL checking will run.
+func (i IPHealth) Enabled() bool { return len(i.Resolvers) > 0 }
 
 // Probe configures the SMTP session.
 type Probe struct {
@@ -179,7 +200,8 @@ func defaults() Config {
 			NegativeTTL: time.Minute,
 			CacheSize:   4096,
 		},
-		Pacer: Pacer{IdleTTL: 30 * time.Minute, MaxTracked: 512},
+		Pacer:    Pacer{IdleTTL: 30 * time.Minute, MaxTracked: 512},
+		IPHealth: IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
 		Probe: Probe{
 			DialNetwork:         "tcp4",
 			Port:                "25",
@@ -282,6 +304,12 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if v := getenv(EnvPrefix + "DNS_SERVERS"); v != "" {
 		cfg.DNS.Servers = strings.Split(v, ",")
 	}
+	if v := getenv(EnvPrefix + "IP_HEALTH_RESOLVERS"); v != "" {
+		cfg.IPHealth.Resolvers = strings.Split(v, ",")
+	}
+	if v := getenv(EnvPrefix + "IP_HEALTH_ZONES"); v != "" {
+		cfg.IPHealth.Zones = strings.Split(v, ",")
+	}
 	str("PROBE_HELO", &cfg.Probe.Helo)
 	str("PROBE_MAIL_FROM", &cfg.Probe.MailFrom)
 	str("PROBE_SOURCE_IP", &cfg.Probe.SourceIP)
@@ -301,6 +329,8 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("DNS_CACHE_TTL", &cfg.DNS.CacheTTL) },
 		func() error { return dur("DNS_NEGATIVE_TTL", &cfg.DNS.NegativeTTL) },
 		func() error { return integer("DNS_CACHE_SIZE", &cfg.DNS.CacheSize) },
+		func() error { return dur("IP_HEALTH_INTERVAL", &cfg.IPHealth.Interval) },
+		func() error { return dur("IP_HEALTH_TIMEOUT", &cfg.IPHealth.Timeout) },
 		func() error { return dur("PACER_IDLE_TTL", &cfg.Pacer.IdleTTL) },
 		func() error { return integer("PACER_MAX_TRACKED", &cfg.Pacer.MaxTracked) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
@@ -375,6 +405,18 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.Timeout <= 0 {
 		add("probe.timeout must be positive, got %s", c.Probe.Timeout)
+	}
+	if c.IPHealth.Interval <= 0 || c.IPHealth.Timeout <= 0 {
+		add("ip_health.interval and ip_health.timeout must be positive")
+	}
+	for _, srv := range c.IPHealth.Resolvers {
+		if _, _, err := net.SplitHostPort(srv); err != nil {
+			add("ip_health.resolvers entry %q must be host:port: %v", srv, err)
+		}
+	}
+	// Checking needs to know which address it is about.
+	if c.IPHealth.Enabled() && c.Probe.SourceIP == "" {
+		add("ip_health.resolvers is set but probe.source_ip is empty — there is no address to check")
 	}
 	if c.Pacer.IdleTTL <= 0 || c.Pacer.MaxTracked <= 0 {
 		add("pacer.idle_ttl and pacer.max_tracked must be positive")

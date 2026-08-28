@@ -23,7 +23,11 @@ it directly — as this repository already does for RESP and for SMTP.
 | `verify_tracked_mx` | gauge | — | MX hosts the pacer holds state for — **the cardinality canary** |
 | `go_goroutines` | gauge | — | a service that must not leak them should say how many it has |
 
-`ip_health_listed{ip,list}` arrives with plan 010, which is where the state it reports comes from.
+| `ip_health_listed` | gauge | `ip`, `list` | 1 if this sending address is on the named blocklist |
+
+`ip_health_listed` appears only once a check has run. Absent means checking is off — which is the
+default, and deliberately so: without a resolver that can answer DNSBL queries, checking stays
+disabled rather than trusting the host's stub.
 
 ## Cardinality
 

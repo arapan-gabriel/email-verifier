@@ -11,13 +11,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/arapan-gabriel/email-verifier/internal/api"
 	"github.com/arapan-gabriel/email-verifier/internal/config"
+	"github.com/arapan-gabriel/email-verifier/internal/iphealth"
 	"github.com/arapan-gabriel/email-verifier/internal/limiter"
 	"github.com/arapan-gabriel/email-verifier/internal/metrics"
 	"github.com/arapan-gabriel/email-verifier/internal/mxprofile"
@@ -78,6 +81,29 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	})
 	reg.SetPacer(pace)
 
+	health := iphealth.New(iphealth.Options{
+		IP:       cfg.Probe.SourceIP,
+		Zones:    cfg.IPHealth.Zones,
+		Lookup:   dnsblLookup(cfg.IPHealth),
+		Interval: cfg.IPHealth.Interval,
+		Store:    store,
+		Metrics:  reg,
+	})
+	if health.Enabled() {
+		if err := health.SelfTest(ctx); err != nil {
+			// A resolver we cannot trust disables the check. It must never
+			// trigger one: a stub answers "listed" to every zone, and pausing
+			// on that is an outage caused by a resolver misconfiguration.
+			logger.Error("blocklist checking disabled — resolver failed its self-test", "error", err)
+		} else {
+			logger.Info("blocklist checking enabled", "zones", cfg.IPHealth.Zones, "ip", cfg.Probe.SourceIP)
+			go health.Run(ctx)
+		}
+	} else {
+		logger.Warn("blocklist checking is off — set ip_health.resolvers to a resolver that can " +
+			"answer DNSBL queries (the host's stub cannot)")
+	}
+
 	dns := resolver.New(resolver.Options{
 		Servers:     cfg.DNS.Servers,
 		Timeout:     cfg.DNS.Timeout,
@@ -100,6 +126,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		DeferralRetry:     cfg.Probe.DeferralRetry,
 		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
 		Metrics:           reg,
+		Health:            health,
 	})
 
 	srv := &http.Server{
@@ -113,6 +140,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			APIKey:              cfg.Auth.APIKey,
 			Metrics:             reg,
 			Logger:              logger,
+			Health:              health,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -189,6 +217,34 @@ func clientAuthTLS(cfg config.TLS) (*tls.Config, error) {
 	out.ClientCAs = pool
 	out.ClientAuth = tls.RequireAndVerifyClientCert
 	return out, nil
+}
+
+// dnsblLookup builds the query function, or nil when no resolver is configured
+// — which is what keeps checking off rather than falling back to the host's.
+func dnsblLookup(cfg config.IPHealth) iphealth.LookupFunc {
+	if !cfg.Enabled() {
+		return nil
+	}
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: cfg.Timeout}
+			var lastErr error
+			for _, s := range cfg.Resolvers {
+				c, err := d.DialContext(ctx, network, s)
+				if err == nil {
+					return c, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+	return func(ctx context.Context, host string) ([]netip.Addr, error) {
+		ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+		return r.LookupNetIP(ctx, "ip4", host)
+	}
 }
 
 func newLogger(cfg config.Log, w io.Writer) *slog.Logger {

@@ -46,9 +46,10 @@ type Registry struct {
 
 	results  map[string]uint64 // class
 	replies  map[[2]string]uint64
-	blocked  map[string]uint64 // reason
-	pauses   map[string]uint64 // mx host
-	counts   []uint64          // duration histogram, one per bucket plus +Inf
+	blocked  map[string]uint64  // reason
+	pauses   map[string]uint64  // mx host
+	listed   map[[2]string]bool // {ip, list} -> listed
+	counts   []uint64           // duration histogram, one per bucket plus +Inf
 	sum      float64
 	observed uint64
 
@@ -63,6 +64,7 @@ func New(pacer Pacer) *Registry {
 		replies: map[[2]string]uint64{},
 		blocked: map[string]uint64{},
 		pauses:  map[string]uint64{},
+		listed:  map[[2]string]bool{},
 		counts:  make([]uint64, len(buckets)+1),
 		pacer:   pacer,
 	}
@@ -112,6 +114,15 @@ func (r *Registry) Pause(mxHost string) {
 	r.pauses[mxHost]++
 }
 
+// IPListed records whether a sending IP is on a given blocklist. It is a gauge
+// rather than a counter: what matters is the current standing, not how many
+// times we have asked.
+func (r *Registry) IPListed(ip, list string, listed bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.listed[[2]string{ip, list}] = listed
+}
+
 // Observe records one request's end-to-end duration in seconds.
 func (r *Registry) Observe(seconds float64) {
 	r.mu.Lock()
@@ -134,6 +145,7 @@ func (r *Registry) Render() string {
 	replies := maps.Clone(r.replies)
 	blocked := maps.Clone(r.blocked)
 	pauses := maps.Clone(r.pauses)
+	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
 	sum, observed := r.sum, r.observed
 	pacer := r.pacer
@@ -164,6 +176,24 @@ func (r *Registry) Render() string {
 		writeGauge(&b, "verify_mx_state", "1 for the MX's current pacer state.")
 		for _, s := range snap {
 			fmt.Fprintf(&b, "verify_mx_state{mx_host=%q,state=%q} 1\n", s.Host, s.State)
+		}
+	}
+
+	if len(listed) > 0 {
+		writeGauge(&b, "ip_health_listed", "1 if this sending IP is on the named blocklist.")
+		keys := slices.Collect(maps.Keys(listed))
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i][0] != keys[j][0] {
+				return keys[i][0] < keys[j][0]
+			}
+			return keys[i][1] < keys[j][1]
+		})
+		for _, k := range keys {
+			v := 0
+			if listed[k] {
+				v = 1
+			}
+			fmt.Fprintf(&b, "ip_health_listed{ip=%q,list=%q} %d\n", k[0], k[1], v)
 		}
 	}
 

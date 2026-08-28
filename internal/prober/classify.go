@@ -57,8 +57,12 @@ const (
 	ClassNoBudget Class = "no_budget"
 	// ClassPaused is this MX standing down for its cooldown after being
 	// throttled at the floor of its band. Normal operation, not an incident.
-	ClassPaused  Class = "paused"
-	ClassUnknown Class = "unknown"
+	ClassPaused Class = "paused"
+	// ClassIPBurned is this node standing itself down: the sending IP is listed
+	// somewhere that matters, so probing on would deepen the damage rather than
+	// produce answers. Our refusal, never a verdict (invariant 1).
+	ClassIPBurned Class = "ip_burned"
+	ClassUnknown  Class = "unknown"
 )
 
 // IsTemp reports whether the sample means "try again later" rather than
@@ -66,7 +70,7 @@ const (
 func (c Class) IsTemp() bool {
 	switch c {
 	case ClassDeferred, ClassThrottled, ClassTimeout, ClassConnError, ClassPolicy,
-		ClassNoBudget, ClassPaused:
+		ClassNoBudget, ClassPaused, ClassIPBurned:
 		return true
 	}
 	return false

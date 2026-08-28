@@ -27,6 +27,15 @@ type Resolver interface {
 	Resolve(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
+// Health reports whether this node's sending IP is still usable.
+//
+// Consulted before anything else: if the IP is listed somewhere that matters,
+// every probe deepens the damage and none of them produce answers worth having.
+type Health interface {
+	Burned() (bool, string)
+	ObservePolicy(mxHost string)
+}
+
 // Recorder counts what happened. Nil means nobody is counting; the prober
 // behaves identically either way.
 type Recorder interface {
@@ -94,6 +103,8 @@ type Options struct {
 	Profiles Profiles
 	// Metrics counts results, replies and refusals. Optional.
 	Metrics Recorder
+	// Health stands the node down when its IP is burned. Optional.
+	Health Health
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
 	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
@@ -324,6 +335,14 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return out, catchAllVerdict{}
 	}
 
+	// Before anything else: if this node's IP is burned, probing produces no
+	// answers worth having and makes the listing worse.
+	if p.opts.Health != nil {
+		if burned, why := p.opts.Health.Burned(); burned {
+			return fail(ClassIPBurned, 0, "", "sending IP stood down: "+why)
+		}
+	}
+
 	// Resolve and vet before anything else. The address handed to the dialer is
 	// an IP literal, so no second, unguarded lookup can happen underneath us
 	// (invariant 2).
@@ -450,6 +469,11 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		}
 		r := rcptResult(code, text, p.opts.deferralRetry())
 		p.observe(ctx, req.MXHost, r.Class)
+		if r.Class == ClassPolicy && p.opts.Health != nil {
+			// A policy reply is about our client. It never moves the pacer
+			// (invariant 6); it feeds IP health, and nothing else.
+			p.opts.Health.ObservePolicy(req.MXHost)
+		}
 		out[addr] = r
 
 		// Consecutive, not cumulative: one policy reply among ordinary answers
@@ -564,7 +588,7 @@ func (p *Prober) record(r Result) {
 	m.Result(class)
 	m.Reply(r.SMTPCode, class)
 	switch r.Class {
-	case ClassGuarded, ClassNoBudget, ClassPaused:
+	case ClassGuarded, ClassNoBudget, ClassPaused, ClassIPBurned:
 		m.Blocked(class)
 	case ClassPolicy:
 		if strings.HasPrefix(r.Err, "not attempted:") {

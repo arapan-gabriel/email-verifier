@@ -42,6 +42,22 @@ pacer:
   idle_ttl: 30m
   max_tracked: 512
 
+# Blocklist checking is OFF unless a resolver is named here, and there is no
+# fallback to the host's: on this node that is systemd-resolved on 127.0.0.53,
+# and a stub answers "listed" to every zone. Acting on that would pause the node
+# for a resolver misconfiguration. Whatever is configured also has to pass a
+# self-test against each zone's documented test points before any answer is
+# acted on.
+#
+# Zones default to Spamhaus ZEN and SpamCop. UCEPROTECT L3 is deliberately not
+# among them: it lists a whole ASN — measured on this very address, while
+# Spamhaus was clean and both Gmail and Microsoft accepted the session.
+ip_health:
+  resolvers: []      # e.g. ["1.1.1.1:53"] — but verify it can answer DNSBL first
+  zones: []          # empty = the defaults above
+  interval: 15m
+  timeout: 5s
+
 probe:
   # Must FCrDNS to source_ip, or Yahoo/Apple/GMX/Microsoft reject the session
   # with a 5.7.x before RCPT is ever considered.
