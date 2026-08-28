@@ -112,6 +112,28 @@ The stub was refused, the service came up and served, and a probe afterwards ret
 | `/admin/ip-health` without credentials | `401` |
 | Default zones | no ASN-wide list among them |
 
+**Against a resolver that can actually query the lists** (Spamhaus's own documented test address as
+the burned case):
+
+| `source_ip` | Result |
+|---|---|
+| `92.222.87.97` — our address | checking enabled, `burned:false`, probe returns `no_budget`, not `ip_burned` |
+| `127.0.0.2` — Spamhaus's test point | `burned:true`, `"listed on zen.spamhaus.org, bl.spamcop.net"`, probe returns `ip_burned`, `ip_health_listed{...} 1` on both zones |
+| after `POST /admin/ip-health/resume` | `burned:false`, probing resumes with no redeploy |
+
+### A bug the unit tests could not have found
+
+The first live run failed the self-test on a resolver that demonstrably works. **NXDOMAIN is how a
+DNSBL says "not listed"** — the overwhelmingly common answer — and Go reports it as an error. The
+query treated any error as an unreachable zone, so every *clean* zone read as broken, the self-test
+failed permanently, and blocklist checking would never have run in production. Silently: the only
+symptom was a log line saying the resolver was at fault.
+
+The fakes missed it because they returned `(nil, nil)` for "not listed", which no real resolver
+does. Fixed by reading `net.DNSError.IsNotFound`, with two regression tests — one returning the
+error a real resolver returns for a clean address, and one asserting a genuine `SERVFAIL` is still
+treated as a failure rather than quietly as clean.
+
 ## Notes / decisions / deviations
 
 The RUNBOOK warns that DNSBL from the wrong resolver returns a false *clean*. In practice the more

@@ -34,6 +34,18 @@ than imagined, and each shaped a decision.
 - Documented alongside: `class` is an open set, and a caller's mapping must treat anything that is
   not `valid` or `invalid` as no verdict. `ip_burned` is the fourth such class and will not be the
   last; a mapping that enumerates them breaks by silently mis-scoring rather than by raising.
+- **A bug the unit tests could not have found.** The first live run failed the self-test against a
+  resolver that demonstrably works: NXDOMAIN is how a DNSBL says "not listed", Go reports it as an
+  error, and the query treated any error as an unreachable zone. Every *clean* zone therefore read
+  as broken, the self-test failed permanently, and blocklist checking would never have run in
+  production — silently, with the only symptom a log line blaming the resolver. The fakes missed it
+  because they returned `(nil, nil)` for "not listed", which no real resolver does. Fixed by reading
+  `net.DNSError.IsNotFound`; regression tests now use the error a real resolver returns, and assert
+  that a genuine `SERVFAIL` is still a failure rather than quietly clean.
+- Verified end to end afterwards against a DNSBL-capable resolver, using Spamhaus's own documented
+  test address as the burned case: our address comes back clean and probes normally; `127.0.0.2`
+  burns the node, refuses probes with `ip_burned`, and raises `ip_health_listed` on both zones;
+  `resume` clears it with no redeploy.
 - Plan 010 stays **Active** pending manual sign-off.
 
 ## 2026-08-28 — Plan 009: observability, and the memory leak it uncovered

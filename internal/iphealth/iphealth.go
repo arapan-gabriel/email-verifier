@@ -16,7 +16,9 @@ package iphealth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -259,6 +261,14 @@ func (h *Health) Run(ctx context.Context) {
 func (h *Health) query(ctx context.Context, prefix, zone string) (bool, error) {
 	addrs, err := h.opts.Lookup(ctx, prefix+"."+zone)
 	if err != nil {
+		// NXDOMAIN is how a DNSBL says "not listed" — the overwhelmingly
+		// common answer. Go reports it as an error, and treating that as an
+		// unreachable zone makes every clean zone look broken: the self-test
+		// then fails permanently and blocklist checking never runs at all.
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			return false, nil
+		}
 		return false, err
 	}
 	// A listing is any 127.0.0.0/8 answer. 127.255.255.254 is the "your query

@@ -3,6 +3,7 @@ package iphealth
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -278,5 +279,62 @@ func TestNilHealthIsSafe(t *testing.T) {
 	h.Resume(context.Background())
 	if h.Enabled() {
 		t.Error("nil Health reported enabled")
+	}
+}
+
+// NXDOMAIN is how a DNSBL says "not listed", and it is the overwhelmingly
+// common answer. Go reports it as an error; treating that as an unreachable
+// zone makes every clean zone look broken, so the self-test fails permanently
+// and checking never runs. Found on a live resolver, not by the fakes above —
+// which is why this one returns the error a real resolver returns.
+func TestNXDOMAINIsNotListedRatherThanAFailure(t *testing.T) {
+	nx := &net.DNSError{Err: "no such host", Name: "x", IsNotFound: true}
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		if strings.HasPrefix(host, "2.0.0.127") { // the listed test point
+			return []netip.Addr{netip.MustParseAddr("127.0.0.2")}, nil
+		}
+		return nil, nx // everything else: not listed
+	}
+	h := healthy(lookup, newStore())
+	if err := h.SelfTest(t.Context()); err != nil {
+		t.Fatalf("SelfTest rejected a working resolver because clean answers are NXDOMAIN: %v", err)
+	}
+	rep, err := h.Check(t.Context())
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if rep.Burned {
+		t.Error("a clean address was burned")
+	}
+	if rep.Listed["zen.spamhaus.org"] {
+		t.Error("NXDOMAIN was read as a listing")
+	}
+}
+
+// A genuine failure still is one — it must not be quietly read as "clean".
+func TestServfailIsStillAFailure(t *testing.T) {
+	boom := &net.DNSError{Err: "server misbehaving", Name: "x", IsTemporary: true}
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		if strings.HasPrefix(host, "2.0.0.127") {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.2")}, nil
+		}
+		if strings.HasPrefix(host, "1.0.0.127") {
+			return nil, &net.DNSError{Err: "no such host", IsNotFound: true}
+		}
+		return nil, boom
+	}
+	h := healthy(lookup, newStore())
+	if err := h.SelfTest(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := h.Check(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Burned {
+		t.Error("a SERVFAIL burned the node")
+	}
+	if _, ok := rep.Listed["zen.spamhaus.org"]; ok {
+		t.Error("a failed query was recorded as a verdict")
 	}
 }
