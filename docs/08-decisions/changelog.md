@@ -3,6 +3,36 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Coding patterns fixed in ENGINEERING-STANDARDS, and retrofitted
+
+Chosen for what this service actually has to get right, not for novelty. Each rule is tied to an
+invariant it protects, and plan 000's own code was rewritten to follow it rather than only
+documenting it.
+
+- **Errors are classified by type, never by message text** (§4). `errors.Is`/`errors.As`, sentinels,
+  `%w` wrapping; `strings.Contains(err.Error(), …)` is forbidden. Invariant 1 — "a rejection of us is
+  never a verdict about the address" — is carried entirely by how failures are typed, and a string
+  match rots the moment a provider rewords a reply. The failure mode is deleting a live mailbox.
+  Applied now: `config.ErrInvalid` plus `errors.Join` so validation reports every problem at once.
+- **Interfaces are declared by the consumer, one or two methods** (§2). This is what makes the test
+  seams the docs already demanded actually cheap. `api.ReadinessFunc` is the pattern at its
+  smallest; plan 001's handler will own a one-method `Verifier`.
+- **Dependencies are passed in; no package-level mutable state, no `init()`** (§2). ADR-004 forbids
+  pacing state a second node cannot see, and a package-level variable is exactly that.
+- **`main` is a wrapper around `run(ctx, args, getenv, stderr) error`** (§2). Startup, graceful
+  drain and bad-config paths are now covered by tests that spawn no process.
+- **`context.Context` first on anything doing IO**, never stored in a struct (§5).
+- **`testing/synctest` for all time-dependent tests** (§7), GA in Go 1.25 and verified working in
+  this module: six simulated minutes elapse in 0.00 s. Cooldowns, greylist backoff and bucket refill
+  are asserted deterministically instead of slept through. **The lab's hand-rolled `Clock` is not
+  ported into the service** — `synctest` fakes `time` itself, so production signatures stay clean.
+  `internal/mxsim` keeps its own clock only because it is ported code kept close to upstream.
+- Also codified: constant-time credential comparison, `Options` structs over functional options,
+  `t.Context()` over `context.Background()` in tests, `getenv` injection over `t.Setenv`.
+- Propagated into `testing/{strategy,unit}.md`, `pr-checklist.md` (six new review items) and the
+  plans where the rules bite: 001 (typed reply classes, consumer-side `Verifier`), 003, 006 and 012
+  (`synctest` for pacing, retry backoff and calibration timing).
+
 ## 2026-08-28 — Plan 000: scaffold, gates, systemd unit, mxsim ported
 
 - **First code.** Module `github.com/arapan-gabriel/email-verifier`, Go 1.25, one dependency
@@ -31,7 +61,8 @@ trade-offs.
 - `readyz` dials the configured Redis endpoint rather than issuing a real `PING` — the RESP client
   arrives in plan 003. Recorded in `api.md` so the contract does not overstate what is checked.
 - Gate green: `go test -race`, `go vet`, `gofmt -l`, `golangci-lint run`. Full results in the plan.
-- Plan 000 stays **Active** pending manual sign-off; it is not moved to `completed/` yet.
+- **Signed off 2026-08-28.** Plan 000 is Complete and moved to `completed/`; the ROADMAP row is
+  closed. Phase A execution continues at plan 001 (http-verify-service).
 
 ## 2026-08-28 — Invariants renumbered 1–11; IPv4-only promoted to a hard invariant
 

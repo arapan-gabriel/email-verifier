@@ -45,6 +45,8 @@ decision: ADR-004.
 
 - [ ] Two concurrent `/verify` bursts to one MX stay under the band (integration test with `mxsim`)
 - [ ] Deferral (`4.2.2`) and policy (`5.7.x`) do not lower the rate; a `421` does — unit tests
+- [ ] AIMD recovery, the cooldown pause and bucket refill are tested inside `synctest.Test` on the
+      fake clock, not by sleeping (ENGINEERING-STANDARDS §7)
 - [ ] Redis down → `unknown`, no probe sent — test
 - [ ] gates clean; pr-checklist central-bucket + fail-closed confirmed
 - [ ] Status → Complete, moved, ROADMAP updated

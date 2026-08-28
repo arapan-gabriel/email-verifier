@@ -37,6 +37,8 @@ Greylisting is a `4xx` on first sight that clears on a later retry — per-recip
 ## Definition of Done
 
 - [ ] A greylisted (450 first, 250 later) address resolves via retry — integration test with `mxsim`
+- [ ] The doubling backoff and the due-time arithmetic are tested under `synctest` — a 30-minute
+      retry must be asserted in microseconds, never slept through
 - [ ] Queue survives a simulated process restart — test
 - [ ] Exhausted retries → `unknown`, never `invalid` — test
 - [ ] Deferrals never moved the pacer during all this — assert

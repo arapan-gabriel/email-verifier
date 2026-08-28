@@ -8,6 +8,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -16,6 +17,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// ErrInvalid wraps every validation failure so callers can test for the class
+// with errors.Is rather than matching on message text.
+var ErrInvalid = errors.New("invalid configuration")
 
 // EnvPrefix is prepended to every environment variable this package reads.
 const EnvPrefix = "VERIFIERD_"
@@ -89,7 +94,14 @@ func defaults() Config {
 
 // Load resolves defaults, then the YAML file at path (skipped when path is
 // empty), then environment overrides, and validates the result.
-func Load(path string) (Config, error) {
+//
+// getenv is injected rather than read from the process so tests exercise the
+// real precedence without mutating global state; pass os.Getenv in production.
+// An empty value counts as unset.
+func Load(path string, getenv func(string) string) (Config, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
 	cfg := defaults()
 
 	if path != "" {
@@ -104,7 +116,7 @@ func Load(path string) (Config, error) {
 		}
 	}
 
-	if err := applyEnv(&cfg); err != nil {
+	if err := applyEnv(&cfg, getenv); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
@@ -113,32 +125,32 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func applyEnv(cfg *Config) error {
+func applyEnv(cfg *Config, getenv func(string) string) error {
 	str := func(key string, dst *string) {
-		if v, ok := os.LookupEnv(EnvPrefix + key); ok {
+		if v := getenv(EnvPrefix + key); v != "" {
 			*dst = v
 		}
 	}
 	dur := func(key string, dst *time.Duration) error {
-		v, ok := os.LookupEnv(EnvPrefix + key)
-		if !ok {
+		v := getenv(EnvPrefix + key)
+		if v == "" {
 			return nil
 		}
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return fmt.Errorf("%s%s: %w", EnvPrefix, key, err)
+			return fmt.Errorf("%w: %s%s: %w", ErrInvalid, EnvPrefix, key, err)
 		}
 		*dst = d
 		return nil
 	}
 	boolean := func(key string, dst *bool) error {
-		v, ok := os.LookupEnv(EnvPrefix + key)
-		if !ok {
+		v := getenv(EnvPrefix + key)
+		if v == "" {
 			return nil
 		}
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			return fmt.Errorf("%s%s: %w", EnvPrefix, key, err)
+			return fmt.Errorf("%w: %s%s: %w", ErrInvalid, EnvPrefix, key, err)
 		}
 		*dst = b
 		return nil
@@ -165,38 +177,53 @@ func applyEnv(cfg *Config) error {
 	return nil
 }
 
-// Validate reports the first reason the configuration cannot be booted on.
+// Validate reports every reason the configuration cannot be booted on, joined
+// into one error. Reporting all of them at once matters operationally: an
+// operator fixing a unit file should not have to restart the service seven
+// times to discover seven mistakes.
+//
+// Every returned error wraps ErrInvalid, so callers classify with errors.Is
+// instead of matching on message text.
 func (c Config) Validate() error {
+	var problems []error
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Errorf("%w: "+format, append([]any{ErrInvalid}, args...)...))
+	}
+
 	if c.HTTP.Addr == "" {
-		return fmt.Errorf("http.addr must be set")
+		add("http.addr must be set")
 	}
 	if c.Redis.Addr == "" {
-		return fmt.Errorf("redis.addr must be set")
+		add("redis.addr must be set")
 	}
-	for name, d := range map[string]time.Duration{
-		"http.read_timeout":     c.HTTP.ReadTimeout,
-		"http.write_timeout":    c.HTTP.WriteTimeout,
-		"http.idle_timeout":     c.HTTP.IdleTimeout,
-		"http.shutdown_timeout": c.HTTP.ShutdownTimeout,
-		"redis.dial_timeout":    c.Redis.DialTimeout,
+	for _, d := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"http.read_timeout", c.HTTP.ReadTimeout},
+		{"http.write_timeout", c.HTTP.WriteTimeout},
+		{"http.idle_timeout", c.HTTP.IdleTimeout},
+		{"http.shutdown_timeout", c.HTTP.ShutdownTimeout},
+		{"redis.dial_timeout", c.Redis.DialTimeout},
 	} {
-		if d <= 0 {
-			return fmt.Errorf("%s must be positive, got %s", name, d)
+		if d.value <= 0 {
+			add("%s must be positive, got %s", d.name, d.value)
 		}
 	}
 	// Refusing to boot beats serving an authenticated surface with no secret.
 	if c.Auth.Enabled && c.Auth.APIKey == "" {
-		return fmt.Errorf("auth.enabled is true but auth.api_key is empty")
+		add("auth.enabled is true but auth.api_key is empty")
 	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
 	default:
-		return fmt.Errorf("log.level must be one of debug|info|warn|error, got %q", c.Log.Level)
+		add("log.level must be one of debug|info|warn|error, got %q", c.Log.Level)
 	}
 	switch c.Log.Format {
 	case "json", "text":
 	default:
-		return fmt.Errorf("log.format must be json or text, got %q", c.Log.Format)
+		add("log.format must be json or text, got %q", c.Log.Format)
 	}
-	return nil
+
+	return errors.Join(problems...)
 }

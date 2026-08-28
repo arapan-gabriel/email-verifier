@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,24 +19,33 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	if err := run(ctx, os.Args, os.Getenv, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "verifierd: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	var cfgPath string
-	flag.StringVar(&cfgPath, "config", "", "path to YAML config (optional; VERIFIERD_* env overrides)")
-	flag.Parse()
+// run is main's body with every ambient dependency passed in — arguments, the
+// environment, the error stream, and the cancellation that stands in for a
+// signal. That makes startup, shutdown and configuration failures testable
+// without spawning a process (ENGINEERING-STANDARDS §2).
+func run(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer) error {
+	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "path to YAML config (optional; VERIFIERD_* env overrides)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
 
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(*cfgPath, getenv)
 	if err != nil {
 		return err
 	}
 
-	logger := newLogger(cfg.Log)
-	slog.SetDefault(logger)
+	logger := newLogger(cfg.Log, stderr)
 
 	if !cfg.Auth.Enabled {
 		logger.Warn("authentication disabled; only health endpoints may be exposed " +
@@ -56,38 +66,36 @@ func run() error {
 		ErrorLog:     slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 
-	// SIGTERM is what systemd sends; the unit allows TimeoutStopSec for the
-	// drain below so in-flight SMTP sessions are not cut mid-dialogue.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-
-	errCh := make(chan error, 1)
+	serveErr := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.HTTP.Addr, "redis", cfg.Redis.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-			return
+		err := srv.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
 		}
-		errCh <- nil
+		serveErr <- err
 	}()
 
 	select {
-	case err := <-errCh:
+	case err := <-serveErr:
 		return err
 	case <-ctx.Done():
-		logger.Info("shutdown signal received", "timeout", cfg.HTTP.ShutdownTimeout)
+		logger.Info("shutdown signal received", "drain_timeout", cfg.HTTP.ShutdownTimeout)
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+	// A fresh context: ctx is already cancelled, and the drain is exactly what
+	// must still be allowed to run. systemd's TimeoutStopSec covers this window
+	// so in-flight SMTP dialogues are not cut mid-session.
+	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.HTTP.ShutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := srv.Shutdown(drainCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	logger.Info("stopped cleanly")
-	return nil
+	return <-serveErr
 }
 
-func newLogger(cfg config.Log) *slog.Logger {
+func newLogger(cfg config.Log, w io.Writer) *slog.Logger {
 	var level slog.Level
 	switch cfg.Level {
 	case "debug":
@@ -101,7 +109,7 @@ func newLogger(cfg config.Log) *slog.Logger {
 	}
 	opts := &slog.HandlerOptions{Level: level}
 	if cfg.Format == "text" {
-		return slog.New(slog.NewTextHandler(os.Stderr, opts))
+		return slog.New(slog.NewTextHandler(w, opts))
 	}
-	return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	return slog.New(slog.NewJSONHandler(w, opts))
 }

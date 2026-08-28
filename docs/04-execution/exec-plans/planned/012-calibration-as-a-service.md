@@ -36,6 +36,7 @@ This plan brings calibration into the service as a controlled operator action. P
 - [ ] Live band re-read so new bands apply without restart
 - [ ] Safety gates: healthy IP required, target validation, calibration rate-limit
 - [ ] Tests against `mxsim` (rediscover a known limit — the lab's scenario 12)
+- [ ] Ramp/bisect/soak timing is driven by `synctest`, so a soak window costs no wall-clock time
 - [ ] Update `api.md`, `redis-contract.md`, `aimd-pacing.md`, changelog
 
 ## Definition of Done

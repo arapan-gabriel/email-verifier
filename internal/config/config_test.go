@@ -1,14 +1,21 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
+// env builds the getenv Load takes, so no test mutates process state.
+func env(kv map[string]string) func(string) string {
+	return func(k string) string { return kv[k] }
+}
+
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := Load("")
+	cfg, err := Load("", env(nil))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -20,15 +27,14 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadFileThenEnv(t *testing.T) {
+func TestPrecedenceDefaultsThenFileThenEnv(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "verifierd.yaml")
 	body := "http:\n  addr: \"0.0.0.0:9999\"\n  read_timeout: 5s\nlog:\n  level: debug\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(EnvPrefix+"HTTP_ADDR", "127.0.0.1:7777")
 
-	cfg, err := Load(path)
+	cfg, err := Load(path, env(map[string]string{EnvPrefix + "HTTP_ADDR": "127.0.0.1:7777"}))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -58,7 +64,8 @@ func TestRedisEndpoint(t *testing.T) {
 	}
 }
 
-// The service must refuse to boot rather than run half-configured.
+// The service must refuse to boot rather than run half-configured, and every
+// refusal must be classifiable with errors.Is (ENGINEERING-STANDARDS §5).
 func TestValidateRejects(t *testing.T) {
 	for name, mutate := range map[string]func(*Config){
 		"empty http addr":     func(c *Config) { c.HTTP.Addr = "" },
@@ -72,10 +79,33 @@ func TestValidateRejects(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cfg := defaults()
 			mutate(&cfg)
-			if err := cfg.Validate(); err == nil {
-				t.Error("Validate() = nil, want an error")
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("Validate() = nil, want an error")
+			}
+			if !errors.Is(err, ErrInvalid) {
+				t.Errorf("error does not wrap ErrInvalid: %v", err)
 			}
 		})
+	}
+}
+
+// An operator fixing a unit file should see every mistake at once, not one
+// restart per mistake.
+func TestValidateReportsEveryProblem(t *testing.T) {
+	cfg := defaults()
+	cfg.HTTP.Addr = ""
+	cfg.Redis.Addr = ""
+	cfg.Log.Level = "verbose"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() = nil, want errors")
+	}
+	for _, want := range []string{"http.addr", "redis.addr", "log.level"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("joined error is missing %q: %v", want, err)
+		}
 	}
 }
 
@@ -89,8 +119,22 @@ func TestValidateAcceptsAuthWithKey(t *testing.T) {
 }
 
 func TestLoadInvalidEnvIsAnError(t *testing.T) {
-	t.Setenv(EnvPrefix+"HTTP_READ_TIMEOUT", "not-a-duration")
-	if _, err := Load(""); err == nil {
-		t.Error("Load() = nil error for an unparseable duration")
+	_, err := Load("", env(map[string]string{EnvPrefix + "HTTP_READ_TIMEOUT": "not-a-duration"}))
+	if err == nil {
+		t.Fatal("Load() = nil error for an unparseable duration")
+	}
+	if !errors.Is(err, ErrInvalid) {
+		t.Errorf("error does not wrap ErrInvalid: %v", err)
+	}
+}
+
+func TestLoadNilGetenvFallsBackToProcess(t *testing.T) {
+	t.Setenv(EnvPrefix+"HTTP_ADDR", "127.0.0.1:6060")
+	cfg, err := Load("", nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTP.Addr != "127.0.0.1:6060" {
+		t.Errorf("HTTP.Addr = %q, want the process environment value", cfg.HTTP.Addr)
 	}
 }

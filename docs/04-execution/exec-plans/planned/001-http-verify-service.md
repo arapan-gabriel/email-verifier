@@ -25,6 +25,13 @@ for `.test`/lab targets in tests.
   **`DATA` is never sent.**
 - Classifier ported verbatim (`Classify`, `classifyPermanent`, enhanced-code reader, `IsThrottle`/
   `IsTemp`) — it is the single reply→verdict source (`patterns/smtp-classification.md`).
+- **Failure classes are typed, not string-matched** (ENGINEERING-STANDARDS §4). The port must expose
+  the reply class as a value tested with `errors.Is`/`errors.As` or an explicit enum — never
+  `strings.Contains(err.Error(), …)`. Invariant 1 rides entirely on this distinction, and a provider
+  rewording a reply must not be able to turn a blocked probe into `invalid`.
+- **The handler depends on a one-method interface it declares itself** (§2):
+  `type Verifier interface { Verify(ctx, VerifyRequest) (VerifyResult, error) }`. Registered through
+  `api.Options.Authenticated` so the route cannot skip the guard.
 - `internal/api` — `POST /verify {email, helo?, mail_from?}` → `{status, smtp_code, enhanced_code,
   catch_all, signals, source_ip, checked_at}`. Handler is thin: parse → auth → `prober.Verify` →
   serialise.
