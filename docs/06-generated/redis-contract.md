@@ -25,7 +25,7 @@ forever for a verdict that will not come.
 | `limits:mx:<mx_host>` | operator / calibration (012) | Calibrated band JSON: `min_rate_per_sec`, `max_rate_per_sec`, `min_concurrency`, `max_concurrency`, `burst`, `cooldown_seconds`, `pause_seconds` |
 | `rt:mx:<mx_host>:rate` | pacer | rate the AIMD loop has settled on |
 | `rt:mx:<mx_host>:conc` | pacer | concurrency it has settled on |
-| `rt:mx:<mx_host>:bucket` | limiter | token bucket hash — see `docs/07-references/token_bucket.lua` |
+| `rt:mx:<mx_host>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |
 | `rt:mx:<mx_host>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
 | `rt:mx:<mx_host>:pause_until` | pacer | epoch seconds; only this MX pauses |
 | `ip:health:<ip>` | iphealth (010) | blocklist status / burned flag for a sending node |

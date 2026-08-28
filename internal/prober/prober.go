@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/resolver"
 )
 
@@ -24,6 +25,18 @@ import (
 // a name to a Dialer would put it on the wrong side (invariant 2).
 type Resolver interface {
 	Resolve(ctx context.Context, host string) ([]netip.Addr, error)
+}
+
+// Pacer holds this MX to a rate it tolerates.
+//
+// The Observe signature is deliberately a bare bool. Only a genuine rate signal
+// may move the pacer (invariant 6), and passing Class.IsThrottle() rather than
+// the Class itself means a deferral or a policy block cannot reach it even by
+// mistake: greylisting is rate-independent, and slowing down does not grow a
+// PTR record.
+type Pacer interface {
+	Acquire(ctx context.Context, mxHost, domain string) error
+	Observe(ctx context.Context, mxHost string, throttled bool)
 }
 
 // Dialer opens the connection to the recipient MX.
@@ -55,6 +68,9 @@ type Options struct {
 	// required field on purpose: forgetting to supply it must not be a way to
 	// end up with an unguarded prober.
 	Resolver Resolver
+	// Pacer bounds the rate to each MX. Nil means unpaced, which is only ever
+	// acceptable in a unit test driving a fake server.
+	Pacer Pacer
 }
 
 func (o Options) helo() string {
@@ -221,6 +237,13 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return out, nil
 	}
 
+	// Budget before anything else. A paused MX or an unreachable bucket means
+	// the probe is not sent at all (invariant 5) — the addresses come back
+	// unattempted, never as a verdict.
+	if err := p.acquire(ctx, req); err != nil {
+		return fail(budgetClass(err), 0, "", err.Error())
+	}
+
 	// Resolve and vet before any socket exists. The address handed to the
 	// dialer is an IP literal, so no second, unguarded lookup can happen
 	// underneath us (invariant 2).
@@ -269,7 +292,11 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
 	}
 	if code != 220 {
-		return fail(Classify(code, text), code, text, "")
+		// A 421 here is the provider throttling the connection itself, and it
+		// is exactly the signal the pacer exists to react to.
+		class := Classify(code, text)
+		p.observe(ctx, req.MXHost, class)
+		return fail(class, code, text, "")
 	}
 
 	helo := req.Helo
@@ -280,7 +307,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
 	}
 	if code != 250 {
-		return fail(Classify(code, text), code, text, "")
+		class := Classify(code, text)
+		p.observe(ctx, req.MXHost, class)
+		return fail(class, code, text, "")
 	}
 
 	from := req.MailFrom
@@ -292,11 +321,24 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	}
 	if code != 250 {
 		// Everything up to and including a failed MAIL FROM is about us.
-		return fail(Classify(code, text), code, text, "")
+		class := Classify(code, text)
+		p.observe(ctx, req.MXHost, class)
+		return fail(class, code, text, "")
 	}
 
 	// Only past this point may a 5xx mean "no such mailbox" (invariant 1).
 	for i, addr := range addrs {
+		// One token per recipient: the band is a rate of questions asked, and
+		// batching many RCPTs down one connection must not spend less budget
+		// than asking them one at a time would.
+		if i > 0 {
+			if err := p.acquire(ctx, req); err != nil {
+				for _, rest := range addrs[i:] {
+					out[rest] = Result{Connected: ptrBool(false), Class: budgetClass(err), Err: err.Error()}
+				}
+				return out, nil
+			}
+		}
 		code, text, ok = step("RCPT TO:<" + addr + ">")
 		if !ok {
 			// The connection died mid-batch: the addresses already answered
@@ -310,7 +352,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 			}
 			return out, nil
 		}
-		out[addr] = rcptResult(code, text)
+		r := rcptResult(code, text)
+		p.observe(ctx, req.MXHost, r.Class)
+		out[addr] = r
 	}
 
 	var catchAll *bool
@@ -334,6 +378,34 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
 	return out, catchAll
+}
+
+// acquire asks the pacer for budget. A nil pacer means unpaced, which only a
+// unit test against a fake server may do.
+func (p *Prober) acquire(ctx context.Context, req Request) error {
+	if p.opts.Pacer == nil {
+		return nil
+	}
+	return p.opts.Pacer.Acquire(ctx, req.MXHost, req.Domain)
+}
+
+// observe reports one answer to the pacer, reduced to the only question it is
+// allowed to ask: was this a genuine rate signal?
+func (p *Prober) observe(ctx context.Context, mxHost string, class Class) {
+	if p.opts.Pacer == nil {
+		return
+	}
+	p.opts.Pacer.Observe(ctx, mxHost, class.IsThrottle())
+}
+
+// budgetClass separates "we stood this MX down" from "we could not establish a
+// budget at all"; plan 009 counts them apart, one being normal operation and
+// the other an incident.
+func budgetClass(err error) Class {
+	if errors.Is(err, pacer.ErrPaused) {
+		return ClassPaused
+	}
+	return ClassNoBudget
 }
 
 // dialAny tries the vetted addresses in order, as a real sender does, and

@@ -3,6 +3,48 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 003: the central token bucket becomes the limiter
+
+- **`internal/redis`** — the wire codec is ported from the lab; the connection handling is not. That
+  client dials a fresh TCP connection per command, which is fine for a calibration CLI and wrong
+  where take+refill runs once per probe. New here: pooling, unix sockets, `context`, and
+  `EVALSHA` with an `EVAL` fallback so a kilobyte of Lua is not shipped on every probe.
+- **`internal/limiter`** — take and refill in one Lua call against `rt:mx:<host>:bucket`. With two
+  round trips concurrent workers read the same token count and both spend it, which is how "one
+  request per three seconds" quietly becomes N per three seconds (invariant 4).
+- **`internal/pacer`** — AIMD over that bucket: start at the band ceiling, halve on a real throttle,
+  climb 10% after ten consecutive clean answers, never leave `[min,max]`, and stand the MX down for
+  its cooldown when the floor still is not enough.
+- **Invariant 6 is now a signature, not a comment.** `Observe(ctx, mxHost, throttled bool)` — the
+  pacer never sees a `Class`, and the prober passes `Class.IsThrottle()`. A deferral (greylisting,
+  `4.2.2` over-quota) or a `5.7.x` policy block cannot reach it even by mistake. That mattered
+  enough to encode: three full mailboxes or one blocked IP would otherwise drag a provider to zero.
+- **One token per recipient**, not per session — batching under ADR-006 must not spend less budget
+  than asking one at a time.
+- Bands resolve most-specific-first: `limits:mx:<host>` in Redis, then the shipped seed for the
+  recipient domain, then a conservative default. A saved runtime rate may only ever *lower* the
+  start: backing off is a measurement, a quiet hour below the ceiling is not evidence the ceiling
+  moved.
+- **The Lua script and all 71 seed bands are embedded** (`go:embed`). The artifact is one file
+  (ADR-005), and a limiter that fails because a file is missing would fail open in the worst place.
+  `internal/limiter/token_bucket.lua` and `internal/pacer/bands/` replace `config/limiter/` and
+  `config/limits/`; the doc references were updated with them.
+- `/readyz` now issues a real `PING` instead of dialing — with no Redis there is no budget and every
+  probe fails closed, so such a node should stop receiving work.
+- **Verified on the node against real Redis**: a 12-recipient batch against a `[0.5..2]/s` band ran
+  at **1.99/s**, and AIMD settled at the floor in `BACKOFF` after `mxsim` throttled. With Redis
+  stopped: `/readyz` 503, every address `no_budget` / `connected:false` / `accepted:null`, and
+  **zero connections opened to the MX**. Redis back → recovered with no restart.
+- An accidental run as the wrong user hit the Redis socket's `660 redis:redis` permissions and
+  produced exactly the same clean refusal — a misconfiguration that could have meant unpaced sending
+  instead failed closed.
+- `appendonly yes` + `appendfsync everysec` enabled on the node, as `redis-contract.md` requires
+  before plan 006.
+- Known bound for the multi-node plan: the bucket is shared so nodes cannot double-spend, but the
+  rate each node passes is its own in-memory value persisted to `rt:mx:<host>:rate`, so nodes
+  converge rather than agree instantly.
+- Plan 003 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 002: SSRF guard between the lookup and the socket
 
 - **The hole was concrete, not theoretical.** Plan 001 built the target as

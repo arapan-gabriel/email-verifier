@@ -12,7 +12,7 @@ and updated live, instead of shipping static seed bands forever.
 ## Context
 
 `ds-smtp-retry/ratecheck/internal/calibrate` already implements ramp → bisect → soak → concurrency →
-recovery to find an MX's knee and write a `[min,max]` band. Seed bands ship in `config/limits/*.json`.
+recovery to find an MX's knee and write a `[min,max]` band. Seed bands ship embedded in `internal/pacer/bands/*.json`.
 This plan brings calibration into the service as a controlled operator action. Pattern:
 `aimd-pacing.md`; contract: `redis-contract.md`.
 

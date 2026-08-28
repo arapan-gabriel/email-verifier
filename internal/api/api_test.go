@@ -107,9 +107,18 @@ func TestAuthenticatedIsPassThroughWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestRedisReachableFailsOnDeadEndpoint(t *testing.T) {
-	check := RedisReachable("unix", "/nonexistent/verifierd-test.sock", 0)
-	if err := check(context.Background()); err == nil {
-		t.Error("readiness check passed against a nonexistent socket")
+type stubPinger struct{ err error }
+
+func (s stubPinger) Ping(context.Context) error { return s.err }
+
+// With no Redis there is no rate budget and every probe fails closed
+// (invariant 5), so a node in that state must stop receiving work.
+func TestStoreReachableReflectsThePing(t *testing.T) {
+	if err := StoreReachable(stubPinger{})(context.Background()); err != nil {
+		t.Errorf("healthy store reported not ready: %v", err)
+	}
+	down := errors.New("connection refused")
+	if err := StoreReachable(stubPinger{err: down})(context.Background()); !errors.Is(err, down) {
+		t.Errorf("error = %v, want the ping error", err)
 	}
 }

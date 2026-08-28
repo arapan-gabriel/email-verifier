@@ -2,28 +2,25 @@ package api
 
 import (
 	"context"
-	"net"
 	"net/http"
-	"time"
 )
 
 // ReadinessFunc reports whether the service can serve traffic. It returns nil
 // when ready and an error describing what is missing otherwise.
 type ReadinessFunc func(context.Context) error
 
-// RedisReachable builds a readiness check that dials the operational store.
+// Pinger is the operational store, reduced to the one call readiness needs.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// StoreReachable builds a readiness check that PINGs the operational store.
 //
-// Plan 003 replaces this with a real PING over the RESP client; until then a
-// successful dial is the honest extent of what we can assert.
-func RedisReachable(network, address string, timeout time.Duration) ReadinessFunc {
-	return func(ctx context.Context) error {
-		d := net.Dialer{Timeout: timeout}
-		conn, err := d.DialContext(ctx, network, address)
-		if err != nil {
-			return err
-		}
-		return conn.Close()
-	}
+// It matters more than a liveness check here: with no Redis there is no rate
+// budget, and every probe fails closed (invariant 5). A node in that state
+// should stop receiving work rather than answer "unattempted" to everything.
+func StoreReachable(p Pinger) ReadinessFunc {
+	return func(ctx context.Context) error { return p.Ping(ctx) }
 }
 
 // handleHealthz is liveness: the process is up and serving.

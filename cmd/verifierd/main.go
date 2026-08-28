@@ -18,7 +18,10 @@ import (
 
 	"github.com/arapan-gabriel/email-verifier/internal/api"
 	"github.com/arapan-gabriel/email-verifier/internal/config"
+	"github.com/arapan-gabriel/email-verifier/internal/limiter"
+	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
+	"github.com/arapan-gabriel/email-verifier/internal/redis"
 )
 
 func main() {
@@ -61,7 +64,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		logger.Warn("TLS without client certificates — set tls.client_ca_file for mTLS (ADR-006)")
 	}
 
+	store := redis.New(redis.Options{Addr: cfg.Redis.Addr, Timeout: cfg.Redis.DialTimeout})
+	defer func() { _ = store.Close() }()
+
+	pace := pacer.New(store, limiter.New(store))
+
 	p := prober.New(prober.Options{
+		Pacer:             pace,
 		Helo:              cfg.Probe.Helo,
 		MailFrom:          cfg.Probe.MailFrom,
 		Timeout:           cfg.Probe.Timeout,
@@ -70,11 +79,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
 	})
 
-	network, address := cfg.Redis.Endpoint()
 	srv := &http.Server{
 		Addr: cfg.HTTP.Addr,
 		Handler: api.NewRouter(api.Options{
-			Ready:               api.RedisReachable(network, address, cfg.Redis.DialTimeout),
+			Ready:               api.StoreReachable(store),
 			Prober:              p,
 			SourceIP:            cfg.Probe.SourceIP,
 			MaxEmailsPerRequest: cfg.Probe.MaxEmailsPerRequest,
@@ -101,7 +109,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			"tls", cfg.TLS.Enabled(),
 			"mtls", cfg.TLS.MutualAuth(),
 			"helo", cfg.Probe.Helo,
-			"source_ip", cfg.Probe.SourceIP)
+			"source_ip", cfg.Probe.SourceIP,
+			"seed_bands", pacer.SeedCount())
 		var err error
 		if cfg.TLS.Enabled() {
 			err = srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)

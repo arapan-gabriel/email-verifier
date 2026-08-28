@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 )
 
 // scriptedMX is a Dialer backed by an in-memory pipe, so no unit test opens a
@@ -324,5 +326,133 @@ func TestGuardedIsNeitherThrottleNorTemp(t *testing.T) {
 	}
 	if ClassGuarded.IsTemp() {
 		t.Error("guarded is retryable; the MX will still point inward tomorrow")
+	}
+}
+
+// recordingPacer captures exactly what the prober is allowed to tell the pacer.
+type recordingPacer struct {
+	signals    []bool
+	acquireErr error
+	acquires   int
+}
+
+func (r *recordingPacer) Acquire(context.Context, string, string) error {
+	r.acquires++
+	return r.acquireErr
+}
+
+func (r *recordingPacer) Observe(_ context.Context, _ string, throttled bool) {
+	r.signals = append(r.signals, throttled)
+}
+
+func (r *recordingPacer) throttles() int {
+	n := 0
+	for _, s := range r.signals {
+		if s {
+			n++
+		}
+	}
+	return n
+}
+
+// Invariant 6, the fix this repo carries from ../ds-smtp-retry: only a genuine
+// rate signal moves the pacer. Greylisting is per-recipient and
+// rate-independent; a 5.7.x policy block is about our IP, and slowing down does
+// not grow a PTR record. If either counted, three full mailboxes or one blocked
+// IP would drag a whole provider to a crawl.
+func TestOnlyRealThrottlingMovesThePacer(t *testing.T) {
+	for name, tc := range map[string]struct {
+		banner, rcpt  string
+		wantThrottles int
+	}{
+		"accepted":            {"220 mx.test ESMTP", "250 2.1.5 OK", 0},
+		"no such user":        {"220 mx.test ESMTP", "550 5.1.1 No such user", 0},
+		"greylisted":          {"220 mx.test ESMTP", "450 4.2.0 Greylisted, try later", 0},
+		"over quota 4.2.2":    {"220 mx.test ESMTP", "452 4.2.2 The email account is over quota", 0},
+		"policy block on IP":  {"220 mx.test ESMTP", "554 5.7.1 Client host blocked using Spamhaus", 0},
+		"reverse dns failure": {"220 mx.test ESMTP", "550 5.7.25 Forward-confirmed reverse DNS failed", 0},
+		"421 at RCPT":         {"220 mx.test ESMTP", "421 4.7.0 unusual rate of traffic", 1},
+		"421 in the banner":   {"421 4.7.0 unusual rate of traffic", "250 2.1.5 OK", 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pc := &recordingPacer{}
+			d := scriptedMX(tc.banner, func(cmd string) string {
+				switch {
+				case strings.HasPrefix(cmd, "RCPT TO"):
+					return tc.rcpt
+				case strings.HasPrefix(cmd, "RSET"):
+					return ""
+				}
+				return "250 ok"
+			})
+			p := New(Options{Dialer: d, Resolver: stubResolver{}, Pacer: pc, Timeout: 5 * time.Second})
+			if _, err := p.Probe(t.Context(), Request{
+				MXHost: "mx.test", Domain: "example.test", Emails: []string{"a@example.test"},
+			}); err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if got := pc.throttles(); got != tc.wantThrottles {
+				t.Errorf("pacer saw %d throttle signals, want %d (signals: %v)", got, tc.wantThrottles, pc.signals)
+			}
+		})
+	}
+}
+
+// Invariant 5: with no budget the probe is not sent. Not sending is a
+// recoverable non-answer; sending unpaced is a blocklist entry.
+func TestFailsClosedWithoutBudget(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err       error
+		wantClass Class
+	}{
+		"bucket unreachable": {errors.New("connection refused"), ClassNoBudget},
+		"mx paused":          {fmt.Errorf("%w for mx.test", pacer.ErrPaused), ClassPaused},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			pc := &recordingPacer{acquireErr: tc.err}
+			p := New(Options{
+				Pacer:    pc,
+				Resolver: stubResolver{},
+				Dialer: dialFunc(func(context.Context, string, string) (net.Conn, error) {
+					dialed = true
+					return nil, errors.New("must not be reached")
+				}),
+			})
+
+			resp, err := p.Probe(t.Context(), Request{
+				MXHost: "mx.test", Domain: "example.test",
+				Emails: []string{"a@example.test", "b@example.test"},
+			})
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if dialed {
+				t.Fatal("a probe was sent without budget")
+			}
+			for addr, r := range resp.Results {
+				if r.Class != tc.wantClass {
+					t.Errorf("%s: Class = %s, want %s", addr, r.Class, tc.wantClass)
+				}
+				if r.Accepted != nil {
+					t.Errorf("%s: Accepted = %v, want nil", addr, *r.Accepted)
+				}
+			}
+		})
+	}
+}
+
+// The band is a rate of questions asked: batching many RCPTs down one
+// connection must not spend less budget than asking them one at a time.
+func TestEveryRecipientCostsAToken(t *testing.T) {
+	pc := &recordingPacer{}
+	d := scriptedMX("220 mx.test ESMTP", happyPath())
+	p := New(Options{Dialer: d, Resolver: stubResolver{}, Pacer: pc, Timeout: 5 * time.Second})
+	emails := []string{"a@example.test", "b@example.test", "c@example.test", "d@example.test"}
+	if _, err := p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "example.test", Emails: emails}); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if pc.acquires != len(emails) {
+		t.Errorf("took %d tokens for %d recipients, want one each", pc.acquires, len(emails))
 	}
 }

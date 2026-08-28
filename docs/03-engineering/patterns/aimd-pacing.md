@@ -1,12 +1,13 @@
 # Pattern — per-MX AIMD pacing over a central bucket
 
 How the service paces itself to each recipient MX. Ported from `ds-smtp-retry/ratecheck/internal/
-verify` + `config/limiter/token_bucket.lua`.
+verify` + the lab's `config/limiter/token_bucket.lua`, now embedded at
+`internal/limiter/token_bucket.lua`.
 
 ## The band
 
 Each MX has a calibrated band `[min_rate, max_rate]` (+ concurrency band, cooldown, pause) in Redis
-(`limits:mx:<host>`). Seed bands ship in `config/limits/*.json` (from `ds-smtp-retry/config/
+(`limits:mx:<host>`). Seed bands ship embedded in `internal/pacer/bands/*.json` (from `ds-smtp-retry/config/
 limits-init`); calibration (plan 012) refines them.
 
 ## AIMD
@@ -35,6 +36,19 @@ rate. This is what makes "add a node" a deployment change, not a pacing change.
 
 If the bucket call errors (Redis down), the probe is **skipped** (`unknown`), never sent unpaced. An
 unconfirmed verdict is recoverable; a blocklist entry is not.
+
+## What the pacer is allowed to be told
+
+`internal/prober` calls `Pacer.Observe(ctx, mxHost, throttled bool)` — a bare bool, derived from
+`Class.IsThrottle()`. The pacer never sees the Class at all, so a deferral or a policy block cannot
+reach it even by mistake. The rule that used to be a comment is now the signature.
+
+Budget is one token **per recipient**, not per session. Batching many RCPTs down one connection
+(ADR-006) must not spend less budget than asking them one at a time would.
+
+`Acquire` returning `ErrPaused` or a bucket failure means the probe is not sent: the addresses come
+back `connected:false` with `class:paused` or `class:no_budget`. Plan 009 counts them apart — one is
+normal operation, the other an incident.
 
 ## Saved working point
 

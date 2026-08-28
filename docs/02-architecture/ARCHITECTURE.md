@@ -74,7 +74,8 @@ internal/
   redis/                minimal RESP client                                         ← from lab
 config/
   limiter/token_bucket.lua   the central take+refill bucket                         ← from lab
-  limits/*.json              seed bands per provider                                ← from ds-smtp-retry/config/limits-init
+internal/limiter/token_bucket.lua   the central take+refill bucket, go:embed        ← from lab
+internal/pacer/bands/*.json         seed bands per provider, go:embed               ← from lab
 scripts/preflight.sh         cold-IP go/no-go check                                 ← from ds-smtp-retry
 ```
 

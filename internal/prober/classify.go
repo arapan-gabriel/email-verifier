@@ -51,6 +51,13 @@ const (
 	// Added here, not ported: ../ds-smtp-retry connects to loopback on purpose,
 	// which is the one lab behaviour this service inverts.
 	ClassGuarded Class = "guarded"
+	// ClassNoBudget is the fail-closed path (invariant 5): the shared token
+	// bucket could not be consulted, so the probe was not sent. An unconfirmed
+	// verdict is recoverable; a blocklist entry is not.
+	ClassNoBudget Class = "no_budget"
+	// ClassPaused is this MX standing down for its cooldown after being
+	// throttled at the floor of its band. Normal operation, not an incident.
+	ClassPaused  Class = "paused"
 	ClassUnknown Class = "unknown"
 )
 
@@ -58,7 +65,8 @@ const (
 // "here is your answer".
 func (c Class) IsTemp() bool {
 	switch c {
-	case ClassDeferred, ClassThrottled, ClassTimeout, ClassConnError, ClassPolicy:
+	case ClassDeferred, ClassThrottled, ClassTimeout, ClassConnError, ClassPolicy,
+		ClassNoBudget, ClassPaused:
 		return true
 	}
 	return false
