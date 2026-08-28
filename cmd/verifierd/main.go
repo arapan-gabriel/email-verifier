@@ -19,6 +19,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/api"
 	"github.com/arapan-gabriel/email-verifier/internal/config"
 	"github.com/arapan-gabriel/email-verifier/internal/limiter"
+	"github.com/arapan-gabriel/email-verifier/internal/metrics"
 	"github.com/arapan-gabriel/email-verifier/internal/mxprofile"
 	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
@@ -69,7 +70,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	store := redis.New(redis.Options{Addr: cfg.Redis.Addr, Timeout: cfg.Redis.DialTimeout})
 	defer func() { _ = store.Close() }()
 
-	pace := pacer.New(store, limiter.New(store))
+	reg := metrics.New(nil)
+	pace := pacer.New(store, limiter.New(store), pacer.Options{
+		IdleTTL:    cfg.Pacer.IdleTTL,
+		MaxTracked: cfg.Pacer.MaxTracked,
+		Metrics:    reg,
+	})
+	reg.SetPacer(pace)
 
 	dns := resolver.New(resolver.Options{
 		Servers:     cfg.DNS.Servers,
@@ -92,6 +99,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		PolicyStop:        cfg.Probe.PolicyStop,
 		DeferralRetry:     cfg.Probe.DeferralRetry,
 		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
+		Metrics:           reg,
 	})
 
 	srv := &http.Server{
@@ -103,6 +111,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			MaxEmailsPerRequest: cfg.Probe.MaxEmailsPerRequest,
 			AuthEnabled:         cfg.Auth.Enabled,
 			APIKey:              cfg.Auth.APIKey,
+			Metrics:             reg,
+			Logger:              logger,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,

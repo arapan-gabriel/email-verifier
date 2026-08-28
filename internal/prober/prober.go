@@ -27,6 +27,14 @@ type Resolver interface {
 	Resolve(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
+// Recorder counts what happened. Nil means nobody is counting; the prober
+// behaves identically either way.
+type Recorder interface {
+	Result(class string)
+	Reply(code int, class string)
+	Blocked(reason string)
+}
+
 // Pacer holds this MX to a rate it tolerates.
 //
 // The Observe signature is deliberately a bare bool. Only a genuine rate signal
@@ -84,6 +92,8 @@ type Options struct {
 	// Profiles remembers randomiser verdicts. Nil means every request
 	// rediscovers them.
 	Profiles Profiles
+	// Metrics counts results, replies and refusals. Optional.
+	Metrics Recorder
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
 	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
@@ -277,6 +287,9 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 			r.CatchAll, r.Randomiser = verdict.catchAll, verdict.randomiser
 			out.Results[addr] = r
 		}
+	}
+	for _, r := range out.Results {
+		p.record(r)
 	}
 	return out, nil
 }
@@ -537,6 +550,27 @@ func (p *Prober) observe(ctx context.Context, mxHost string, class Class) {
 		return
 	}
 	p.opts.Pacer.Observe(ctx, mxHost, class.IsThrottle())
+}
+
+// record reports one finished result. Blocked reasons are kept apart from
+// answers: a refusal to send is an operational fact, not a measurement of a
+// mailbox, and an operator alerts on them differently.
+func (p *Prober) record(r Result) {
+	m := p.opts.Metrics
+	if m == nil {
+		return
+	}
+	class := string(r.Class)
+	m.Result(class)
+	m.Reply(r.SMTPCode, class)
+	switch r.Class {
+	case ClassGuarded, ClassNoBudget, ClassPaused:
+		m.Blocked(class)
+	case ClassPolicy:
+		if strings.HasPrefix(r.Err, "not attempted:") {
+			m.Blocked("policy_stop")
+		}
+	}
 }
 
 // budgetClass separates "we stood this MX down" from "we could not establish a

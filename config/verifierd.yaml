@@ -35,6 +35,13 @@ dns:
   negative_ttl: 1m
   cache_size: 4096
 
+# The pacer's in-memory map is keyed by a value that arrives in the request, so
+# it needs a ceiling. Eviction is lossless — the working point is in Redis — and
+# these two numbers also bound the cardinality of every per-MX metric.
+pacer:
+  idle_ttl: 30m
+  max_tracked: 512
+
 probe:
   # Must FCrDNS to source_ip, or Yahoo/Apple/GMX/Microsoft reject the session
   # with a 5.7.x before RCPT is ever considered.

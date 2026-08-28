@@ -3,6 +3,7 @@ package pacer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strconv"
 	"sync"
@@ -85,7 +86,7 @@ func newPacer(t *testing.T, seed map[string]string) (*Pacer, *fakeStore, *fakeTa
 	kv := map[string]string{"limits:mx:mx.test": testBand}
 	maps.Copy(kv, seed)
 	s, tk := newStore(kv), &fakeTaker{}
-	return New(s, tk), s, tk
+	return New(s, tk, Options{}), s, tk
 }
 
 func TestStartsAtTheCeiling(t *testing.T) {
@@ -191,7 +192,7 @@ func TestPausesAtTheFloorAndResumesAfterCooldown(t *testing.T) {
 func TestAcquireWaitsForTokens(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s, tk := newStore(map[string]string{"limits:mx:mx.test": testBand}), &fakeTaker{refuse: 3}
-		p := New(s, tk)
+		p := New(s, tk, Options{})
 		start := time.Now()
 		if err := p.Acquire(context.Background(), "mx.test", "example.test"); err != nil {
 			t.Fatalf("Acquire: %v", err)
@@ -206,7 +207,7 @@ func TestAcquireWaitsForTokens(t *testing.T) {
 func TestAcquireFailsClosedWhenTheBucketIsUnreachable(t *testing.T) {
 	s := newStore(map[string]string{"limits:mx:mx.test": testBand})
 	down := errors.New("connection refused")
-	p := New(s, &fakeTaker{err: down})
+	p := New(s, &fakeTaker{err: down}, Options{})
 	err := p.Acquire(t.Context(), "mx.test", "example.test")
 	if !errors.Is(err, down) {
 		t.Fatalf("Acquire = %v, want the store failure — pacing must never fail open", err)
@@ -285,4 +286,93 @@ func TestBandResolution(t *testing.T) {
 			t.Errorf("SeedCount = %d; the bands did not make it into the binary", n)
 		}
 	})
+}
+
+// The map is keyed by a value that arrives in the request. Without a bound a
+// bulk run over ten thousand domains holds ten thousand entries for the life of
+// the process — and every per-MX metric labelled from it becomes a time series
+// that never goes away.
+func TestTrackedMXIsBounded(t *testing.T) {
+	s, tk := newStore(nil), &fakeTaker{}
+	p := New(s, tk, Options{MaxTracked: 32})
+	for i := range 500 {
+		if err := p.Acquire(t.Context(), fmt.Sprintf("mx%03d.test", i), "example.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := p.Tracked(); got > 32 {
+		t.Errorf("tracking %d MXes, cap is 32", got)
+	}
+	if len(p.Snapshot()) != p.Tracked() {
+		t.Error("Snapshot disagrees with Tracked")
+	}
+}
+
+// Eviction is lossless: the working point is in Redis, so an evicted entry
+// costs one re-read rather than a reset to the ceiling.
+func TestEvictedStateComesBackFromRedis(t *testing.T) {
+	s, tk := newStore(map[string]string{"limits:mx:mx.test": testBand}), &fakeTaker{}
+	p := New(s, tk, Options{MaxTracked: 2})
+	ctx := t.Context()
+
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	p.Observe(ctx, "mx.test", true) // 4 -> 2, persisted
+
+	// Push it out.
+	for i := range 10 {
+		if err := p.Acquire(ctx, fmt.Sprintf("other%d.test", i), "example.test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := p.Rate("mx.test"); ok {
+		t.Fatal("mx.test survived eviction; the test proves nothing")
+	}
+
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tk.lastRate(); got != 2 {
+		t.Errorf("resumed at %v, want the persisted 2 — eviction must not reset to the ceiling", got)
+	}
+}
+
+func TestIdleEntriesAreEvicted(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, tk := newStore(nil), &fakeTaker{}
+		p := New(s, tk, Options{IdleTTL: 10 * time.Minute, MaxTracked: 1000})
+		ctx := context.Background()
+		if err := p.Acquire(ctx, "idle.test", "example.test"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(11 * time.Minute)
+		// Eviction is opportunistic, so touching another host triggers it.
+		if err := p.Acquire(ctx, "fresh.test", "example.test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := p.Rate("idle.test"); ok {
+			t.Error("an entry idle past the TTL is still held")
+		}
+	})
+}
+
+type countingRecorder struct{ pauses int }
+
+func (c *countingRecorder) Pause(string) { c.pauses++ }
+
+func TestPauseIsCounted(t *testing.T) {
+	rec := &countingRecorder{}
+	s := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	p := New(s, &fakeTaker{}, Options{Metrics: rec})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 4 { // 4 -> 2 -> 1 -> 0.5 -> paused
+		p.Observe(ctx, "mx.test", true)
+	}
+	if rec.pauses != 1 {
+		t.Errorf("counted %d pause events, want 1", rec.pauses)
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/arapan-gabriel/email-verifier/internal/limiter"
+	"github.com/arapan-gabriel/email-verifier/internal/metrics"
 )
 
 // State names match the Redis contract (rt:mx:<host>:state).
@@ -64,10 +65,28 @@ type Taker interface {
 	Take(ctx context.Context, mxHost string, rate, burst float64) (limiter.Decision, error)
 }
 
+// PauseRecorder is told when an MX is stood down. Nil means nobody is counting.
+type PauseRecorder interface {
+	Pause(mxHost string)
+}
+
+// Options bounds what the pacer keeps in memory.
+type Options struct {
+	// IdleTTL drops an MX not asked about for this long. Eviction is lossless:
+	// the working point lives in Redis, so an evicted entry costs one re-read.
+	IdleTTL time.Duration
+	// MaxTracked caps the number of MXes held at once.
+	MaxTracked int
+	// Metrics counts pause events. Optional.
+	Metrics PauseRecorder
+}
+
 // Pacer holds each MX to a rate. Safe for concurrent use.
 type Pacer struct {
-	store Store
-	take  Taker
+	store   Store
+	take    Taker
+	opts    Options
+	metrics PauseRecorder
 
 	mu sync.Mutex
 	mx map[string]*mxState
@@ -80,11 +99,68 @@ type mxState struct {
 	clean       int
 	state       string
 	pausedUntil time.Time
+	lastUsed    time.Time
 }
 
 // New returns a Pacer over the shared bucket and the operational store.
-func New(store Store, take Taker) *Pacer {
-	return &Pacer{store: store, take: take, mx: make(map[string]*mxState)}
+//
+// The in-memory map is bounded. It is keyed by a value that arrives in the
+// request, so without a bound a bulk run over ten thousand domains would hold
+// ten thousand entries for the life of the process — and every per-MX metric
+// labelled from it would be a time series that never goes away.
+func New(store Store, take Taker, opts Options) *Pacer {
+	if opts.IdleTTL <= 0 {
+		opts.IdleTTL = 30 * time.Minute
+	}
+	if opts.MaxTracked <= 0 {
+		opts.MaxTracked = 512
+	}
+	return &Pacer{store: store, take: take, opts: opts, metrics: opts.Metrics, mx: make(map[string]*mxState)}
+}
+
+// Snapshot reports what the pacer is currently tracking, for the scrape.
+// Gauges are pulled rather than pushed: this is the state, and mirroring it
+// would give two answers that can disagree.
+func (p *Pacer) Snapshot() []metrics.MXState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]metrics.MXState, 0, len(p.mx))
+	for host, st := range p.mx {
+		out = append(out, metrics.MXState{Host: host, Rate: st.rate, Conc: st.conc, State: st.state})
+	}
+	return out
+}
+
+// Tracked reports how many MXes are held, for tests and the cardinality gauge.
+func (p *Pacer) Tracked() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.mx)
+}
+
+// evictLocked drops idle entries, then the least recently used if the cap is
+// still exceeded. A paused MX is safe to evict: pause_until is in Redis and is
+// re-read when the entry comes back.
+func (p *Pacer) evictLocked() {
+	cutoff := time.Now().Add(-p.opts.IdleTTL)
+	for host, st := range p.mx {
+		if st.lastUsed.Before(cutoff) {
+			delete(p.mx, host)
+		}
+	}
+	for len(p.mx) >= p.opts.MaxTracked {
+		var oldest string
+		var oldestAt time.Time
+		for host, st := range p.mx {
+			if oldest == "" || st.lastUsed.Before(oldestAt) {
+				oldest, oldestAt = host, st.lastUsed
+			}
+		}
+		if oldest == "" {
+			return
+		}
+		delete(p.mx, oldest)
+	}
 }
 
 // Acquire blocks a probe until this MX has budget for it.
@@ -140,6 +216,8 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 		p.mu.Unlock()
 		return
 	}
+	st.lastUsed = time.Now()
+	paused := false
 
 	switch {
 	case throttled:
@@ -154,6 +232,7 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 		// rather than keep poking a server that has said no.
 		st.pausedUntil = time.Now().Add(st.band.pauseFor())
 		st.state = StatePaused
+		paused = true
 
 	default:
 		st.clean++
@@ -169,6 +248,9 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 
 	snapshot := *st
 	p.mu.Unlock()
+	if paused && p.metrics != nil {
+		p.metrics.Pause(mxHost)
+	}
 	p.persist(ctx, mxHost, snapshot)
 }
 
@@ -196,6 +278,7 @@ func (p *Pacer) State(mxHost string) string {
 func (p *Pacer) stateFor(ctx context.Context, mxHost, domain string) *mxState {
 	p.mu.Lock()
 	if st, ok := p.mx[mxHost]; ok {
+		st.lastUsed = time.Now()
 		p.mu.Unlock()
 		return st
 	}
@@ -213,9 +296,11 @@ func (p *Pacer) stateFor(ctx context.Context, mxHost, domain string) *mxState {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if st, ok := p.mx[mxHost]; ok { // another goroutine won the race
+		st.lastUsed = time.Now()
 		return st
 	}
-	st := &mxState{band: band, rate: start, conc: band.MinConc, state: StateProbing}
+	p.evictLocked()
+	st := &mxState{band: band, rate: start, conc: band.MinConc, state: StateProbing, lastUsed: time.Now()}
 	if until, ok := p.savedPause(ctx, mxHost); ok {
 		st.pausedUntil = until
 		if time.Now().Before(until) {

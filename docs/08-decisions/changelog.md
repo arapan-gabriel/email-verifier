@@ -3,6 +3,37 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 009: observability, and the memory leak it uncovered
+
+- **No Prometheus client library.** It pulls protobuf, procfs and expfmt into a repository with one
+  dependency, to render a text format for a fixed set of metrics. `internal/metrics` renders it
+  directly, as this repository already does for RESP and for SMTP. The one thing worth care by hand
+  is the histogram — cumulative `le` buckets, `+Inf`, `_sum`, `_count` — and it is tested against a
+  known distribution.
+- **The unbounded pacer map.** Working out what to label the gauges with surfaced a real leak:
+  `Pacer.mx` is keyed by `mx_host`, which arrives in the request, and nothing evicted it. A bulk run
+  over ten thousand domains held ten thousand entries for the life of the process — and every
+  per-MX metric labelled from it would have been a time series that never went away. One fix serves
+  both: idle eviction plus a cap, lossless because the working point is in Redis, so an evicted
+  entry costs one re-read rather than a reset to the ceiling. `verify_tracked_mx` reports the
+  ceiling being approached, which is the metric to alert on.
+- Two entries in the contract described things that no longer exist: `verify_requests_total{status}`
+  counted verdicts this service stopped producing under ADR-006. It is now
+  `verify_results_total{class}`, over the classes that are actually returned. `ip_health_listed`
+  moves to plan 010, arriving with the state it reports.
+- Gauges are **pulled from the pacer at scrape time** rather than mirrored: it owns that state, and
+  a copy would give two answers that can disagree.
+- `GET /metrics` goes through the same guard as any non-health route (invariant 11) — an operator
+  surface on a public IP is still a surface.
+- **Request id at the edge**, echoed in `X-Request-Id` and present in every log line. A
+  caller-supplied id is honoured, so a trace spans Data Scout and this service.
+- **No address at info level**, with a test. The domain and a count are enough to find a problem;
+  the local part is the customer's data.
+- A visible side effect worth recording: after three guarded requests to `localhost`,
+  `verify_tracked_mx` reads `1`, not `4`. The earlier fix that moved the SSRF guard ahead of the
+  budget means a refused target creates no pacer entry and therefore no time series.
+- Plan 009 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — The SSRF guard now runs before the budget is taken
 
 Found by walking the manual verification rather than by a test. With Redis unreachable, probing

@@ -32,6 +32,7 @@ type Config struct {
 	TLS   TLS   `yaml:"tls"`
 	Redis Redis `yaml:"redis"`
 	DNS   DNS   `yaml:"dns"`
+	Pacer Pacer `yaml:"pacer"`
 	Probe Probe `yaml:"probe"`
 	Auth  Auth  `yaml:"auth"`
 	Log   Log   `yaml:"log"`
@@ -70,6 +71,16 @@ type DNS struct {
 	CacheTTL    time.Duration `yaml:"cache_ttl"`
 	NegativeTTL time.Duration `yaml:"negative_ttl"`
 	CacheSize   int           `yaml:"cache_size"`
+}
+
+// Pacer bounds what the rate limiter keeps in memory. The map is keyed by a
+// value that arrives in the request, so it needs a ceiling: without one a bulk
+// run over ten thousand domains holds ten thousand entries for the life of the
+// process, and every per-MX metric labelled from it becomes a time series that
+// never goes away.
+type Pacer struct {
+	IdleTTL    time.Duration `yaml:"idle_ttl"`
+	MaxTracked int           `yaml:"max_tracked"`
 }
 
 // Probe configures the SMTP session.
@@ -168,6 +179,7 @@ func defaults() Config {
 			NegativeTTL: time.Minute,
 			CacheSize:   4096,
 		},
+		Pacer: Pacer{IdleTTL: 30 * time.Minute, MaxTracked: 512},
 		Probe: Probe{
 			DialNetwork:         "tcp4",
 			Port:                "25",
@@ -289,6 +301,8 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("DNS_CACHE_TTL", &cfg.DNS.CacheTTL) },
 		func() error { return dur("DNS_NEGATIVE_TTL", &cfg.DNS.NegativeTTL) },
 		func() error { return integer("DNS_CACHE_SIZE", &cfg.DNS.CacheSize) },
+		func() error { return dur("PACER_IDLE_TTL", &cfg.Pacer.IdleTTL) },
+		func() error { return integer("PACER_MAX_TRACKED", &cfg.Pacer.MaxTracked) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
@@ -361,6 +375,9 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.Timeout <= 0 {
 		add("probe.timeout must be positive, got %s", c.Probe.Timeout)
+	}
+	if c.Pacer.IdleTTL <= 0 || c.Pacer.MaxTracked <= 0 {
+		add("pacer.idle_ttl and pacer.max_tracked must be positive")
 	}
 	if c.DNS.Timeout <= 0 {
 		add("dns.timeout must be positive, got %s", c.DNS.Timeout)

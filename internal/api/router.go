@@ -3,7 +3,10 @@
 // reply classification lives here (ENGINEERING-STANDARDS §2).
 package api
 
-import "net/http"
+import (
+	"log/slog"
+	"net/http"
+)
 
 // Options configures the router.
 type Options struct {
@@ -20,6 +23,11 @@ type Options struct {
 	AuthEnabled bool
 	// APIKey is the expected bearer token when AuthEnabled is true.
 	APIKey string
+	// Metrics backs GET /metrics and times POST /probe. Nil leaves the route
+	// unregistered and the timing unrecorded.
+	Metrics Metrics
+	// Logger receives one line per request. Nil discards them.
+	Logger *slog.Logger
 }
 
 // Authenticated wraps h with the credential check required by invariant 11.
@@ -39,17 +47,29 @@ func NewRouter(opts Options) http.Handler {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.Handle("GET /readyz", handleReadyz(opts.Ready))
 
+	if opts.Metrics != nil {
+		// Operator surface, so it goes through the same guard as anything else
+		// that is not a health probe (invariant 11).
+		mux.Handle("GET /metrics", opts.Authenticated(handleMetrics(opts.Metrics)))
+	}
+
 	if opts.Prober != nil {
 		limit := opts.MaxEmailsPerRequest
 		if limit <= 0 {
 			limit = 500
 		}
 		// Registered through Authenticated so the route cannot skip the guard.
-		mux.Handle("POST /probe", opts.Authenticated(
-			handleProbe(opts.Prober, opts.SourceIP, limit)))
+		var probe http.Handler = handleProbe(opts.Prober, opts.SourceIP, limit)
+		if opts.Metrics != nil {
+			probe = timed(opts.Metrics, probe)
+		}
+		mux.Handle("POST /probe", opts.Authenticated(probe))
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		WriteError(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
-	return mux
+	if opts.Logger == nil {
+		return mux
+	}
+	return withRequestID(opts.Logger, mux)
 }

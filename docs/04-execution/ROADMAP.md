@@ -27,7 +27,7 @@ Scout (ADR-006).
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 009 | observability | structured logs, Prometheus metrics, request tracing | metrics scrape shows per-MX rate, verdict counts, pause events |
+| 009 | observability *(active)* | hand-rolled Prometheus text (no client library), request-id logging, **and a bound on the pacer's in-memory map** — which was also the cardinality bound | ✅ scrape shows results, replies, blocked reasons and per-MX gauges; `verify_tracked_mx` is the canary |
 | 010 | ip-health-and-blocklists | blocklist self-monitoring; "burned IP" detection + alert | a simulated listing flips IP health and pauses sends |
 | 011 | suppression-enforcement | suppression-list sync from Data Scout; never probe/mail a suppressed address | a suppressed address is skipped with an auditable reason |
 | 012 | calibration-as-a-service | expose ladder/band calibration (from the lab) as an operator endpoint | operator can re-calibrate one MX and the new band takes effect live |

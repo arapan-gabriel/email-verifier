@@ -146,3 +146,57 @@ func TestProbeUnregisteredWithoutAnEngine(t *testing.T) {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
+
+type fakeMetrics struct {
+	observed []float64
+	body     string
+}
+
+func (f *fakeMetrics) Observe(s float64) { f.observed = append(f.observed, s) }
+func (f *fakeMetrics) Render() string    { return f.body }
+
+// Operator surface, so it goes through the same guard as anything else that is
+// not a health probe (invariant 11).
+func TestMetricsRequiresCredentials(t *testing.T) {
+	h := NewRouter(Options{
+		Metrics:     &fakeMetrics{body: "verify_results_total{class=\"valid\"} 1\n"},
+		AuthEnabled: true, APIKey: "right-key",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer right-key")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want Prometheus text", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "verify_results_total") {
+		t.Error("body is not the rendered registry")
+	}
+}
+
+func TestProbeIsTimed(t *testing.T) {
+	m := &fakeMetrics{}
+	h := NewRouter(Options{
+		Prober: &fakeProber{}, MaxEmailsPerRequest: 10,
+		AuthEnabled: true, APIKey: "right-key", Metrics: m,
+	})
+	if rec := postProbe(t, h, goodBody, "Bearer right-key"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(m.observed) != 1 {
+		t.Fatalf("recorded %d durations, want 1", len(m.observed))
+	}
+	if m.observed[0] < 0 {
+		t.Error("negative duration")
+	}
+}
