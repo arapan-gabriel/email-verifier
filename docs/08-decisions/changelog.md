@@ -3,6 +3,25 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — The SSRF guard now runs before the budget is taken
+
+Found by walking the manual verification rather than by a test. With Redis unreachable, probing
+`mx_host: 127.0.0.1` returned `no_budget` instead of `guarded`: the pacer ran first, so the guard was
+never reached.
+
+The ordering was wrong for two reasons beyond the confusing output:
+
+- **A guarded target spent a token.** Budget is for questions actually put to a server, and that one
+  was never going to be contacted.
+- **It created an attacker-influenced Redis key.** `mx_host` comes from the request, so the bucket
+  `rt:mx:127.0.0.1:bucket` was written on the caller's say-so. Bounded by the script's one-hour
+  expiry, but still unbounded key cardinality driven by request input.
+
+Resolve and vet now run first; the budget is taken immediately before the socket. A refusal we make
+ourselves is free and touches nothing shared, and a Redis outage can no longer mask an SSRF refusal
+behind a fail-closed one. Two regression tests: a guarded target takes zero tokens, and the guard
+still fires when `Acquire` would have failed.
+
 ## 2026-08-28 — Plan 007: policy-stop, all that was left of the bulk plan
 
 Renamed from `bulk-verify-and-queue`. ADR-006 left exactly one behaviour: the bulk endpoint, the job,

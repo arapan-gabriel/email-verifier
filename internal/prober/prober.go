@@ -311,18 +311,15 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return out, catchAllVerdict{}
 	}
 
-	// Budget before anything else. A paused MX or an unreachable bucket means
-	// the probe is not sent at all (invariant 5) — the addresses come back
-	// unattempted, never as a verdict.
-	if err := p.acquire(ctx, req); err != nil {
-		results, v := fail(budgetClass(err), 0, "", err.Error())
-		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
-		return results, v
-	}
-
-	// Resolve and vet before any socket exists. The address handed to the
-	// dialer is an IP literal, so no second, unguarded lookup can happen
-	// underneath us (invariant 2).
+	// Resolve and vet before anything else. The address handed to the dialer is
+	// an IP literal, so no second, unguarded lookup can happen underneath us
+	// (invariant 2).
+	//
+	// This runs *before* the budget on purpose. A refusal we make ourselves
+	// must be free and must touch no shared state: taking a token first would
+	// spend a recipient MX's budget on a server we will never contact, and —
+	// because mx_host is attacker-influenced — would create a bucket key named
+	// after whatever the caller sent.
 	ips, err := p.opts.resolveVia().Resolve(ctx, req.MXHost)
 	if err != nil {
 		var blocked *resolver.BlockedError
@@ -330,6 +327,15 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 			return fail(ClassGuarded, 0, "", err.Error())
 		}
 		return fail(classifyNetErr(err), 0, "", err.Error())
+	}
+
+	// Budget before the socket. A paused MX or an unreachable bucket means the
+	// probe is not sent at all (invariant 5) — the addresses come back
+	// unattempted, never as a verdict.
+	if err := p.acquire(ctx, req); err != nil {
+		results, v := fail(budgetClass(err), 0, "", err.Error())
+		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
+		return results, v
 	}
 
 	conn, err := p.dialAny(ctx, ips)

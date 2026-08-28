@@ -43,6 +43,11 @@ Two details that matter:
   on what the resolver chooses to do with a literal.
 - **The guard is the prober's default, not an option.** Forgetting to wire it cannot produce an
   unguarded prober.
+- **The guard runs before the rate budget is taken**, so a refusal we make ourselves is free and
+  touches no shared state. Taking a token first would spend a recipient MX's budget on a server we
+  will never contact and — because `mx_host` is attacker-influenced — would create a bucket key
+  named after whatever the caller sent. It also means a Redis outage cannot mask an SSRF refusal
+  behind a fail-closed one.
 
 A refusal is `class: guarded` with a reason: `connected:false`, `accepted:null`, never `invalid`.
 It is neither a throttle nor a deferral — retrying changes nothing, and slowing down does not change

@@ -795,3 +795,52 @@ func TestPolicyStopSkipsCatchAllProbing(t *testing.T) {
 		t.Errorf("sent %d catch-all probes after the server refused us", bogus)
 	}
 }
+
+// A refusal we make ourselves must be free and must touch no shared state.
+// Taking a token first would spend a recipient MX's budget on a server we will
+// never contact — and because mx_host is attacker-influenced, it would create a
+// bucket key named after whatever the caller sent.
+func TestGuardedTargetSpendsNoBudget(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "169.254.169.254", "10.0.0.5", "localhost"} {
+		t.Run(host, func(t *testing.T) {
+			pc := &recordingPacer{}
+			p := New(Options{
+				Pacer: pc,
+				Dialer: dialFunc(func(context.Context, string, string) (net.Conn, error) {
+					return nil, errors.New("must not be reached")
+				}),
+			})
+			resp, err := p.Probe(t.Context(), Request{
+				MXHost: host, Domain: "evil.test",
+				Emails: []string{"a@evil.test", "b@evil.test"},
+			})
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			for _, r := range resp.Results {
+				if r.Class != ClassGuarded {
+					t.Errorf("Class = %s, want guarded", r.Class)
+				}
+			}
+			if pc.acquires != 0 {
+				t.Errorf("took %d tokens for a target we refuse to contact, want 0", pc.acquires)
+			}
+		})
+	}
+}
+
+// The guard fires even when the budget could not have been established, so a
+// Redis outage does not hide an SSRF refusal behind a fail-closed one.
+func TestGuardFiresBeforeTheBudgetCheck(t *testing.T) {
+	pc := &recordingPacer{acquireErr: errors.New("connection refused")}
+	p := New(Options{Pacer: pc})
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "127.0.0.1", Domain: "evil.test", Emails: []string{"a@evil.test"},
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := resp.Results["a@evil.test"].Class; got != ClassGuarded {
+		t.Errorf("Class = %s, want guarded — the guard must not be masked by a dead bucket", got)
+	}
+}
