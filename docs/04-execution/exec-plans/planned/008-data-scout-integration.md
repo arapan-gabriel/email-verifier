@@ -11,6 +11,12 @@ and port-25 traffic leaves the production host for good. Per ADR-006 the seam is
 provider — everything above it (layers 0–5, domain grouping, scoring, signals, the domain-profile
 cache, quota, suppression, the verdict table) is untouched.
 
+> **Paired with Data Scout's plan `073`, rewritten 2026-08-28.** That plan is the other half of this
+> one and carries the detail on its side: the config, the response mapping, the `ENGINE_VERSION`
+> bump, the mTLS material, the warm-up ladder and the manual test against production. Its
+> **ADR-009** records why the probe left that repository at all; it supersedes the SOCKS5-proxy
+> approach `073` originally described. Read both before starting either.
+
 ## Context
 
 This closes the loop the whole project is for. Data Scout keeps layers 0–5, quota, the
@@ -35,9 +41,16 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 
 ## Design (this service side)
 
-- Confirm auth (mTLS/API key) between the two hosts.
-- Ensure the response carries everything Data Scout stores (`status, smtp_code, enhanced_code,
-  catch_all, signals, source_ip, checked_at`).
+Most of the work is on Data Scout's side. What this repository owes the cut-over:
+
+- **mTLS material and the switch to requiring it.** `tls.cert_file`, `tls.key_file` and
+  `tls.client_ca_file` are already implemented and validated (plan 001); what is missing is the CA,
+  the certificates, and setting `client_ca_file` so the handshake actually requires one. Until then
+  the API key is the only guard and startup warns about it.
+- **`ufw` narrowed to the caller.** The API port is currently unrestricted at the firewall.
+- **Response completeness confirmed against what Data Scout stores** — `connected`, `accepted`,
+  `catch_all`, `randomiser`, `smtp_code`, `enhanced_code`, `class`, `retry_after_seconds`,
+  `source_ip`, `checked_at`.
 
 ## Tasks
 
@@ -55,7 +68,11 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
       `(sender, recipient, IP)`: a retry from a different node or with a different `MAIL FROM` is a
       new tuple and restarts the window. Automatic with one node; a routing constraint the moment
       there are two.
-- [ ] This service: auth between hosts; response completeness
+- [ ] This service: bring up a small CA; server certificate for the verifier, client certificate for
+      the API; set `tls.client_ca_file` so a client certificate is required, and prove a `curl`
+      through it **before** either side's application code changes
+- [ ] This service: `ufw` allows the API's address only
+- [ ] This service: response completeness confirmed against Data Scout's `ProbeResult` mapping
 - [ ] Both: integration test of the end-to-end path
 - [ ] Docs both repos: Data Scout providers doc + this `changelog.md`
 

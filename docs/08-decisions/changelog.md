@@ -3,6 +3,34 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Cross-repo: Data Scout's plans brought in line (its ADR-009)
+
+Reviewed Data Scout's active plans against everything decided here. One of the seven was
+**superseded outright**, and it was the one that mattered.
+
+- **Its plan `073` was going to route `aiosmtplib` through a SOCKS5 proxy** on a small VPS, keeping
+  the probe inside the API process. Its own decision 2 named moving the probing subsystem onto the
+  VPS and declined it as "not warranted to prove one IP works" — which is exactly what this
+  repository then did. The plan has been rewritten around the service that now exists, and
+  **ADR-009** was added on that side to record why, paired with ADR-006 here.
+- Dropped from it: the SOCKS5 daemon, `python-socks`, `verify_smtp_proxy_url`, and the
+  proxy-versus-policy-routing decision. Kept: the `ENGINE_VERSION` bump, fail-closed, the staged
+  warm-up ladder, and the CD path for the flags.
+- Carried across from decisions made here: the seam is `smtp_probe.probe_many` (ADR-006), a
+  transport failure maps to `connected=False` and never to a verdict, the greylist retry stays on
+  their side scheduled by `retry_after_seconds` with the `(sender, recipient, IP)` tuple constraint
+  written down (plan 006), `randomiser` is scored like a catch-all and is a property of the server
+  (plan 005), and their four fixed per-MX ceilings retire in favour of the AIMD bucket while the
+  platform-wide daily cap stays as a quota (plan 003).
+- Also updated there: `tech-debt.md`'s port-25 fix, the `073` ROADMAP row, `071`'s reference to a
+  "warmed relay pool" — which is now a second probe node and deliberately out of scope until one is
+  proven — and a changelog entry.
+- Plan 008 here now points at `073` as its other half rather than restating it, and lists what this
+  repository actually owes the cut-over: the CA and certificates, `tls.client_ca_file` set so the
+  handshake requires one, and `ufw` narrowed to the caller.
+- **Nothing was committed in the Data Scout repository** — those changes are staged in the working
+  tree for review, and that work runs in its own session.
+
 ## 2026-08-28 — Plan 006: the greylist queue belongs to the caller
 
 The open question this plan had carried since ADR-006 — "a deferred retry has no synchronous caller
