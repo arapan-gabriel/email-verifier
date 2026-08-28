@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,6 +168,182 @@ func TestRejectionOfUsIsNeverARejectionOfTheAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeProfiles remembers randomiser verdicts in memory.
+type fakeProfiles struct {
+	mu     sync.Mutex
+	marked map[string]bool
+	reads  int
+}
+
+func newProfiles(known ...string) *fakeProfiles {
+	f := &fakeProfiles{marked: map[string]bool{}}
+	for _, h := range known {
+		f.marked[h] = true
+	}
+	return f
+}
+
+func (f *fakeProfiles) IsRandomiser(_ context.Context, mxHost string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	return f.marked[mxHost]
+}
+
+func (f *fakeProfiles) MarkRandomiser(_ context.Context, mxHost string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.marked[mxHost] = true
+}
+
+func (f *fakeProfiles) isMarked(mxHost string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.marked[mxHost]
+}
+
+// coinFlipMX accepts every other bogus recipient, which is what a
+// Microsoft-class host looks like: one probe would report catch-all on one run
+// and clean on the next.
+func coinFlipMX() Dialer {
+	var n int
+	var mu sync.Mutex
+	return scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			if strings.Contains(cmd, "real@") {
+				return "250 2.1.5 OK"
+			}
+			mu.Lock()
+			n++
+			odd := n%2 == 1
+			mu.Unlock()
+			if odd {
+				return "250 2.1.5 OK"
+			}
+			return "550 5.1.1 No such user"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+}
+
+// A host answering by coin flip is a fact about the *server*: it condemns every
+// domain behind it, including ones nobody has asked about yet.
+func TestRandomiserIsDetectedAndRemembered(t *testing.T) {
+	profiles := newProfiles()
+	p := New(Options{
+		Dialer: coinFlipMX(), Resolver: stubResolver{}, Profiles: profiles,
+		CatchAllProbes: 4, Timeout: 5 * time.Second,
+	})
+
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "first.test",
+		Emails: []string{"real@first.test"}, NeedCatchAll: true,
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	r := resp.Results["real@first.test"]
+	if r.Randomiser == nil || !*r.Randomiser {
+		t.Fatalf("Randomiser = %v, want true", r.Randomiser)
+	}
+	// Conservative reading, and the field callers already handle.
+	if r.CatchAll == nil || !*r.CatchAll {
+		t.Errorf("CatchAll = %v, want true for a randomiser", r.CatchAll)
+	}
+	if !profiles.isMarked("mx.test") {
+		t.Error("the verdict was not remembered for the host")
+	}
+}
+
+// The second request is for a different domain on the same host, and must carry
+// the verdict without probing again.
+func TestKnownRandomiserCondemnsOtherDomainsWithoutProbing(t *testing.T) {
+	var bogus int
+	var mu sync.Mutex
+	d := scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			if !strings.Contains(cmd, "real@") {
+				mu.Lock()
+				bogus++
+				mu.Unlock()
+			}
+			return "250 2.1.5 OK"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+	p := New(Options{
+		Dialer: d, Resolver: stubResolver{}, Profiles: newProfiles("mx.test"),
+		CatchAllProbes: 4, Timeout: 5 * time.Second,
+	})
+
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "second.test",
+		Emails: []string{"real@second.test"}, NeedCatchAll: true,
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	r := resp.Results["real@second.test"]
+	if r.Randomiser == nil || !*r.Randomiser {
+		t.Errorf("a known randomiser did not condemn a neighbouring domain: %v", r.Randomiser)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if bogus != 0 {
+		t.Errorf("sent %d bogus probes to a host already known to randomise", bogus)
+	}
+}
+
+// Asking three questions must cost three questions' worth of budget.
+func TestCatchAllProbesCostBudget(t *testing.T) {
+	pc := &recordingPacer{}
+	p := New(Options{
+		Dialer: scriptedMX("220 mx.test ESMTP", happyPath()), Resolver: stubResolver{},
+		Pacer: pc, CatchAllProbes: 3, Timeout: 5 * time.Second,
+	})
+	if _, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test",
+		Emails: []string{"a@example.test", "b@example.test"}, NeedCatchAll: true,
+	}); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if want := 2 + 3; pc.acquires != want {
+		t.Errorf("took %d tokens for 2 recipients plus 3 catch-all probes, want %d", pc.acquires, want)
+	}
+}
+
+func TestDecideCatchAll(t *testing.T) {
+	for name, tc := range map[string]struct {
+		accepted, answered   int
+		catchAll, randomiser *bool
+	}{
+		"all accepted": {3, 3, ptrBool(true), ptrBool(false)},
+		"all rejected": {0, 3, ptrBool(false), ptrBool(false)},
+		"mixed":        {1, 3, ptrBool(true), ptrBool(true)},
+		"no answers":   {0, 0, nil, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := decideCatchAll(tc.accepted, tc.answered)
+			if !sameBool(got.catchAll, tc.catchAll) || !sameBool(got.randomiser, tc.randomiser) {
+				t.Errorf("decideCatchAll(%d,%d) = %v,%v", tc.accepted, tc.answered, got.catchAll, got.randomiser)
+			}
+		})
+	}
+}
+
+func sameBool(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // A 250 on a catch-all domain proves nothing; the caller must be told so.

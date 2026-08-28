@@ -54,6 +54,15 @@ probe:
   # An unbounded recipient list is itself a harvesting signal, and servers
   # commonly cap it near 100.
   max_rcpt_per_session: 50
+  # How many known-bad local parts establish whether a domain takes anything.
+  # One catches a plain catch-all but not a host answering by coin flip, where a
+  # single probe says catch-all on one run and clean on the next. The lab kept
+  # up to 30 available for Microsoft-class hosts; raising it for a host already
+  # suspected of randomising is calibration work (plan 012).
+  catch_all_probes: 3
+  # How long a per-server randomiser verdict is remembered. It is a fact about
+  # the host, so it applies to every domain behind it.
+  randomiser_ttl: 24h
   max_emails_per_request: 500
 
 auth:

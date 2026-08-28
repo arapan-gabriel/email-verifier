@@ -39,6 +39,16 @@ type Pacer interface {
 	Observe(ctx context.Context, mxHost string, throttled bool)
 }
 
+// Profiles remembers per-server facts across requests.
+//
+// A store failure must degrade to "probe again", never to a failed request:
+// unlike the rate budget, not knowing whether a host randomises costs accuracy,
+// not safety.
+type Profiles interface {
+	IsRandomiser(ctx context.Context, mxHost string) bool
+	MarkRandomiser(ctx context.Context, mxHost string)
+}
+
 // Dialer opens the connection to the recipient MX.
 //
 // Declared here, in the package that uses it, and holding the one method the
@@ -71,6 +81,13 @@ type Options struct {
 	// Pacer bounds the rate to each MX. Nil means unpaced, which is only ever
 	// acceptable in a unit test driving a fake server.
 	Pacer Pacer
+	// Profiles remembers randomiser verdicts. Nil means every request
+	// rediscovers them.
+	Profiles Profiles
+	// CatchAllProbes is how many known-bad local parts to try. One is enough to
+	// catch a plain catch-all but not a host that answers by coin flip, where a
+	// single probe reports catch-all on one run and clean on the next.
+	CatchAllProbes int
 }
 
 func (o Options) helo() string {
@@ -108,6 +125,13 @@ func (o Options) port() string {
 		return o.Port
 	}
 	return "25"
+}
+
+func (o Options) catchAllProbes() int {
+	if o.CatchAllProbes > 0 {
+		return o.CatchAllProbes
+	}
+	return 3
 }
 
 func (o Options) maxRCPT() int {
@@ -149,9 +173,14 @@ type Request struct {
 // gave a usable answer, which is a different fact from false. They map
 // one-to-one onto Data Scout's existing ProbeResult.
 type Result struct {
-	Connected    *bool  `json:"connected"`
-	Accepted     *bool  `json:"accepted"`
-	CatchAll     *bool  `json:"catch_all"`
+	Connected *bool `json:"connected"`
+	Accepted  *bool `json:"accepted"`
+	CatchAll  *bool `json:"catch_all"`
+	// Randomiser is a property of the *server*, not of this domain: the host
+	// answers inconsistently, so no 250 from it is trustworthy anywhere it is
+	// the MX. A randomiser also sets CatchAll, which is the conservative
+	// reading and the field existing callers already handle correctly.
+	Randomiser   *bool  `json:"randomiser"`
 	SMTPCode     int    `json:"smtp_code,omitempty"`
 	EnhancedCode string `json:"enhanced_code,omitempty"`
 	Class        Class  `json:"class"`
@@ -192,38 +221,57 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 	}
 
 	out := Response{Results: make(map[string]Result, len(req.Emails))}
-	catchAll := (*bool)(nil)
+
+	// A host already known to randomise needs no probing: the verdict travels
+	// with the server, so it applies to this domain whether or not anyone has
+	// asked about it before.
+	known := p.opts.Profiles != nil && p.opts.Profiles.IsRandomiser(ctx, req.MXHost)
+
+	var verdict catchAllVerdict
+	if known {
+		verdict = catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
+	}
 
 	for i, chunk := range chunks(req.Emails, p.opts.maxRCPT()) {
-		// Catch-all is a property of the domain, not of a chunk: probe for it
+		// Catch-all is a property of the domain, not of a chunk: establish it
 		// once and apply the answer to every address.
-		probeCatchAll := req.NeedCatchAll && i == 0
-		results, ca := p.session(ctx, req, chunk, probeCatchAll)
+		probeCatchAll := req.NeedCatchAll && i == 0 && !known
+		results, v := p.session(ctx, req, chunk, probeCatchAll)
 		if probeCatchAll {
-			catchAll = ca
+			verdict = v
 		}
 		for addr, r := range results {
 			out.Results[addr] = r
 		}
 	}
 
-	if catchAll != nil {
+	if verdict.randomiser != nil && *verdict.randomiser && !known && p.opts.Profiles != nil {
+		p.opts.Profiles.MarkRandomiser(ctx, req.MXHost)
+	}
+	if verdict.catchAll != nil || verdict.randomiser != nil {
 		for addr, r := range out.Results {
-			r.CatchAll = catchAll
+			r.CatchAll, r.Randomiser = verdict.catchAll, verdict.randomiser
 			out.Results[addr] = r
 		}
 	}
 	return out, nil
 }
 
+// catchAllVerdict is what the bogus probes established about this domain and
+// the server behind it.
+type catchAllVerdict struct {
+	catchAll   *bool
+	randomiser *bool
+}
+
 // session runs one SMTP dialogue over one connection.
-func (p *Prober) session(ctx context.Context, req Request, addrs []string, probeCatchAll bool) (map[string]Result, *bool) {
+func (p *Prober) session(ctx context.Context, req Request, addrs []string, probeCatchAll bool) (map[string]Result, catchAllVerdict) {
 	out := make(map[string]Result, len(addrs))
 
 	// fail records the same non-answer for every address in the chunk. It is
 	// the shape invariant 1 demands: a refusal of *us* is never a statement
 	// about a mailbox, so Accepted stays nil and Connected is false.
-	fail := func(class Class, code int, reply, errText string) (map[string]Result, *bool) {
+	fail := func(class Class, code int, reply, errText string) (map[string]Result, catchAllVerdict) {
 		for _, a := range addrs {
 			out[a] = Result{
 				Connected:    ptrBool(false),
@@ -234,7 +282,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 				Err:          errText,
 			}
 		}
-		return out, nil
+		return out, catchAllVerdict{}
 	}
 
 	// Budget before anything else. A paused MX or an unreachable bucket means
@@ -336,7 +384,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 				for _, rest := range addrs[i:] {
 					out[rest] = Result{Connected: ptrBool(false), Class: budgetClass(err), Err: err.Error()}
 				}
-				return out, nil
+				return out, catchAllVerdict{}
 			}
 		}
 		code, text, ok = step("RCPT TO:<" + addr + ">")
@@ -350,21 +398,35 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 					Err:       netErr.Error(),
 				}
 			}
-			return out, nil
+			return out, catchAllVerdict{}
 		}
 		r := rcptResult(code, text)
 		p.observe(ctx, req.MXHost, r.Class)
 		out[addr] = r
 	}
 
-	var catchAll *bool
+	var verdict catchAllVerdict
 	if probeCatchAll {
-		bogus, err := bogusAddress(req.Domain)
-		if err == nil {
-			if code, text, ok = step("RCPT TO:<" + bogus + ">"); ok {
-				catchAll = ptrBool(Classify(code, text) == ClassValid)
+		accepted, answered := 0, 0
+		for range p.opts.catchAllProbes() {
+			bogus, err := bogusAddress(req.Domain)
+			if err != nil {
+				break
+			}
+			// A question asked is budget spent, bogus or not.
+			if err := p.acquire(ctx, req); err != nil {
+				break
+			}
+			code, text, ok = step("RCPT TO:<" + bogus + ">")
+			if !ok {
+				break
+			}
+			answered++
+			if Classify(code, text) == ClassValid {
+				accepted++
 			}
 		}
+		verdict = decideCatchAll(accepted, answered)
 	}
 
 	// RSET abandons the transaction explicitly rather than leaving a bare QUIT
@@ -377,7 +439,28 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_ = conn.SetWriteDeadline(time.Now().Add(teardownTimeout))
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
-	return out, catchAll
+	return out, verdict
+}
+
+// decideCatchAll reads the bogus probes.
+//
+//   - every one accepted  → the domain takes anything; no 250 here means a thing
+//   - every one rejected  → the server answers honestly and the real replies stand
+//   - anything in between → the server is answering by coin flip. That is a fact
+//     about the *host*, so it condemns every domain behind it. CatchAll is set
+//     too: it is the conservative reading, and it is the field callers that do
+//     not yet understand Randomiser already handle correctly.
+func decideCatchAll(accepted, answered int) catchAllVerdict {
+	switch {
+	case answered == 0:
+		return catchAllVerdict{}
+	case accepted == answered:
+		return catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(false)}
+	case accepted == 0:
+		return catchAllVerdict{catchAll: ptrBool(false), randomiser: ptrBool(false)}
+	default:
+		return catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
+	}
 }
 
 // acquire asks the pacer for budget. A nil pacer means unpaced, which only a

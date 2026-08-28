@@ -1,6 +1,6 @@
 # Plan 004 — dns-resolver-and-cache
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** A
 **Depends on:** 002
 
@@ -67,7 +67,7 @@ must be shared — the rate budget, the bands, IP health.
 - [x] Entries expire; the cache does not grow without bound
 - [x] Pointing the service at a dead resolver fails resolution rather than hanging
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

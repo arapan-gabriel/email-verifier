@@ -28,6 +28,7 @@ forever for a verdict that will not come.
 | `rt:mx:<mx_host>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |
 | `rt:mx:<mx_host>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
 | `rt:mx:<mx_host>:pause_until` | pacer | epoch seconds; only this MX pauses |
+| `mx:<mx_host>:randomiser` | prober (005) | `1` with a TTL: this host answers inconsistently, so no `250` from it is trustworthy for **any** domain it serves |
 | `ip:health:<ip>` | iphealth (010) | blocklist status / burned flag for a sending node |
 
 ## Not in Redis, on purpose

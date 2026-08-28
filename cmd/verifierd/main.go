@@ -19,6 +19,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/api"
 	"github.com/arapan-gabriel/email-verifier/internal/config"
 	"github.com/arapan-gabriel/email-verifier/internal/limiter"
+	"github.com/arapan-gabriel/email-verifier/internal/mxprofile"
 	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 	"github.com/arapan-gabriel/email-verifier/internal/redis"
@@ -87,6 +88,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		DialNetwork:       cfg.Probe.DialNetwork,
 		Port:              cfg.Probe.Port,
 		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
+		CatchAllProbes:    cfg.Probe.CatchAllProbes,
+		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
 	})
 
 	srv := &http.Server{

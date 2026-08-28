@@ -87,9 +87,16 @@ type Probe struct {
 	DialNetwork string `yaml:"dial_network"`
 	// Port is 25 in production. It exists so a staging instance can be aimed
 	// at a lab MX (internal/mxsim) without touching anyone else's server.
-	Port                string        `yaml:"port"`
-	Timeout             time.Duration `yaml:"timeout"`
-	MaxRCPTPerSession   int           `yaml:"max_rcpt_per_session"`
+	Port              string        `yaml:"port"`
+	Timeout           time.Duration `yaml:"timeout"`
+	MaxRCPTPerSession int           `yaml:"max_rcpt_per_session"`
+	// CatchAllProbes is how many known-bad local parts establish whether a
+	// domain takes anything. One catches a plain catch-all but not a host that
+	// answers by coin flip, where a single probe reports catch-all on one run
+	// and clean on the next.
+	CatchAllProbes int `yaml:"catch_all_probes"`
+	// RandomiserTTL is how long a per-server randomiser verdict is remembered.
+	RandomiserTTL       time.Duration `yaml:"randomiser_ttl"`
 	MaxEmailsPerRequest int           `yaml:"max_emails_per_request"`
 }
 
@@ -158,6 +165,8 @@ func defaults() Config {
 			Port:                "25",
 			Timeout:             20 * time.Second,
 			MaxRCPTPerSession:   50,
+			CatchAllProbes:      3,
+			RandomiserTTL:       24 * time.Hour,
 			MaxEmailsPerRequest: 500,
 		},
 		// POST /probe exists from plan 001 on, so the edge is authenticated by
@@ -272,6 +281,8 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return integer("DNS_CACHE_SIZE", &cfg.DNS.CacheSize) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
+		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
+		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
 		func() error { return boolean("AUTH_ENABLED", &cfg.Auth.Enabled) },
 	} {
@@ -352,6 +363,14 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.Port == "" {
 		add("probe.port must be set")
+	}
+	// One probe cannot tell a catch-all from a coin flip, which is the whole
+	// point of the check.
+	if c.Probe.CatchAllProbes < 2 {
+		add("probe.catch_all_probes must be at least 2, got %d", c.Probe.CatchAllProbes)
+	}
+	if c.Probe.RandomiserTTL <= 0 {
+		add("probe.randomiser_ttl must be positive")
 	}
 	if c.Probe.MaxRCPTPerSession <= 0 {
 		add("probe.max_rcpt_per_session must be positive")

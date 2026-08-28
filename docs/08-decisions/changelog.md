@@ -3,6 +3,37 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 005: telling a catch-all from a coin flip
+
+Renamed from `catch-all-and-classification`; two of its four design points were already gone. The
+**per-domain catch-all cache** is Data Scout's — `email_domain_profile_service.knows_catch_all`
+exists and decides `need_catch_all` before it calls here — and the **status reconciliation table**
+is moot under ADR-006, where this service returns facts and Data Scout scores them.
+
+- **N bogus probes, not one** (`probe.catch_all_probes`, default 3, refuses to boot below 2). All
+  accepted → catch-all. All rejected → the real replies stand. **Anything in between → randomiser.**
+  One probe cannot tell the third case from the first two: it lands on accept or reject by coin
+  flip, so the same domain reports catch-all on one run and clean on the next, and a real mailbox
+  behind it is reported valid on a `250` that meant nothing.
+- **`internal/mxprofile`** remembers a randomiser verdict per **MX host** (`mx:<host>:randomiser`,
+  TTL 24h). That scope is the point: a catch-all is one domain's business, a randomiser is the
+  server's, so it condemns every domain behind it — including ones nobody has asked about yet. A
+  later request for a different domain on that host carries the verdict and sends no probes at all.
+- The response gains `randomiser`. A randomiser also sets `catch_all: true` — the conservative
+  reading, and the field existing callers already handle correctly, so a consumer that does not yet
+  know the new field still refuses to trust the `250`.
+- **The bogus probes cost budget** like any other recipient: asking three questions spends three
+  questions' worth.
+- A profile-store failure degrades to "probe again", not to a failed request. Unlike the rate budget
+  this costs accuracy rather than safety, and failing would trade a real answer for no answer.
+- Documented where it will be looked for: `smtp-classification.md` gains the scope table,
+  `features/002` is written up properly, `redis-contract.md` gains the key, and the reconciliation
+  section is marked superseded rather than left to rot.
+- `mxsim` has no randomising profile — its chaos knobs produce random 4xx deferrals, not random
+  accept/reject — so the coin-flip host is covered by a scripted dialer. Noted as a possible
+  follow-up rather than a reason to change ported code.
+- Plan 005 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 004: resolver control and an in-process cache
 
 Rewritten before it was implemented. As planned it was MX discovery, priority sorting, implicit-MX
@@ -33,7 +64,7 @@ meant building against a boundary that no longer existed.
 - Every cache assertion counts lookups performed rather than elapsed time; expiry is driven by
   `synctest`. Smoke-tested on the node afterwards: a real Gmail MX still resolves and answers
   correctly, and `localhost` is still refused by the guard.
-- Plan 004 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`.
 
 ## 2026-08-28 — Plan 003: the central token bucket becomes the limiter
 

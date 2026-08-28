@@ -46,10 +46,10 @@ addresses; this endpoint asks one server about several mailboxes in one session.
   "source_ip":  "92.222.87.97",
   "checked_at": "2026-08-28T12:00:00Z",
   "results": {
-    "a@gmail.com": {"connected": true, "accepted": true,  "catch_all": false,
+    "a@gmail.com": {"connected": true, "accepted": true,  "catch_all": false, "randomiser": false,
                     "smtp_code": 250, "enhanced_code": "2.1.5", "class": "valid",
                     "reply": "250 2.1.5 OK"},
-    "b@gmail.com": {"connected": true, "accepted": false, "catch_all": false,
+    "b@gmail.com": {"connected": true, "accepted": false, "catch_all": false, "randomiser": false,
                     "smtp_code": 550, "enhanced_code": "5.1.1", "class": "invalid",
                     "reply": "550 5.1.1 The email account that you tried to reach does not exist"}
   }
@@ -69,11 +69,21 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 All three return `connected:false` and `accepted:null`. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
 own words and `err` the transport error, both for the audit trail.
 
+**`catch_all` and `randomiser` answer different questions.** `catch_all` is about the *domain*: it
+takes anything, so no `250` from it means a thing. `randomiser` is about the *server*: it answers
+inconsistently, so no `250` from it means a thing **for any domain it hosts**, including ones nobody
+has asked about. A randomiser sets `catch_all: true` as well — the conservative reading, and the
+field callers already handle correctly.
+
+Both are established by `probe.catch_all_probes` known-bad local parts: all accepted → catch-all,
+all rejected → the real replies stand, anything in between → randomiser. The verdict for a server is
+remembered, so a later request for a different domain on that host carries it without re-probing.
+
 A batch is split at `probe.max_rcpt_per_session` — an unbounded recipient list is itself a
 harvesting signal, and servers commonly cap it near 100. Catch-all is probed once per request, not
 once per chunk: it is a property of the domain.
 
-`connected`, `accepted` and `catch_all` are tri-state: `null` means the server never gave a usable
+`connected`, `accepted`, `catch_all` and `randomiser` are tri-state: `null` means the server never gave a usable
 answer, which is a different fact from `false`. They map one-to-one onto Data Scout's existing
 `smtp_probe.ProbeResult`.
 
