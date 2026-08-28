@@ -22,6 +22,23 @@ verbatim.
 | `error_bad_request.json` | a request with no `mx_host` | `400` — a malformed request is never a verification result |
 | `error_unauthorized.json` | no bearer token | `401` (invariant 11) |
 
+## `class` is open, and the mapping must treat it that way
+
+New classes appear as the service learns to refuse for new reasons — `guarded` arrived with the SSRF
+guard, `no_budget` and `paused` with the pacer, and plan 010 adds one for a burned sending IP. **A
+mapping that enumerates the classes it knows will break the first time one is added**, and it will
+break by silently mis-scoring an address rather than by raising an error.
+
+The rule that survives every addition:
+
+> Only `valid` and `invalid` are statements about a mailbox. **Anything else is not a verdict** —
+> map it to `ProbeResult(connected=…, accepted=None)` and let the existing scoring treat it as
+> unconfirmed.
+
+`accepted` already encodes this: it is `null` for every class except those two. A mapping that reads
+`accepted` and treats `null` as "unconfirmed" needs no changes when a class is added. One that
+switches on `class` needs a default arm, and the default must be "no verdict", never "invalid".
+
 ## Reading them
 
 Three fields are **tri-state** and marshal to `null`: `connected`, `accepted`, `catch_all`,
