@@ -376,3 +376,158 @@ func TestPauseIsCounted(t *testing.T) {
 		t.Errorf("counted %d pause events, want 1", rec.pauses)
 	}
 }
+
+// AIMD can never climb past its own ceiling, and every shipped band says
+// "confidence": "guess". Without this, an MX that tolerates more than its seed
+// says sits under-used forever with nothing noticing.
+func TestCleanAnswersAtTheCeilingProposeAWiderBand(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand}) // ceiling 4
+	p := New(store, &fakeTaker{}, Options{Promote: Promotion{After: 10, Step: 1.5, Ceiling: 20}})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	// Starts at the ceiling, so every clean answer is evidence.
+	for range 10 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	pr, ok := p.Proposal(ctx, "mx.test")
+	if !ok {
+		t.Fatal("no proposal after ten clean answers at the ceiling")
+	}
+	if pr.CurrentMax != 4 || pr.ProposedMax != 6 {
+		t.Errorf("proposal = %v -> %v, want 4 -> 6", pr.CurrentMax, pr.ProposedMax)
+	}
+	// The evidence is recorded, not just the conclusion.
+	if pr.CleanAt < 10 || pr.FormedAt == 0 {
+		t.Errorf("proposal carries no usable evidence: %+v", pr)
+	}
+	// And crucially: nothing was applied.
+	if rate, _ := p.Rate("mx.test"); rate != 4 {
+		t.Errorf("rate = %v; a proposal must not raise anything by itself", rate)
+	}
+}
+
+// Answering cleanly below the ceiling says nothing about whether the ceiling is
+// the limit.
+func TestCleanAnswersBelowTheCeilingAreNotEvidence(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	p := New(store, &fakeTaker{}, Options{Promote: Promotion{After: 5}})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	p.Observe(ctx, "mx.test", true) // 4 -> 2, now below the ceiling
+	for range 20 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	if _, ok := p.Proposal(ctx, "mx.test"); ok {
+		t.Error("clean answers below the ceiling produced a proposal")
+	}
+}
+
+func TestOneThrottleResetsTheEvidence(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	p := New(store, &fakeTaker{}, Options{Promote: Promotion{After: 10}})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 9 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	p.Observe(ctx, "mx.test", true) // the ceiling is not proven after all
+	for range 9 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	if _, ok := p.Proposal(ctx, "mx.test"); ok {
+		t.Error("a proposal survived a real throttle")
+	}
+}
+
+// No run of clean answers may propose a rate nobody sanctioned.
+func TestProposalIsCappedInAbsoluteTerms(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	p := New(store, &fakeTaker{}, Options{Promote: Promotion{After: 2, Step: 100, Ceiling: 5}})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	pr, ok := p.Proposal(ctx, "mx.test")
+	if !ok {
+		t.Fatal("no proposal")
+	}
+	if pr.ProposedMax != 5 {
+		t.Errorf("proposed %v, want the absolute ceiling 5", pr.ProposedMax)
+	}
+}
+
+func TestPromoteAppliesAndClears(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	tk := &fakeTaker{}
+	p := New(store, tk, Options{Promote: Promotion{After: 5, Step: 2, Ceiling: 20}})
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		p.Observe(ctx, "mx.test", false)
+	}
+
+	applied, err := p.Promote(ctx, "mx.test")
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	if applied.ProposedMax != 8 {
+		t.Errorf("promoted to %v, want 8", applied.ProposedMax)
+	}
+	if _, ok := p.Proposal(ctx, "mx.test"); ok {
+		t.Error("the proposal survived its promotion")
+	}
+	// The next request re-reads the band; no restart. It does **not** jump to
+	// the new ceiling: a saved rate may only ever lower the start, and a
+	// ceiling is earned by clean answers rather than granted by config
+	// (RUNBOOK). Promotion widens the permission; AIMD still has to reach it.
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tk.lastRate(); got != 4 {
+		t.Errorf("resumed at %v, want the earned 4 — promotion grants permission, not rate", got)
+	}
+	// But the permission is real: AIMD may now climb past the old ceiling.
+	for range 200 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	rate, _ := p.Rate("mx.test")
+	if rate <= 4 {
+		t.Errorf("rate = %v; after promotion the loop should be able to climb past the old 4", rate)
+	}
+	if rate > 8 {
+		t.Errorf("rate = %v; it must not exceed the promoted ceiling 8", rate)
+	}
+}
+
+func TestPromoteWithoutAProposalIsAnError(t *testing.T) {
+	p := New(newStore(nil), &fakeTaker{}, Options{})
+	if _, err := p.Promote(t.Context(), "mx.test"); err == nil {
+		t.Error("promoted a band with no standing proposal")
+	}
+}
+
+func TestProposalsDisabledByDefault(t *testing.T) {
+	store := newStore(map[string]string{"limits:mx:mx.test": testBand})
+	p := New(store, &fakeTaker{}, Options{}) // After == 0
+	ctx := t.Context()
+	if err := p.Acquire(ctx, "mx.test", "example.test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 1000 {
+		p.Observe(ctx, "mx.test", false)
+	}
+	if _, ok := p.Proposal(ctx, "mx.test"); ok {
+		t.Error("a proposal appeared with promotion disabled")
+	}
+}

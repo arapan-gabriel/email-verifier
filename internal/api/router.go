@@ -36,6 +36,9 @@ type Options struct {
 	Suppression SuppressionAdmin
 	// MaxSuppressionHashes bounds one import.
 	MaxSuppressionHashes int
+	// Bands backs the operator's view of learned rates and the promotion of a
+	// proposed ceiling. Nil leaves those routes unregistered.
+	Bands Bands
 }
 
 // Authenticated wraps h with the credential check required by invariant 11.
@@ -73,6 +76,11 @@ func NewRouter(opts Options) http.Handler {
 		}
 		mux.Handle("GET /admin/suppress", opts.Authenticated(handleSuppressStatus(opts.Suppression)))
 		mux.Handle("POST /admin/suppress", opts.Authenticated(handleSuppressImport(opts.Suppression, limit)))
+	}
+
+	if opts.Bands != nil {
+		mux.Handle("GET /admin/bands", opts.Authenticated(handleBands(opts.Bands)))
+		mux.Handle("POST /admin/bands/promote", opts.Authenticated(handleBandPromote(opts.Bands)))
 	}
 
 	if opts.Prober != nil {

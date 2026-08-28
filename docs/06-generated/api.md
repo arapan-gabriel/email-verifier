@@ -131,8 +131,23 @@ stores it in `email_verifications.signals`.
 |---|---|---|---|
 | GET | `/admin/ip-health` | 010 | whether this node has stood itself down, and why |
 | POST | `/admin/ip-health/resume` | 010 | clear the pause without a redeploy — the next scheduled check re-evaluates, so this overrides a verdict rather than disabling checking |
+| GET | `/admin/bands` | 012 | what the pacer has learned per MX, and any standing proposal to widen a band |
+| POST | `/admin/bands/promote` | 012 | apply a proposal: `{mx_host}` |
 | GET | `/admin/suppress` | 011 | size, version and staleness of the local suppression copy |
 | POST | `/admin/suppress` | 011 | push an export: `{version, hashes[], mode}` where mode is `replace` or `add` |
+
+### A band is widened by a person, never by the loop
+
+AIMD moves only inside `[min_rate, max_rate]`, and every shipped band says `"confidence": "guess"`.
+An MX answering cleanly at its ceiling for `pacer.promote_after` probes has shown the ceiling is not
+the limit — so the pacer records a **proposal** at `limits:mx:<host>:proposed`, with the evidence,
+and stops there.
+
+It never applies one. Lowering a rate is reversible and belongs to the loop; raising a ceiling is
+not, and the failure mode of a band that is too wide is a blocklisting rather than a slow run.
+
+Promotion widens the *permission*, not the rate: the pacer resumes from the rate it had earned and
+climbs from there. A ceiling is earned by clean answers, never granted by config.
 
 ### Suppression is pushed as digests, never as addresses
 

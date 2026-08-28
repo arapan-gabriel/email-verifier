@@ -2,6 +2,7 @@ package pacer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -70,6 +71,24 @@ type PauseRecorder interface {
 	Pause(mxHost string)
 }
 
+// Promotion controls how evidence that a band's ceiling is too low becomes a
+// proposal to raise it.
+//
+// AIMD moves only inside [min, max]: it halves on a throttle and climbs on
+// clean answers, but never past the ceiling. Every shipped band says
+// "confidence": "guess", so an MX that tolerates more than its seed says would
+// otherwise sit under-used forever with nothing noticing.
+type Promotion struct {
+	// After is how many consecutive clean answers **at the ceiling** count as
+	// evidence. Zero disables proposals.
+	After int
+	// Step multiplies the current ceiling to form the proposal.
+	Step float64
+	// Ceiling caps any proposal in absolute terms, so no run of clean answers
+	// can propose a rate nobody sanctioned.
+	Ceiling float64
+}
+
 // Options bounds what the pacer keeps in memory.
 type Options struct {
 	// IdleTTL drops an MX not asked about for this long. Eviction is lossless:
@@ -79,6 +98,8 @@ type Options struct {
 	MaxTracked int
 	// Metrics counts pause events. Optional.
 	Metrics PauseRecorder
+	// Promote turns clean answers at the ceiling into a band proposal.
+	Promote Promotion
 }
 
 // Pacer holds each MX to a rate. Safe for concurrent use.
@@ -100,6 +121,10 @@ type mxState struct {
 	state       string
 	pausedUntil time.Time
 	lastUsed    time.Time
+	// cleanAtCeiling is the evidence for a proposal: consecutive clean answers
+	// while already at the top of the band.
+	cleanAtCeiling int
+	proposed       bool
 }
 
 // New returns a Pacer over the shared bucket and the operational store.
@@ -115,6 +140,12 @@ func New(store Store, take Taker, opts Options) *Pacer {
 	if opts.MaxTracked <= 0 {
 		opts.MaxTracked = 512
 	}
+	if opts.Promote.Step <= 1 {
+		opts.Promote.Step = 1.5
+	}
+	if opts.Promote.Ceiling <= 0 {
+		opts.Promote.Ceiling = 20
+	}
 	return &Pacer{store: store, take: take, opts: opts, metrics: opts.Metrics, mx: make(map[string]*mxState)}
 }
 
@@ -126,7 +157,9 @@ func (p *Pacer) Snapshot() []metrics.MXState {
 	defer p.mu.Unlock()
 	out := make([]metrics.MXState, 0, len(p.mx))
 	for host, st := range p.mx {
-		out = append(out, metrics.MXState{Host: host, Rate: st.rate, Conc: st.conc, State: st.state})
+		out = append(out, metrics.MXState{
+			Host: host, Rate: st.rate, MaxRate: st.band.MaxRate, Conc: st.conc, State: st.state,
+		})
 	}
 	return out
 }
@@ -217,11 +250,13 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 		return
 	}
 	st.lastUsed = time.Now()
-	paused := false
+	paused, propose := false, false
 
 	switch {
 	case throttled:
 		st.clean = 0
+		// One real throttle and the ceiling is not proven after all.
+		st.cleanAtCeiling = 0
 		if st.rate > st.band.MinRate {
 			st.rate = max(st.band.MinRate, st.rate*backoffFactor)
 			st.conc = max(st.band.MinConc, st.conc-1)
@@ -244,6 +279,16 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 		if st.state != StatePaused {
 			st.state = StateSteady
 		}
+		// Evidence only counts while already at the top of the band: answering
+		// cleanly below the ceiling says nothing about whether the ceiling is
+		// the limit.
+		if st.rate >= st.band.MaxRate {
+			st.cleanAtCeiling++
+			if p.opts.Promote.After > 0 && !st.proposed && st.cleanAtCeiling >= p.opts.Promote.After {
+				propose = true
+				st.proposed = true
+			}
+		}
 	}
 
 	snapshot := *st
@@ -251,7 +296,82 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 	if paused && p.metrics != nil {
 		p.metrics.Pause(mxHost)
 	}
+	if propose {
+		p.proposeBand(ctx, mxHost, snapshot)
+	}
 	p.persist(ctx, mxHost, snapshot)
+}
+
+// Proposal is evidence that a band's ceiling is lower than the provider's, and
+// nothing more. It is never applied automatically: AIMD can undo a rate that
+// turned out too high *within* a band, but it cannot undo a band widened
+// wrongly, and the failure mode of a band that is too wide is a blocklisting
+// rather than a slow run.
+type Proposal struct {
+	MXHost      string  `json:"mx_host"`
+	CurrentMax  float64 `json:"current_max_rate_per_sec"`
+	ProposedMax float64 `json:"proposed_max_rate_per_sec"`
+	CleanAt     int     `json:"clean_answers_at_ceiling"`
+	FormedAt    int64   `json:"formed_at"`
+}
+
+// ProposalKey is where a proposal for one MX lives.
+func ProposalKey(mxHost string) string { return "limits:mx:" + mxHost + ":proposed" }
+
+func (p *Pacer) proposeBand(ctx context.Context, mxHost string, st mxState) {
+	next := min(p.opts.Promote.Ceiling, st.band.MaxRate*p.opts.Promote.Step)
+	if next <= st.band.MaxRate {
+		return // already at the absolute ceiling; there is nothing to propose
+	}
+	body, err := json.Marshal(Proposal{
+		MXHost: mxHost, CurrentMax: st.band.MaxRate, ProposedMax: next,
+		CleanAt: st.cleanAtCeiling, FormedAt: time.Now().Unix(),
+	})
+	if err != nil {
+		return
+	}
+	_ = p.store.Set(ctx, ProposalKey(mxHost), string(body))
+}
+
+// Proposal returns the standing proposal for an MX, if any.
+func (p *Pacer) Proposal(ctx context.Context, mxHost string) (Proposal, bool) {
+	raw, ok, err := p.store.Get(ctx, ProposalKey(mxHost))
+	if err != nil || !ok || raw == "" { // "" is how Promote clears one
+		return Proposal{}, false
+	}
+	var pr Proposal
+	if json.Unmarshal([]byte(raw), &pr) != nil {
+		return Proposal{}, false
+	}
+	return pr, true
+}
+
+// Promote applies a standing proposal: it widens the band on disk, clears the
+// proposal, and drops the in-memory entry so the next request reads the new
+// band. This is the operator's decision, never the loop's.
+func (p *Pacer) Promote(ctx context.Context, mxHost string) (Proposal, error) {
+	pr, ok := p.Proposal(ctx, mxHost)
+	if !ok {
+		return Proposal{}, fmt.Errorf("pacer: no standing proposal for %s", mxHost)
+	}
+
+	band := p.bandFor(ctx, mxHost, "")
+	band.MaxRate = pr.ProposedMax
+	body, err := json.Marshal(band)
+	if err != nil {
+		return Proposal{}, err
+	}
+	if err := p.store.Set(ctx, "limits:mx:"+mxHost, string(body)); err != nil {
+		return Proposal{}, fmt.Errorf("pacer: writing the promoted band: %w", err)
+	}
+	if err := p.store.Set(ctx, ProposalKey(mxHost), ""); err != nil {
+		return Proposal{}, err
+	}
+
+	p.mu.Lock()
+	delete(p.mx, mxHost) // the next request re-reads; no restart needed
+	p.mu.Unlock()
+	return pr, nil
 }
 
 // Rate reports the rate currently settled on, for tests and observability.

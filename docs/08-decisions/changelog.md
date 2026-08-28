@@ -3,6 +3,42 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 012: bands widen on evidence, and only by a person
+
+Renamed from `calibration-as-a-service`. Its own note already preferred passive calibration over
+provoking `421`s; implementing it turned that preference into the whole design, for three reasons
+that were not all true when it was written.
+
+1. **Plan 009 shipped the telemetry.** The knee signal now comes from work we were doing anyway.
+2. **The IP is a week old with no sending history.** Ramping until Gmail answers `421` is how a
+   fresh address gets listed; RUNBOOK Phase 5 puts laddering after warm-up, deliberately.
+3. **The capability is not missing.** `ds-smtp-retry` is a working CLI with the full
+   ramp/bisect/soak ladder, runnable from the node. Porting its 615 lines plus the `report` package
+   would have added an HTTP trigger — for something the plan says not to run yet — rather than a new
+   ability.
+
+**What the loop genuinely cannot do**, and what got built instead: AIMD moves only inside
+`[min, max]`, and **all 71 shipped bands say `"confidence": "guess"`**. Gmail's seed is `1.0/s`. If
+Gmail tolerates five, this service would sit at one forever and nothing in it would ever notice.
+
+- An MX answering cleanly **at its ceiling** for `pacer.promote_after` probes has demonstrated the
+  ceiling is not the limit. The pacer writes a bounded **proposal** to `limits:mx:<host>:proposed`
+  with the evidence, and stops.
+- **It never applies one.** Lowering is reversible and belongs to the loop; raising a ceiling is
+  not, and a band that is too wide fails as a blocklisting rather than as a slow run. One real
+  throttle resets the evidence.
+- Clean answers *below* the ceiling are not evidence: they say nothing about whether the ceiling is
+  the limit.
+- Proposals are capped absolutely, so no run of clean answers can propose a rate nobody sanctioned.
+  Verified: a band already above the cap produces nothing at all.
+- `GET /admin/bands` shows what has been learned; `POST /admin/bands/promote` applies a proposal,
+  clears it, and drops the in-memory entry so the next request reads the new band without a restart.
+- **Promotion widens the permission, not the rate.** The first test asserted the pacer would resume
+  at the new ceiling; it resumes at the rate it had *earned* and climbs from there, because a saved
+  rate may only ever lower the start and a ceiling is earned by clean answers rather than granted by
+  config. The assertion was corrected, not the behaviour.
+- Plan 012 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 011: suppression, as digests rather than addresses
 
 Reading the Data Scout side changed the plan twice over.

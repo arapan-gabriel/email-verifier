@@ -41,6 +41,14 @@ dns:
 pacer:
   idle_ttl: 30m
   max_tracked: 512
+  # AIMD can never climb past a band's ceiling, and all 71 shipped bands are
+  # guesses. After this many consecutive clean answers *at the ceiling*, the
+  # pacer records a proposal to widen it — and stops there. Raising a ceiling is
+  # the one direction the loop cannot undo, so a person promotes it via
+  # POST /admin/bands/promote. 0 disables proposals.
+  promote_after: 500
+  promote_step: 1.5
+  promote_ceiling: 20
 
 # Blocklist checking is OFF unless a resolver is named here, and there is no
 # fallback to the host's: on this node that is systemd-resolved on 127.0.0.53,

@@ -79,6 +79,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		IdleTTL:    cfg.Pacer.IdleTTL,
 		MaxTracked: cfg.Pacer.MaxTracked,
 		Metrics:    reg,
+		Promote: pacer.Promotion{
+			After:   cfg.Pacer.PromoteAfter,
+			Step:    cfg.Pacer.PromoteStep,
+			Ceiling: cfg.Pacer.PromoteCeiling,
+		},
 	})
 	reg.SetPacer(pace)
 
@@ -161,6 +166,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			Health:               health,
 			Suppression:          suppressionAdminOrNil(suppression),
 			MaxSuppressionHashes: cfg.Suppress.MaxHashesPerImport,
+			Bands:                bandsView{pace},
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -294,6 +300,27 @@ func (s suppressAdmin) Status(ctx context.Context) api.SuppressionStatus {
 		Enabled: st.Enabled, Version: st.Version, Updated: st.Updated,
 		Size: st.Size, Stale: st.Stale,
 	}
+}
+
+// bandsView adapts the pacer to the operator's band view, so neither package
+// depends on the other's shape.
+type bandsView struct{ p *pacer.Pacer }
+
+func (b bandsView) Snapshot() []api.BandRow {
+	snap := b.p.Snapshot()
+	rows := make([]api.BandRow, 0, len(snap))
+	for _, s := range snap {
+		row := api.BandRow{MXHost: s.Host, Rate: s.Rate, MaxRate: s.MaxRate, State: s.State}
+		if pr, ok := b.p.Proposal(context.Background(), s.Host); ok {
+			row.Proposal = pr
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func (b bandsView) Promote(ctx context.Context, mxHost string) (any, error) {
+	return b.p.Promote(ctx, mxHost)
 }
 
 func newLogger(cfg config.Log, w io.Writer) *slog.Logger {

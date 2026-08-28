@@ -83,6 +83,14 @@ type DNS struct {
 type Pacer struct {
 	IdleTTL    time.Duration `yaml:"idle_ttl"`
 	MaxTracked int           `yaml:"max_tracked"`
+	// PromoteAfter is how many consecutive clean answers **at a band's ceiling**
+	// become evidence that the ceiling is lower than the provider's limit. AIMD
+	// can never climb past its own ceiling, and every shipped band is a guess,
+	// so without this an MX that tolerates more stays under-used forever. Zero
+	// disables proposals. Nothing is ever raised automatically.
+	PromoteAfter   int     `yaml:"promote_after"`
+	PromoteStep    float64 `yaml:"promote_step"`
+	PromoteCeiling float64 `yaml:"promote_ceiling"`
 }
 
 // IPHealth watches whether the sending IP is still usable.
@@ -223,7 +231,10 @@ func defaults() Config {
 			NegativeTTL: time.Minute,
 			CacheSize:   4096,
 		},
-		Pacer:    Pacer{IdleTTL: 30 * time.Minute, MaxTracked: 512},
+		Pacer: Pacer{
+			IdleTTL: 30 * time.Minute, MaxTracked: 512,
+			PromoteAfter: 500, PromoteStep: 1.5, PromoteCeiling: 20,
+		},
 		IPHealth: IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
 		Suppress: Suppress{Stale: 24 * time.Hour, MaxHashesPerImport: 200_000},
 		Probe: Probe{
@@ -358,6 +369,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("IP_HEALTH_TIMEOUT", &cfg.IPHealth.Timeout) },
 		func() error { return dur("PACER_IDLE_TTL", &cfg.Pacer.IdleTTL) },
 		func() error { return integer("PACER_MAX_TRACKED", &cfg.Pacer.MaxTracked) },
+		func() error { return integer("PACER_PROMOTE_AFTER", &cfg.Pacer.PromoteAfter) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
@@ -456,6 +468,12 @@ func (c Config) Validate() error {
 	}
 	if c.Pacer.IdleTTL <= 0 || c.Pacer.MaxTracked <= 0 {
 		add("pacer.idle_ttl and pacer.max_tracked must be positive")
+	}
+	if c.Pacer.PromoteAfter < 0 {
+		add("pacer.promote_after must be 0 (disabled) or positive")
+	}
+	if c.Pacer.PromoteStep <= 1 || c.Pacer.PromoteCeiling <= 0 {
+		add("pacer.promote_step must exceed 1 and pacer.promote_ceiling must be positive")
 	}
 	if c.DNS.Timeout <= 0 {
 		add("dns.timeout must be positive, got %s", c.DNS.Timeout)

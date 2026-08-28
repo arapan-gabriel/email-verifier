@@ -23,6 +23,7 @@ forever for a verdict that will not come.
 | Key | Written by | Meaning |
 |---|---|---|
 | `limits:mx:<mx_host>` | operator / calibration (012) | Calibrated band JSON: `min_rate_per_sec`, `max_rate_per_sec`, `min_concurrency`, `max_concurrency`, `burst`, `cooldown_seconds`, `pause_seconds` |
+| `limits:mx:<mx_host>:proposed` | pacer (012) | evidence that the band's ceiling is below the provider's limit — never applied automatically, promoted by an operator |
 | `rt:mx:<mx_host>:rate` | pacer | rate the AIMD loop has settled on |
 | `rt:mx:<mx_host>:conc` | pacer | concurrency it has settled on |
 | `rt:mx:<mx_host>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |

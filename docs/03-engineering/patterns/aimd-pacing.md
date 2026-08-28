@@ -50,6 +50,28 @@ Budget is one token **per recipient**, not per session. Batching many RCPTs down
 back `connected:false` with `class:paused` or `class:no_budget`. Plan 009 counts them apart — one is
 normal operation, the other an incident.
 
+## The one thing the loop cannot do (plan 012)
+
+AIMD moves inside `[min_rate, max_rate]` and no further, and every shipped band carries
+`"confidence": "guess"`. So a provider that tolerates more than its seed says will never be found
+out: the loop climbs to the ceiling, sits there, and nothing notices.
+
+The fix is evidence rather than a ladder. An MX that answers cleanly **at its ceiling** for
+`pacer.promote_after` probes has demonstrated the ceiling is not the limit — measured from work we
+were doing anyway, not from deliberately provoked `421`s. The pacer writes a bounded **proposal** and
+stops.
+
+**Promotion is a person's decision.** Lowering a rate is reversible and belongs to the loop; raising
+a ceiling is not, and a band that is too wide fails as a blocklisting rather than as a slow run. One
+real throttle withdraws the evidence.
+
+Promoting widens the permission, not the rate: the pacer resumes from what it had earned and climbs
+from there, because a ceiling is earned by clean answers and never granted by config.
+
+The lab's active ladder — ramp, bisect, soak — stays in `ds-smtp-retry`, where an operator can point
+it at one MX deliberately, from a warmed IP. It is the right tool and the wrong thing to put behind
+an HTTP endpoint.
+
 ## Saved working point
 
 A runtime rate may be persisted (`rt:mx:<host>:rate`) so a job resumes where it left off — but a

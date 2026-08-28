@@ -25,10 +25,13 @@ var buckets = []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
 // MXState is one row of what the pacer is currently tracking.
 type MXState struct {
-	Host  string
-	Rate  float64
-	Conc  int
-	State string
+	Host string
+	Rate float64
+	// MaxRate is the band's ceiling. The gauges do not report it, but the
+	// operator's band view needs it and this is already the snapshot.
+	MaxRate float64
+	Conc    int
+	State   string
 }
 
 // Pacer is the gauge source. Gauges are pulled at scrape time rather than
