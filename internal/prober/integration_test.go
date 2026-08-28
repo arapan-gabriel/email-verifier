@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -47,9 +48,20 @@ func startMX(t *testing.T, profileName string) (host, port string) {
 	return host, port
 }
 
+// loopbackResolver returns 127.0.0.1 without vetting it. Production must never
+// do this — it is precisely the shape invariant 2 forbids — but the fake MX
+// runs on loopback, so these tests bypass the guard deliberately and visibly
+// rather than weakening it.
+type loopbackResolver struct{}
+
+func (loopbackResolver) Resolve(context.Context, string) ([]netip.Addr, error) {
+	return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+}
+
 func probeAgainst(t *testing.T, port string, req prober.Request) prober.Response {
 	t.Helper()
 	p := prober.New(prober.Options{
+		Resolver:    loopbackResolver{},
 		Helo:        "mail.datascoutmail.com",
 		MailFrom:    "verify@probe.datascoutmail.com",
 		Port:        port,

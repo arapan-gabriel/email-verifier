@@ -9,9 +9,22 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
+
+	"github.com/arapan-gabriel/email-verifier/internal/resolver"
 )
+
+// Resolver turns the caller-supplied MX host into addresses that are safe to
+// connect to.
+//
+// Declared here so the prober can never be handed a hostname to resolve for
+// itself: the guard has to sit between the lookup and the socket, and passing
+// a name to a Dialer would put it on the wrong side (invariant 2).
+type Resolver interface {
+	Resolve(ctx context.Context, host string) ([]netip.Addr, error)
+}
 
 // Dialer opens the connection to the recipient MX.
 //
@@ -38,6 +51,10 @@ type Options struct {
 	// a harvesting signal, and servers commonly cap it near 100.
 	MaxRCPTPerSession int
 	Dialer            Dialer
+	// Resolver defaults to a guarded one. It is a default rather than a
+	// required field on purpose: forgetting to supply it must not be a way to
+	// end up with an unguarded prober.
+	Resolver Resolver
 }
 
 func (o Options) helo() string {
@@ -89,6 +106,13 @@ func (o Options) dialer() Dialer {
 		return o.Dialer
 	}
 	return &net.Dialer{Timeout: o.timeout()}
+}
+
+func (o Options) resolveVia() Resolver {
+	if o.Resolver != nil {
+		return o.Resolver
+	}
+	return resolver.New(resolver.Options{})
 }
 
 // Request is one batch scoped to one recipient MX (ADR-006). The caller has
@@ -197,8 +221,19 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return out, nil
 	}
 
-	target := net.JoinHostPort(req.MXHost, p.opts.port())
-	conn, err := p.opts.dialer().DialContext(ctx, p.opts.network(), target)
+	// Resolve and vet before any socket exists. The address handed to the
+	// dialer is an IP literal, so no second, unguarded lookup can happen
+	// underneath us (invariant 2).
+	ips, err := p.opts.resolveVia().Resolve(ctx, req.MXHost)
+	if err != nil {
+		var blocked *resolver.BlockedError
+		if errors.As(err, &blocked) || errors.Is(err, resolver.ErrNoRoutableAddress) {
+			return fail(ClassGuarded, 0, "", err.Error())
+		}
+		return fail(classifyNetErr(err), 0, "", err.Error())
+	}
+
+	conn, err := p.dialAny(ctx, ips)
 	if err != nil {
 		return fail(classifyNetErr(err), 0, "", err.Error())
 	}
@@ -299,6 +334,24 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
 	return out, catchAll
+}
+
+// dialAny tries the vetted addresses in order, as a real sender does, and
+// returns the first connection it gets.
+func (p *Prober) dialAny(ctx context.Context, addrs []netip.Addr) (net.Conn, error) {
+	var lastErr error
+	for _, a := range addrs {
+		target := net.JoinHostPort(a.String(), p.opts.port())
+		conn, err := p.opts.dialer().DialContext(ctx, p.opts.network(), target)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = errors.New("prober: no address to dial")
+	}
+	return nil, lastErr
 }
 
 // rcptResult turns one RCPT reply into a Result. Only ClassValid and

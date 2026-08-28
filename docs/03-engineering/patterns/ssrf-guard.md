@@ -21,8 +21,29 @@ Every resolved IP — after MX→A resolution, before any socket — is rejected
 A domain whose MX resolves only to such addresses is **not probed**; the address returns `unknown`
 with a reason, never `invalid` (it is our refusal, not the mailbox's absence).
 
+Beyond the classics above, the implementation also refuses carrier-grade NAT (`100.64/10`),
+benchmarking (`198.18/15`), the documentation blocks, IETF assignments (`192.0.0/24`), and the IPv6
+tunnelling prefixes — 6to4 (`2002::/16`), Teredo (`2001::/32`), NAT64 (`64:ff9b::/96`) and
+v4-mapped (`::ffff:0:0/96`) — because each can embed an arbitrary IPv4 address and carry it inward.
+
+The rule is expressed as **deny by default**: anything that is not routable global unicast is
+refused, and the named ranges cover what the standard-library predicates miss. Over-blocking costs a
+rare unnecessary "not attempted"; under-blocking is a hole.
+
 ## Where
 
-`internal/resolver` performs resolution and applies the guard, so no caller can bypass it — the
-prober only ever receives already-vetted, routable IPs. Tested with a domain (or stub resolver)
-whose MX points at `127.0.0.1`: the probe must be refused, not attempted.
+`internal/resolver` resolves and vets in one step, and `internal/prober` receives `netip.Addr`
+values rather than a hostname — so the guard sits between the lookup and the socket, where it has to
+be. Handing a *name* to a dialer puts the resolution on the wrong side of the guard and is the exact
+bug plan 002 closed.
+
+Two details that matter:
+
+- **An IP literal is vetted directly, without a lookup.** Otherwise `mx_host: "127.0.0.1"` depends
+  on what the resolver chooses to do with a literal.
+- **The guard is the prober's default, not an option.** Forgetting to wire it cannot produce an
+  unguarded prober.
+
+A refusal is `class: guarded` with a reason: `connected:false`, `accepted:null`, never `invalid`.
+It is neither a throttle nor a deferral — retrying changes nothing, and slowing down does not change
+someone's DNS record.

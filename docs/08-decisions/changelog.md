@@ -3,6 +3,38 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 002: SSRF guard between the lookup and the socket
+
+- **The hole was concrete, not theoretical.** Plan 001 built the target as
+  `net.JoinHostPort(req.MXHost, port)` and handed the *name* to the dialer, which resolved it
+  itself — leaving no place for a guard to sit. `internal/prober` now takes `netip.Addr` values and
+  dials an IP literal, so no second, unguarded resolution can happen underneath it.
+- **New `internal/resolver`**: A-record resolution of the supplied `mx_host` plus a deny-by-default
+  guard. Anything that is not routable global unicast is refused; the named ranges then cover what
+  the standard-library predicates miss — carrier-grade NAT, benchmarking, the documentation blocks,
+  IETF assignments, and the IPv6 tunnelling prefixes (6to4, Teredo, NAT64, v4-mapped) that can embed
+  an arbitrary IPv4 address and carry it inward. Over-blocking costs a rare "not attempted";
+  under-blocking is a hole.
+- **The guard is the prober's default, not an option.** Forgetting to wire one cannot produce an
+  unguarded prober — a test asserts the dialer is never called for an internal target.
+- **IP literals are vetted without a lookup**, so `mx_host: "127.0.0.1"` does not depend on what a
+  resolver chooses to do with a literal.
+- **New class `ClassGuarded`** — added, not ported, since the lab connects to loopback on purpose.
+  Neither `IsTemp` nor `IsThrottle`: retrying changes nothing and slowing down does not change
+  someone's DNS record. Plan 009's `verify_probe_blocked_total{reason="ssrf"}` reads off it.
+- A guard refusal (`*BlockedError`) is a different error from a DNS failure, so the caller can tell
+  "we would not go there" from "DNS did not answer".
+- Resolution is `ip4` only (invariant 3): asking for AAAA would only produce addresses we must
+  refuse to leave from.
+- Verified over HTTP with no resolver configured: `127.0.0.1`, `169.254.169.254`, `10.0.0.5`,
+  `::ffff:127.0.0.1` and the *name* `localhost` all came back `class:guarded`, `connected:false`,
+  `accepted:null`, each with its reason. From the deployed node, `gmail-smtp-in.l.google.com` still
+  resolved and answered correctly — the guard is not a denial of service against ourselves.
+- Integration tests bypass the guard through one explicit `loopbackResolver`, because the fake MX
+  runs on loopback. Bypassing it visibly in a named type beats weakening the guard to make tests
+  pass.
+- Plan 002 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 001: the prober, and `POST /probe`
 
 - **Classifier ported verbatim** from `../ds-smtp-retry/ratecheck/internal/prober` into

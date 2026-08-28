@@ -42,7 +42,15 @@ const (
 	// client -- its IP, its rDNS, its HELO, its authentication -- and not
 	// about the recipient. "550 5.7.25 Forward-confirmed reverse DNS failed"
 	// says nothing whatsoever about whether the mailbox exists.
-	ClassPolicy  Class = "policy"
+	ClassPolicy Class = "policy"
+	// ClassGuarded is our own refusal to open the socket at all: the MX host
+	// resolved only to addresses the SSRF guard rejects (invariant 2). Never a
+	// statement about the mailbox, and not retryable either — a domain pointing
+	// its MX at 127.0.0.1 will still be doing so tomorrow.
+	//
+	// Added here, not ported: ../ds-smtp-retry connects to loopback on purpose,
+	// which is the one lab behaviour this service inverts.
+	ClassGuarded Class = "guarded"
 	ClassUnknown Class = "unknown"
 )
 

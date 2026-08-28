@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,15 @@ func scriptedMX(banner string, reply func(cmd string) string) Dialer {
 	})
 }
 
+// stubResolver hands back one routable address without touching DNS. Tests of
+// the session must not depend on name resolution; the guard itself is tested
+// separately, including through the prober's safe default.
+type stubResolver struct{}
+
+func (stubResolver) Resolve(context.Context, string) ([]netip.Addr, error) {
+	return []netip.Addr{netip.MustParseAddr("198.51.100.10")}, nil
+}
+
 type dialFunc func(context.Context, string, string) (net.Conn, error)
 
 func (f dialFunc) DialContext(ctx context.Context, n, a string) (net.Conn, error) {
@@ -79,7 +89,10 @@ func happyPath(bounce ...string) func(string) string {
 
 func probeWith(t *testing.T, d Dialer, req Request) Response {
 	t.Helper()
-	p := New(Options{Dialer: d, Timeout: 5 * time.Second, Helo: "mail.test", MailFrom: "verify@probe.test"})
+	p := New(Options{
+		Dialer: d, Resolver: stubResolver{}, Timeout: 5 * time.Second,
+		Helo: "mail.test", MailFrom: "verify@probe.test",
+	})
 	resp, err := p.Probe(t.Context(), req)
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -217,7 +230,7 @@ func TestBatchIsSplitAcrossSessions(t *testing.T) {
 	for i := range emails {
 		emails[i] = fmt.Sprintf("u%d@example.test", i)
 	}
-	p := New(Options{Dialer: d, MaxRCPTPerSession: 3, Timeout: 5 * time.Second})
+	p := New(Options{Dialer: d, Resolver: stubResolver{}, MaxRCPTPerSession: 3, Timeout: 5 * time.Second})
 	resp, err := p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "example.test", Emails: emails})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -247,11 +260,69 @@ func TestDialsIPv4Only(t *testing.T) {
 		got <- network
 		return nil, errors.New("stop here")
 	})
-	p := New(Options{Dialer: d})
+	p := New(Options{Dialer: d, Resolver: stubResolver{}})
 	if _, err := p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "x.test", Emails: []string{"a@x.test"}}); err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
 	if network := <-got; network != "tcp4" {
 		t.Errorf("dialed %q, want tcp4", network)
+	}
+}
+
+// Invariant 2, end to end: with no Resolver supplied the prober must still
+// refuse, because the guard is the default and not something a caller opts
+// into. A dialer that records any attempt proves no socket was opened.
+func TestGuardRefusesInternalTargetsByDefault(t *testing.T) {
+	for name, host := range map[string]string{
+		"loopback":       "127.0.0.1",
+		"private":        "10.0.0.5",
+		"cloud metadata": "169.254.169.254",
+		"unspecified":    "0.0.0.0",
+		"v4-mapped v6":   "::ffff:127.0.0.1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dialed := false
+			p := New(Options{Dialer: dialFunc(func(context.Context, string, string) (net.Conn, error) {
+				dialed = true
+				return nil, errors.New("must not be reached")
+			})})
+
+			resp, err := p.Probe(t.Context(), Request{
+				MXHost: host, Domain: "example.test",
+				Emails: []string{"a@example.test", "b@example.test"},
+			})
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if dialed {
+				t.Fatal("a socket was opened to an internal address")
+			}
+			for addr, r := range resp.Results {
+				if r.Class != ClassGuarded {
+					t.Errorf("%s: Class = %s, want guarded", addr, r.Class)
+				}
+				// Our refusal is never a statement about the mailbox.
+				if r.Accepted != nil {
+					t.Errorf("%s: Accepted = %v, want nil", addr, *r.Accepted)
+				}
+				if r.Connected == nil || *r.Connected {
+					t.Errorf("%s: Connected = %v, want false", addr, r.Connected)
+				}
+				if r.Err == "" {
+					t.Errorf("%s: refusal carries no reason", addr)
+				}
+			}
+		})
+	}
+}
+
+// A guarded refusal is neither a throttle nor a deferral: it must not move the
+// pacer, and retrying changes nothing.
+func TestGuardedIsNeitherThrottleNorTemp(t *testing.T) {
+	if ClassGuarded.IsThrottle() {
+		t.Error("guarded moves the pacer; slowing down does not change a DNS record")
+	}
+	if ClassGuarded.IsTemp() {
+		t.Error("guarded is retryable; the MX will still point inward tomorrow")
 	}
 }

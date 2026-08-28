@@ -58,7 +58,8 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 
 `class` is the prober's classification, and it is the field that carries who a failure was about:
 `valid`, `invalid`, `deferred`, `throttled`, `timeout`, `conn_error`, `bad_sequence`, `policy`,
-`unknown`. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
+`guarded`, `unknown`. `guarded` is our own refusal to open the socket — the `mx_host` resolved only
+to addresses the SSRF guard rejects (invariant 2). Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
 own words and `err` the transport error, both for the audit trail.
 
 A batch is split at `probe.max_rcpt_per_session` — an unbounded recipient list is itself a
