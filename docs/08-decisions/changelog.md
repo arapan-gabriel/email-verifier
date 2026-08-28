@@ -3,6 +3,38 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 004: resolver control and an in-process cache
+
+Rewritten before it was implemented. As planned it was MX discovery, priority sorting, implicit-MX
+fallback and a "no mail server" verdict — all of which ADR-006 had already moved to Data Scout, and
+plan 002 had already built the resolution and the guard. Implementing the original tasks would have
+meant building against a boundary that no longer existed.
+
+- **Configurable resolvers** (`dns.servers`) and a resolution timeout of its own. Previously the
+  service used whatever `/etc/resolv.conf` said and inherited only the HTTP deadline, so a slow
+  resolver could spend the probe's whole budget before a socket opened. On the node the host's
+  resolver is `systemd-resolved` on `127.0.0.53` — fine for A records; the RUNBOOK's warning about
+  stubs bites on DNSBL lookups, which is why the knob exists and why plan 010 will want it.
+- **An in-process TTL cache**, positive and negative, size-capped. Deliberately not Redis: the node
+  already runs a caching resolver, so a Redis round trip to avoid a lookup the OS has cached would
+  make the hot path slower, not faster. What it buys is that the service does not fall over when
+  deployed somewhere `resolv.conf` points straight at a public resolver and a 500-domain bulk job at
+  one provider means 500 identical queries.
+- **Only vetted results are cached, and refusals are cached too.** Caching the raw answer would be a
+  way to smuggle a refused address back past the SSRF guard; caching the refusal means a domain
+  pointing its MX inward costs one lookup rather than one per request. Refusals expire faster than
+  answers, so a misconfiguration that gets fixed is not remembered as long as a good result.
+- **`dns:mx:<domain>` dropped from the Redis contract** with the reasoning recorded there: a DNS
+  answer is not state that has to be shared between nodes. Redis keeps what genuinely must be — the
+  rate budget, the bands, IP health.
+- **No `miekg/dns`.** The one thing the standard library cannot give is the record TTL, and a fixed
+  conservative TTL is adequate for the A records of MX hosts. The sanctioned dependency stays
+  unused until something needs it.
+- Every cache assertion counts lookups performed rather than elapsed time; expiry is driven by
+  `synctest`. Smoke-tested on the node afterwards: a real Gmail MX still resolves and answers
+  correctly, and `localhost` is still refused by the guard.
+- Plan 004 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 003: the central token bucket becomes the limiter
 
 - **`internal/redis`** — the wire codec is ported from the lab; the connection handling is not. That
@@ -43,7 +75,7 @@ trade-offs.
 - Known bound for the multi-node plan: the bucket is shared so nodes cannot double-spend, but the
   rate each node passes is its own in-memory value persisted to `rt:mx:<host>:rate`, so nodes
   converge rather than agree instantly.
-- Plan 003 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`.
 
 ## 2026-08-28 — Plan 002: SSRF guard between the lookup and the socket
 
@@ -75,7 +107,7 @@ trade-offs.
 - Integration tests bypass the guard through one explicit `loopbackResolver`, because the fake MX
   runs on loopback. Bypassing it visibly in a named type beats weakening the guard to make tests
   pass.
-- Plan 002 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`.
 
 ## 2026-08-28 — Plan 001: the prober, and `POST /probe`
 

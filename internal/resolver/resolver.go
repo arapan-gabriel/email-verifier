@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"time"
 )
 
 // ErrNoRoutableAddress means the host resolved, but nothing it resolved to may
@@ -20,30 +21,81 @@ type LookupFunc func(ctx context.Context, network, host string) ([]netip.Addr, e
 
 // Options configures a Resolver.
 type Options struct {
-	// Lookup defaults to the process resolver.
+	// Lookup overrides resolution entirely; tests use it. When nil, a resolver
+	// is built from Servers.
 	Lookup LookupFunc
+	// Servers are "host:port" DNS servers to query. Empty means the process
+	// resolver — whatever /etc/resolv.conf says, which on the deployed node is
+	// systemd-resolved. Setting it lets an operator move this service off a
+	// misbehaving stub without touching the rest of the host.
+	Servers []string
+	// Timeout bounds one resolution. Without it, resolution inherits only the
+	// HTTP request deadline and a slow resolver eats the probe's whole budget
+	// before a socket is ever opened.
+	Timeout time.Duration
 	// Network is "ip4" — invariant 3. The sending identity is published for the
 	// IPv4 address only, so resolving AAAA would only produce addresses we must
 	// refuse to leave from.
 	Network string
+	// CacheTTL and NegativeTTL bound how long answers and refusals are held.
+	CacheTTL    time.Duration
+	NegativeTTL time.Duration
+	// CacheSize caps the number of hosts remembered.
+	CacheSize int
 }
 
 // Resolver resolves a host and vets every answer.
 type Resolver struct {
 	lookup  LookupFunc
 	network string
+	timeout time.Duration
+	cache   *cache
 }
 
 // New returns a Resolver. It never fails: every option has a default.
 func New(opts Options) *Resolver {
-	r := &Resolver{lookup: opts.Lookup, network: opts.Network}
+	r := &Resolver{
+		lookup:  opts.Lookup,
+		network: opts.Network,
+		timeout: opts.Timeout,
+		cache:   newCache(opts.CacheTTL, opts.NegativeTTL, opts.CacheSize),
+	}
 	if r.lookup == nil {
-		r.lookup = net.DefaultResolver.LookupNetIP
+		r.lookup = resolverFor(opts.Servers, opts.Timeout).LookupNetIP
 	}
 	if r.network == "" {
 		r.network = "ip4"
 	}
+	if r.timeout <= 0 {
+		r.timeout = 5 * time.Second
+	}
 	return r
+}
+
+// resolverFor builds a net.Resolver aimed at the configured servers, or the
+// process resolver when none are given.
+func resolverFor(servers []string, timeout time.Duration) *net.Resolver {
+	if len(servers) == 0 {
+		return net.DefaultResolver
+	}
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			d := net.Dialer{Timeout: timeout}
+			var lastErr error
+			for _, s := range servers {
+				c, err := d.DialContext(ctx, network, s)
+				if err == nil {
+					return c, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
 }
 
 // Resolve returns the addresses of host that are safe to connect to.
@@ -66,12 +118,24 @@ func (r *Resolver) Resolve(ctx context.Context, host string) ([]netip.Addr, erro
 		return []netip.Addr{addr}, nil
 	}
 
+	if e, ok := r.cache.get(host); ok {
+		return e.addrs, e.err
+	}
+
+	// A slow resolver must not spend the probe's whole budget.
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
 	addrs, err := r.lookup(ctx, r.network, host)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %s: %w", host, err)
+		err = fmt.Errorf("resolve %s: %w", host, err)
+		r.cache.put(host, nil, err)
+		return nil, err
 	}
 	if len(addrs) == 0 {
-		return nil, fmt.Errorf("resolve %s: %w", host, ErrNoRoutableAddress)
+		err := fmt.Errorf("resolve %s: %w", host, ErrNoRoutableAddress)
+		r.cache.put(host, nil, err)
+		return nil, err
 	}
 
 	var out []netip.Addr
@@ -89,8 +153,13 @@ func (r *Resolver) Resolve(ctx context.Context, host string) ([]netip.Addr, erro
 	}
 	if len(out) == 0 {
 		// A host that resolves *only* to refused addresses is the attack shape
-		// this guard exists for, so it is reported as the refusal it is.
+		// this guard exists for, so it is reported as the refusal it is — and
+		// remembered, so it costs one lookup rather than one per request.
+		r.cache.put(host, nil, first)
 		return nil, first
 	}
+	// Only vetted addresses are cached: storing the raw answer would be a way
+	// to smuggle a refused address back in past the guard.
+	r.cache.put(host, out, nil)
 	return out, nil
 }

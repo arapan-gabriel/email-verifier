@@ -15,8 +15,8 @@ Scout (ADR-006).
 |---|---|---|---|
 | 000 | ~~scaffold-and-standards~~ **done 2026-08-28** | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz, `mxsim` | ✅ gate green; `/healthz` 200; drains on SIGTERM |
 | 001 | ~~http-verify-service~~ **done 2026-08-28** | lab prober ported; `POST /probe` batch-per-MX (ADR-006); auth; mTLS wired, enabled by 013 | ✅ correct per-address results in one session, against `mxsim` and against real MXes from the node |
-| 002 | ssrf-guard-and-safety | resolver SSRF guard (no private/loopback MX); "us ≠ address" verdict rules enforced | probe of a domain whose MX points at `127.0.0.1` is refused, not attempted |
-| 003 | central-redis-limiter | make the shared token bucket THE limiter; per-MX AIMD; fail-closed on Redis down | two concurrent `/verify` bursts to one MX stay under the band; Redis down → `unknown`, no send |
+| 002 | ~~ssrf-guard-and-safety~~ **done 2026-08-28** | deny-by-default guard between the lookup and the socket; prober takes vetted IPs, never a hostname | ✅ loopback, private, link-local, v4-mapped and `localhost` all refused with zero SYNs; real MX unaffected |
+| 003 | ~~central-redis-limiter~~ **done 2026-08-28** | shared bucket is THE limiter; per-MX AIMD; fail-closed | ✅ 12 recipients at 1.99/s against a 2/s band; Redis stopped → `no_budget`, zero connections opened |
 | 004 | dns-resolver-and-cache | A/AAAA of the supplied `mx_host` + SSRF guard + cache (narrowed by ADR-006 — MX discovery stays in Data Scout) | guarded host refused; cache hit on repeat |
 | 005 | catch-all-and-classification | catch-all + randomiser detection; verdict vocabulary reconciled with Data Scout statuses | catch-all domain → `risky`; a real mailbox on a normal domain → `valid` |
 | 006 | greylist-retry-queue | persistent retry queue for 4xx/greylisting that survives restart | greylisted address is retried later and resolves; queue survives a process restart |

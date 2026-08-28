@@ -2,7 +2,10 @@
 
 Detailed by plan 004. Resolver behaviour and caching: `docs/02-architecture/service/dns-resolver.md`.
 
-- Own resolver config (avoid a broken local stub — see the DNSBL note in the RUNBOOK).
+- Own resolver config via `dns.servers` (empty = the host's). On the deployed node the host's is
+  `systemd-resolved` on `127.0.0.53`, which is fine for A records and caches them. The RUNBOOK's
+  warning about stubs bites on **DNSBL** lookups, which return a bogus "clean" through a stub or a
+  public resolver — that is plan 010's problem, and it is why this knob exists.
 - MX/A cache with TTL; no-MX and no-A handling; SSRF guard on results.
 
 ## Sending identity (the node's own DNS)

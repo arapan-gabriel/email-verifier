@@ -1,6 +1,6 @@
 # Plan 003 — central-redis-limiter
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** A
 **Depends on:** 001
 
@@ -54,7 +54,7 @@ decision: ADR-004.
       fake clock, not by sleeping (ENGINEERING-STANDARDS §7)
 - [x] Redis down → `unknown`, no probe sent — test
 - [x] gates clean; pr-checklist central-bucket + fail-closed confirmed
-- [ ] Status → Complete, moved, ROADMAP updated — pending manual sign-off
+- [x] Status → Complete, moved, ROADMAP updated
 
 ## Results (2026-08-28)
 

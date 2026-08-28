@@ -31,6 +31,7 @@ type Config struct {
 	HTTP  HTTP  `yaml:"http"`
 	TLS   TLS   `yaml:"tls"`
 	Redis Redis `yaml:"redis"`
+	DNS   DNS   `yaml:"dns"`
 	Probe Probe `yaml:"probe"`
 	Auth  Auth  `yaml:"auth"`
 	Log   Log   `yaml:"log"`
@@ -53,6 +54,23 @@ func (t TLS) Enabled() bool { return t.CertFile != "" || t.KeyFile != "" }
 
 // MutualAuth reports whether client certificates are required.
 func (t TLS) MutualAuth() bool { return t.ClientCAFile != "" }
+
+// DNS configures how the MX host is resolved.
+type DNS struct {
+	// Servers are "host:port" resolvers to query. Empty means the process
+	// resolver — on the deployed node that is systemd-resolved on 127.0.0.53.
+	// Setting it moves this service off a misbehaving stub without touching the
+	// rest of the host.
+	Servers []string `yaml:"servers"`
+	// Timeout bounds one resolution, so a slow resolver cannot spend the
+	// probe's whole budget before a socket is opened.
+	Timeout time.Duration `yaml:"timeout"`
+	// CacheTTL and NegativeTTL bound how long vetted answers and refusals are
+	// held in process.
+	CacheTTL    time.Duration `yaml:"cache_ttl"`
+	NegativeTTL time.Duration `yaml:"negative_ttl"`
+	CacheSize   int           `yaml:"cache_size"`
+}
 
 // Probe configures the SMTP session.
 type Probe struct {
@@ -128,6 +146,12 @@ func defaults() Config {
 		Redis: Redis{
 			Addr:        "unix:/run/redis/redis-server.sock",
 			DialTimeout: 2 * time.Second,
+		},
+		DNS: DNS{
+			Timeout:     5 * time.Second,
+			CacheTTL:    5 * time.Minute,
+			NegativeTTL: time.Minute,
+			CacheSize:   4096,
 		},
 		Probe: Probe{
 			DialNetwork:         "tcp4",
@@ -224,6 +248,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	str("TLS_KEY_FILE", &cfg.TLS.KeyFile)
 	str("TLS_CLIENT_CA_FILE", &cfg.TLS.ClientCAFile)
 	str("REDIS_ADDR", &cfg.Redis.Addr)
+	if v := getenv(EnvPrefix + "DNS_SERVERS"); v != "" {
+		cfg.DNS.Servers = strings.Split(v, ",")
+	}
 	str("PROBE_HELO", &cfg.Probe.Helo)
 	str("PROBE_MAIL_FROM", &cfg.Probe.MailFrom)
 	str("PROBE_SOURCE_IP", &cfg.Probe.SourceIP)
@@ -239,6 +266,10 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("HTTP_IDLE_TIMEOUT", &cfg.HTTP.IdleTimeout) },
 		func() error { return dur("HTTP_SHUTDOWN_TIMEOUT", &cfg.HTTP.ShutdownTimeout) },
 		func() error { return dur("REDIS_DIAL_TIMEOUT", &cfg.Redis.DialTimeout) },
+		func() error { return dur("DNS_TIMEOUT", &cfg.DNS.Timeout) },
+		func() error { return dur("DNS_CACHE_TTL", &cfg.DNS.CacheTTL) },
+		func() error { return dur("DNS_NEGATIVE_TTL", &cfg.DNS.NegativeTTL) },
+		func() error { return integer("DNS_CACHE_SIZE", &cfg.DNS.CacheSize) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
@@ -307,6 +338,17 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.Timeout <= 0 {
 		add("probe.timeout must be positive, got %s", c.Probe.Timeout)
+	}
+	if c.DNS.Timeout <= 0 {
+		add("dns.timeout must be positive, got %s", c.DNS.Timeout)
+	}
+	if c.DNS.CacheTTL <= 0 || c.DNS.NegativeTTL <= 0 || c.DNS.CacheSize <= 0 {
+		add("dns.cache_ttl, dns.negative_ttl and dns.cache_size must be positive")
+	}
+	for _, srv := range c.DNS.Servers {
+		if _, _, err := net.SplitHostPort(srv); err != nil {
+			add("dns.servers entry %q must be host:port: %v", srv, err)
+		}
 	}
 	if c.Probe.Port == "" {
 		add("probe.port must be set")

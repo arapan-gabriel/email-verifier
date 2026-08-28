@@ -29,7 +29,16 @@ forever for a verdict that will not come.
 | `rt:mx:<mx_host>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
 | `rt:mx:<mx_host>:pause_until` | pacer | epoch seconds; only this MX pauses |
 | `ip:health:<ip>` | iphealth (010) | blocklist status / burned flag for a sending node |
-| `dns:mx:<domain>` | resolver (004) | cached MX/A with TTL |
+
+## Not in Redis, on purpose
+
+**DNS answers.** This contract reserved `dns:mx:<domain>`; plan 004 dropped it. A DNS answer is not
+state that has to be shared between nodes, and the deployed node already runs a caching resolver —
+so a Redis round trip to avoid a lookup the OS has cached would make the hot path slower, not
+faster. Resolution is cached in process instead, and only *vetted* results are stored, because
+caching before the SSRF guard would be a way to smuggle a refused address back in.
+
+Redis holds what genuinely must be shared: the rate budget, the calibrated bands, IP health.
 
 ## Rules (enforced by tests)
 

@@ -21,6 +21,20 @@ redis:
   addr: "unix:/run/redis/redis-server.sock"
   dial_timeout: 2s
 
+dns:
+  # Empty means the host's resolver. On the node that is systemd-resolved on
+  # 127.0.0.53 — fine for A records, and the RUNBOOK's warning about stubs bites
+  # on DNSBL lookups (plan 010), not here. Set this to move off it if needed.
+  servers: []
+  timeout: 5s
+  # An in-process cache, not Redis: the node already runs a caching resolver, so
+  # a Redis round trip to avoid a cached lookup would be slower, not faster.
+  # This exists so a 500-domain bulk job is not 500 identical queries wherever
+  # resolv.conf points straight at a public resolver.
+  cache_ttl: 5m
+  negative_ttl: 1m
+  cache_size: 4096
+
 probe:
   # Must FCrDNS to source_ip, or Yahoo/Apple/GMX/Microsoft reject the session
   # with a 5.7.x before RCPT is ever considered.

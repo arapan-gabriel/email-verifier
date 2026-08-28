@@ -22,6 +22,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 	"github.com/arapan-gabriel/email-verifier/internal/redis"
+	"github.com/arapan-gabriel/email-verifier/internal/resolver"
 )
 
 func main() {
@@ -69,8 +70,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 
 	pace := pacer.New(store, limiter.New(store))
 
+	dns := resolver.New(resolver.Options{
+		Servers:     cfg.DNS.Servers,
+		Timeout:     cfg.DNS.Timeout,
+		CacheTTL:    cfg.DNS.CacheTTL,
+		NegativeTTL: cfg.DNS.NegativeTTL,
+		CacheSize:   cfg.DNS.CacheSize,
+	})
+
 	p := prober.New(prober.Options{
 		Pacer:             pace,
+		Resolver:          dns,
 		Helo:              cfg.Probe.Helo,
 		MailFrom:          cfg.Probe.MailFrom,
 		Timeout:           cfg.Probe.Timeout,

@@ -1,6 +1,6 @@
 # Plan 002 — ssrf-guard-and-safety
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** A
 **Depends on:** 001
 
@@ -50,7 +50,7 @@ Mirrors Data Scout's plan-024 guard. Pattern: `patterns/ssrf-guard.md`.
 - [x] Cloud-metadata IP (`169.254.169.254`) blocked — test
 - [x] us≠address matrix all green
 - [x] gates clean; pr-checklist SSRF + us≠address items confirmed
-- [ ] Status → Complete, moved, ROADMAP updated — pending manual sign-off
+- [x] Status → Complete, moved, ROADMAP updated
 
 ## Results (2026-08-28)
 
