@@ -1,6 +1,6 @@
 # Plan 007 — policy-stop
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** A
 **Depends on:** 001, 003
 
@@ -65,7 +65,7 @@ rather than one server. Building a second, overlapping mechanism here would make
 - [x] `policy_stop: 0` sends the whole batch
 - [x] The pacer receives no throttle signal from any of it
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

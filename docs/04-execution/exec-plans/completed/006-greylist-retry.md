@@ -1,6 +1,6 @@
 # Plan 006 — greylisting: make a deferral actionable
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** A
 **Depends on:** 001, 003
 
@@ -70,7 +70,7 @@ because nothing in the code can enforce it from here.
 - [x] An absurd server hint is clamped rather than honoured
 - [x] A `450`-then-`250` sequence resolves when the caller retries — integration test with `mxsim`
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

@@ -44,7 +44,8 @@ transport-agnostic engine entrypoint the plan asked for is how `internal/prober`
   signal as "our IP is burned", it belongs with the IP-health state and the alert, and the right
   response there may be to pause the node rather than one server. A second overlapping mechanism
   here would only let the two disagree.
-- Plan 007 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`. **Phase A is closed** apart from
+  plan 008, which is cross-repo and waits on mTLS material and coordination with Data Scout.
 
 ## 2026-08-28 — Cross-repo: Data Scout's plans brought in line (its ADR-009)
 
@@ -113,7 +114,7 @@ this service stateful about who asked.
   exists. The enhanced code travels with the result so Data Scout can score that inference where the
   rest of the scoring lives; asserting it in the classifier would change the lab's measured
   behaviour on the strength of an argument rather than a measurement.
-- Plan 006 stays **Active** pending manual sign-off.
+- **Signed off 2026-08-28.** Complete and moved to `completed/`.
 
 ## 2026-08-28 — Plan 005: telling a catch-all from a coin flip
 

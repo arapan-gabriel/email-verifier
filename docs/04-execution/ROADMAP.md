@@ -19,8 +19,8 @@ Scout (ADR-006).
 | 003 | ~~central-redis-limiter~~ **done 2026-08-28** | shared bucket is THE limiter; per-MX AIMD; fail-closed | ✅ 12 recipients at 1.99/s against a 2/s band; Redis stopped → `no_budget`, zero connections opened |
 | 004 | ~~dns-resolver-and-cache~~ **done 2026-08-28** | configurable resolvers + own timeout; in-process TTL cache of *vetted* results and refusals (not Redis — see the contract) | ✅ 10 resolutions = 1 lookup; refusals cached; bounded; literals bypass |
 | 005 | ~~catch-all-and-randomisers~~ **done 2026-08-28** | N bogus probes tell a catch-all from a coin flip; the randomiser verdict is per **server** and remembered | ✅ catch-all → `catch_all:true`; coin-flip host → `randomiser:true`, remembered, neighbours condemned with zero probes |
-| 006 | greylist-retry *(active)* | no queue here — a retry's answer has nowhere to land (ADR-003/006). `retry_after_seconds` so the caller schedules instead of guessing | greylisted address defers with a usable hint; same tuple after the window resolves |
-| 007 | policy-stop *(active)* | all that ADR-006 left of `bulk-verify-and-queue`: N **consecutive** policy replies end the session; orchestration is Data Scout's Celery | ✅ trips at the threshold, budget stops with it, an isolated `5.7.x` does not trip it |
+| 006 | ~~greylist-retry~~ **done 2026-08-28** | no queue here — a retry's answer has nowhere to land (ADR-003/006). `retry_after_seconds`, exact for a paused MX, clamped otherwise | ✅ defers with a usable hint; same tuple after the window resolves; answers carry no hint |
+| 007 | ~~policy-stop~~ **done 2026-08-28** | all that ADR-006 left of `bulk-verify-and-queue`: N **consecutive** policy replies end the session; orchestration is Data Scout's Celery | ✅ trips at the threshold, budget stops with it, an isolated `5.7.x` does not trip it |
 | 008 | data-scout-integration | Data Scout `email_verify.py` → HTTP client to this service; retire in-process `smtp_probe` | Data Scout verify endpoint returns this service's verdict end-to-end |
 
 ## Phase B — Operations & hardening
