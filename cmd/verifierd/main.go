@@ -28,6 +28,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 	"github.com/arapan-gabriel/email-verifier/internal/redis"
 	"github.com/arapan-gabriel/email-verifier/internal/resolver"
+	"github.com/arapan-gabriel/email-verifier/internal/suppress"
 )
 
 func main() {
@@ -104,6 +105,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			"answer DNSBL queries (the host's stub cannot)")
 	}
 
+	var suppression *suppress.List
+	if cfg.Suppress.Enabled {
+		suppression = suppress.New(suppress.Options{
+			Salt: cfg.Suppress.Salt, Stale: cfg.Suppress.Stale, Store: store,
+		})
+		st := suppression.Status(ctx)
+		logger.Info("suppression check enabled", "entries", st.Size, "version", st.Version, "stale", st.Stale)
+	} else {
+		logger.Info("local suppression check is off — Data Scout's is the only one")
+	}
+
 	dns := resolver.New(resolver.Options{
 		Servers:     cfg.DNS.Servers,
 		Timeout:     cfg.DNS.Timeout,
@@ -127,20 +139,28 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
 		Metrics:           reg,
 		Health:            health,
+		Suppress:          suppressionOrNil(suppression),
+		OnSuppressionError: func(err error) {
+			// Loud, but not fatal: this is a redundancy and the authoritative
+			// check has already run upstream.
+			logger.Error("suppression list unreadable; continuing on the caller's check", "error", err)
+		},
 	})
 
 	srv := &http.Server{
 		Addr: cfg.HTTP.Addr,
 		Handler: api.NewRouter(api.Options{
-			Ready:               api.StoreReachable(store),
-			Prober:              p,
-			SourceIP:            cfg.Probe.SourceIP,
-			MaxEmailsPerRequest: cfg.Probe.MaxEmailsPerRequest,
-			AuthEnabled:         cfg.Auth.Enabled,
-			APIKey:              cfg.Auth.APIKey,
-			Metrics:             reg,
-			Logger:              logger,
-			Health:              health,
+			Ready:                api.StoreReachable(store),
+			Prober:               p,
+			SourceIP:             cfg.Probe.SourceIP,
+			MaxEmailsPerRequest:  cfg.Probe.MaxEmailsPerRequest,
+			AuthEnabled:          cfg.Auth.Enabled,
+			APIKey:               cfg.Auth.APIKey,
+			Metrics:              reg,
+			Logger:               logger,
+			Health:               health,
+			Suppression:          suppressionAdminOrNil(suppression),
+			MaxSuppressionHashes: cfg.Suppress.MaxHashesPerImport,
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -244,6 +264,35 @@ func dnsblLookup(cfg config.IPHealth) iphealth.LookupFunc {
 		ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 		defer cancel()
 		return r.LookupNetIP(ctx, "ip4", host)
+	}
+}
+
+// A typed nil in an interface is not nil, so both wrappers return an untyped
+// nil when suppression is off. Getting this wrong would turn "disabled" into a
+// panic on the first probe.
+func suppressionOrNil(l *suppress.List) prober.Suppression {
+	if l == nil {
+		return nil
+	}
+	return l
+}
+
+func suppressionAdminOrNil(l *suppress.List) api.SuppressionAdmin {
+	if l == nil {
+		return nil
+	}
+	return suppressAdmin{l}
+}
+
+// suppressAdmin adapts the list to what the HTTP layer reports, so neither
+// package depends on the other's shape.
+type suppressAdmin struct{ *suppress.List }
+
+func (s suppressAdmin) Status(ctx context.Context) api.SuppressionStatus {
+	st := s.List.Status(ctx)
+	return api.SuppressionStatus{
+		Enabled: st.Enabled, Version: st.Version, Updated: st.Updated,
+		Size: st.Size, Stale: st.Stale,
 	}
 }
 

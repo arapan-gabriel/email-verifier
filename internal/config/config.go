@@ -34,6 +34,7 @@ type Config struct {
 	DNS      DNS      `yaml:"dns"`
 	Pacer    Pacer    `yaml:"pacer"`
 	IPHealth IPHealth `yaml:"ip_health"`
+	Suppress Suppress `yaml:"suppress"`
 	Probe    Probe    `yaml:"probe"`
 	Auth     Auth     `yaml:"auth"`
 	Log      Log      `yaml:"log"`
@@ -103,6 +104,28 @@ type IPHealth struct {
 
 // Enabled reports whether DNSBL checking will run.
 func (i IPHealth) Enabled() bool { return len(i.Resolvers) > 0 }
+
+// Suppress refuses addresses somebody asked to be forgotten (invariant 9).
+//
+// This service stores **no addresses** — only salted digests. A suppression
+// list is a list of email addresses, and copying one onto a second host, for a
+// mechanism whose whole purpose is erasure, would create the liability the
+// mechanism exists to discharge.
+type Suppress struct {
+	// Salt makes the digests specific to this deployment. Both sides must use
+	// the same value, and enabling suppression without one refuses to boot —
+	// an empty salt would silently make every lookup miss.
+	Salt string `yaml:"salt"`
+	// Stale is how old an export may be before the local copy is no longer
+	// trusted to be complete. Exceeding it is loud, not fatal: Data Scout has
+	// already checked the authoritative list.
+	Stale time.Duration `yaml:"stale"`
+	// MaxHashesPerImport bounds one push.
+	MaxHashesPerImport int `yaml:"max_hashes_per_import"`
+	// Enabled turns the local check on. Off means Data Scout's check is the
+	// only one, which is how it has always been.
+	Enabled bool `yaml:"enabled"`
+}
 
 // Probe configures the SMTP session.
 type Probe struct {
@@ -202,6 +225,7 @@ func defaults() Config {
 		},
 		Pacer:    Pacer{IdleTTL: 30 * time.Minute, MaxTracked: 512},
 		IPHealth: IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
+		Suppress: Suppress{Stale: 24 * time.Hour, MaxHashesPerImport: 200_000},
 		Probe: Probe{
 			DialNetwork:         "tcp4",
 			Port:                "25",
@@ -310,6 +334,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	if v := getenv(EnvPrefix + "IP_HEALTH_ZONES"); v != "" {
 		cfg.IPHealth.Zones = strings.Split(v, ",")
 	}
+	str("SUPPRESS_SALT", &cfg.Suppress.Salt)
 	str("PROBE_HELO", &cfg.Probe.Helo)
 	str("PROBE_MAIL_FROM", &cfg.Probe.MailFrom)
 	str("PROBE_SOURCE_IP", &cfg.Probe.SourceIP)
@@ -341,6 +366,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("PROBE_DEFERRAL_RETRY", &cfg.Probe.DeferralRetry) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
 		func() error { return boolean("AUTH_ENABLED", &cfg.Auth.Enabled) },
+		func() error { return boolean("SUPPRESS_ENABLED", &cfg.Suppress.Enabled) },
+		func() error { return dur("SUPPRESS_STALE", &cfg.Suppress.Stale) },
+		func() error { return integer("SUPPRESS_MAX_HASHES", &cfg.Suppress.MaxHashesPerImport) },
 	} {
 		if err := f(); err != nil {
 			return err
@@ -405,6 +433,14 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.Timeout <= 0 {
 		add("probe.timeout must be positive, got %s", c.Probe.Timeout)
+	}
+	// An empty salt would not fail — it would silently make every lookup miss,
+	// which is the worst possible way for a suppression check to be broken.
+	if c.Suppress.Enabled && c.Suppress.Salt == "" {
+		add("suppress.enabled is true but suppress.salt is empty — every lookup would silently miss")
+	}
+	if c.Suppress.Stale <= 0 || c.Suppress.MaxHashesPerImport <= 0 {
+		add("suppress.stale and suppress.max_hashes_per_import must be positive")
 	}
 	if c.IPHealth.Interval <= 0 || c.IPHealth.Timeout <= 0 {
 		add("ip_health.interval and ip_health.timeout must be positive")

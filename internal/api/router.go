@@ -31,6 +31,11 @@ type Options struct {
 	// Health backs the operator's view of, and override on, the sending IP's
 	// standing. Nil leaves those routes unregistered.
 	Health HealthOverride
+	// Suppression backs the push of the suppression list. Nil leaves those
+	// routes unregistered.
+	Suppression SuppressionAdmin
+	// MaxSuppressionHashes bounds one import.
+	MaxSuppressionHashes int
 }
 
 // Authenticated wraps h with the credential check required by invariant 11.
@@ -59,6 +64,15 @@ func NewRouter(opts Options) http.Handler {
 	if opts.Health != nil {
 		mux.Handle("GET /admin/ip-health", opts.Authenticated(handleIPHealth(opts.Health)))
 		mux.Handle("POST /admin/ip-health/resume", opts.Authenticated(handleIPHealthResume(opts.Health)))
+	}
+
+	if opts.Suppression != nil {
+		limit := opts.MaxSuppressionHashes
+		if limit <= 0 {
+			limit = 200_000
+		}
+		mux.Handle("GET /admin/suppress", opts.Authenticated(handleSuppressStatus(opts.Suppression)))
+		mux.Handle("POST /admin/suppress", opts.Authenticated(handleSuppressImport(opts.Suppression, limit)))
 	}
 
 	if opts.Prober != nil {

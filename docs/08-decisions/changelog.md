@@ -3,6 +3,41 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-08-28 — Plan 011: suppression, as digests rather than addresses
+
+Reading the Data Scout side changed the plan twice over.
+
+- **It already enforces this, three times.** `privacy_service.is_email_suppressed` is called from
+  `verify`, from the prefetch leg, and again in the bulk task — which notes it checks there "rather
+  than left to `verify`" precisely so a suppressed address never reaches the engine. What is built
+  here is a **second line**, and the fail policy follows from that rather than from taste.
+- **The original design would have copied personal data onto this host.** A suppression list is a
+  list of email addresses; syncing one here, for a mechanism whose entire purpose is erasure, would
+  create the liability the mechanism exists to discharge — on a node contracted through a different
+  legal entity, no less. So this service stores **no addresses**: only
+  `sha256(salt + "\x00" + value)`. Membership is checkable, the plaintext is not recoverable from
+  what sits here, and erasure is deleting one key. An entry that is not a digest is refused rather
+  than stored, so an accidental push of plaintext cannot leak. Verified against the node's real
+  Redis: two hashes, no `@` anywhere.
+- Both keys the source model carries are covered — an address, and a whole domain
+  (`suppressions.domain_host` with no `full_name`), which refuses every address on it.
+- **Pushed, not pulled.** Data Scout already calls this service; an endpoint here is less machinery
+  than an endpoint there plus polling plus credentials pointing the other way. `POST /admin/suppress`
+  takes `{version, hashes[], mode}`, where `replace` is what makes a removal at the source
+  propagate.
+- **Confidence decides consequence**, as in plan 010. On the verify path a missing, stale or
+  unreadable copy is loud and non-fatal: the authoritative check already ran, and failing the
+  request would trade a real capability for a control that has been applied. Phase C relay will fail
+  closed, because sending is irreversible and has no upstream check between the queue and the socket.
+- **Invariant 9 is not weakened by that.** It says a suppressed address is never probed or mailed,
+  and it holds. What fail-open acknowledges is that this copy is a redundancy.
+- Enabling suppression without a salt **refuses to boot**: an empty salt would not fail, it would
+  silently make every lookup miss — the worst possible way for this particular check to be broken.
+- Refusal happens before the SSRF guard, before the budget and before any socket, and costs the rest
+  of the batch nothing: a suppressed address and a live probe went out in the same request, one
+  refused and the other answered.
+- Plan 011 stays **Active** pending manual sign-off.
+
 ## 2026-08-28 — Plan 010: IP health, designed around the false positive
 
 Standing the node down automatically is the point of this plan and also its danger: **a false

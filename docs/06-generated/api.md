@@ -67,6 +67,8 @@ addresses; this endpoint asks one server about several mailboxes in one session.
   band. Normal operation.
 - `ip_burned` — **this node** is standing down: its sending address is listed somewhere that
   matters, so probing on would deepen the damage and produce nothing worth having.
+- `suppressed` — somebody asked to be forgotten. Never probed, never mailed (invariant 9). The only
+  class that is a statement about the *request* rather than about the network.
 
 All three return `connected:false` and `accepted:null`.
 
@@ -129,6 +131,24 @@ stores it in `email_verifications.signals`.
 |---|---|---|---|
 | GET | `/admin/ip-health` | 010 | whether this node has stood itself down, and why |
 | POST | `/admin/ip-health/resume` | 010 | clear the pause without a redeploy — the next scheduled check re-evaluates, so this overrides a verdict rather than disabling checking |
+| GET | `/admin/suppress` | 011 | size, version and staleness of the local suppression copy |
+| POST | `/admin/suppress` | 011 | push an export: `{version, hashes[], mode}` where mode is `replace` or `add` |
+
+### Suppression is pushed as digests, never as addresses
+
+`POST /admin/suppress` accepts **salted SHA-256 digests only** — an entry that is not one is refused
+rather than stored. A suppression list is a list of email addresses, and copying one onto this host,
+for a mechanism whose purpose is erasure, would create the liability it exists to discharge.
+
+```
+hash = sha256(salt + "\x00" + strings.ToLower(strings.TrimSpace(value)))
+```
+
+`value` is either a full address or a bare domain — the source model suppresses both, and a
+suppressed domain covers every address on it. The salt is shared configuration; a mismatch is
+silent, because every lookup simply misses.
+
+`replace` is what makes a removal at the source propagate; `add` only grows the set.
 
 
 

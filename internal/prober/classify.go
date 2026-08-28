@@ -62,7 +62,12 @@ const (
 	// somewhere that matters, so probing on would deepen the damage rather than
 	// produce answers. Our refusal, never a verdict (invariant 1).
 	ClassIPBurned Class = "ip_burned"
-	ClassUnknown  Class = "unknown"
+	// ClassSuppressed is an address somebody asked to be forgotten. Never
+	// probed, never mailed (invariant 9). Our refusal, and the most deliberate
+	// one: it is the only class that is a statement about the *request* rather
+	// than about the network.
+	ClassSuppressed Class = "suppressed"
+	ClassUnknown    Class = "unknown"
 )
 
 // IsTemp reports whether the sample means "try again later" rather than

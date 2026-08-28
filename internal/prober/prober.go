@@ -36,6 +36,16 @@ type Health interface {
 	ObservePolicy(mxHost string)
 }
 
+// Suppression refuses addresses somebody asked to be forgotten.
+//
+// The error return is separate from the verdict on purpose: the caller decides
+// what an unreadable list means, and on the verify path it means "carry on",
+// because Data Scout has already checked the authoritative copy.
+type Suppression interface {
+	Suppressed(ctx context.Context, email string) (bool, string, error)
+	Enabled() bool
+}
+
 // Recorder counts what happened. Nil means nobody is counting; the prober
 // behaves identically either way.
 type Recorder interface {
@@ -105,6 +115,12 @@ type Options struct {
 	Metrics Recorder
 	// Health stands the node down when its IP is burned. Optional.
 	Health Health
+	// Suppress refuses addresses that must never be contacted. Optional.
+	Suppress Suppression
+	// OnSuppressionError is called when the list cannot be read. Nil discards
+	// it — but something should be listening, because a silent redundancy is
+	// no redundancy.
+	OnSuppressionError func(error)
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
 	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
@@ -267,6 +283,40 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 
 	out := Response{Results: make(map[string]Result, len(req.Emails))}
 
+	// Refuse the forgotten before anything else — before the guard, before the
+	// budget, before a socket could exist (invariant 9).
+	emails := req.Emails
+	if p.opts.Suppress != nil && p.opts.Suppress.Enabled() {
+		var allowed []string
+		for _, addr := range emails {
+			hit, reason, err := p.opts.Suppress.Suppressed(ctx, addr)
+			switch {
+			case err != nil:
+				// A redundancy that cannot be read is not a reason to stop
+				// answering: the authoritative check already ran upstream.
+				if p.opts.OnSuppressionError != nil {
+					p.opts.OnSuppressionError(err)
+				}
+				allowed = append(allowed, addr)
+			case hit:
+				out.Results[addr] = Result{
+					Connected: ptrBool(false),
+					Class:     ClassSuppressed,
+					Err:       reason,
+				}
+			default:
+				allowed = append(allowed, addr)
+			}
+		}
+		if len(allowed) == 0 {
+			for _, r := range out.Results {
+				p.record(r)
+			}
+			return out, nil
+		}
+		emails = allowed
+	}
+
 	// A host already known to randomise needs no probing: the verdict travels
 	// with the server, so it applies to this domain whether or not anyone has
 	// asked about it before.
@@ -277,7 +327,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 		verdict = catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
 	}
 
-	for i, chunk := range chunks(req.Emails, p.opts.maxRCPT()) {
+	for i, chunk := range chunks(emails, p.opts.maxRCPT()) {
 		// Catch-all is a property of the domain, not of a chunk: establish it
 		// once and apply the answer to every address.
 		probeCatchAll := req.NeedCatchAll && i == 0 && !known
@@ -588,7 +638,7 @@ func (p *Prober) record(r Result) {
 	m.Result(class)
 	m.Reply(r.SMTPCode, class)
 	switch r.Class {
-	case ClassGuarded, ClassNoBudget, ClassPaused, ClassIPBurned:
+	case ClassGuarded, ClassNoBudget, ClassPaused, ClassIPBurned, ClassSuppressed:
 		m.Blocked(class)
 	case ClassPolicy:
 		if strings.HasPrefix(r.Err, "not attempted:") {

@@ -29,6 +29,8 @@ forever for a verdict that will not come.
 | `rt:mx:<mx_host>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
 | `rt:mx:<mx_host>:pause_until` | pacer | epoch seconds; only this MX pauses |
 | `mx:<mx_host>:randomiser` | prober (005) | `1` with a TTL: this host answers inconsistently, so no `250` from it is trustworthy for **any** domain it serves |
+| `suppress:hashes` | suppression (011) | set of **salted digests** — never addresses. See `api.md`; an entry that is not a digest is refused rather than stored |
+| `suppress:version` / `suppress:updated_at` | suppression (011) | which export this copy is, and when it landed — the staleness check reads them |
 | `ip:health:<ip>` | iphealth (010) | `ok`, or `burned:<reason>` — the last verdict on this sending address. Advisory: the live verdict is in process, because it is consulted on every probe |
 
 ## Not in Redis, on purpose

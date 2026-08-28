@@ -844,3 +844,127 @@ func TestGuardFiresBeforeTheBudgetCheck(t *testing.T) {
 		t.Errorf("Class = %s, want guarded — the guard must not be masked by a dead bucket", got)
 	}
 }
+
+type fakeSuppression struct {
+	hits map[string]string
+	err  error
+	on   bool
+}
+
+func (f *fakeSuppression) Enabled() bool { return f.on }
+func (f *fakeSuppression) Suppressed(_ context.Context, email string) (bool, string, error) {
+	if f.err != nil {
+		return false, "", f.err
+	}
+	r, ok := f.hits[email]
+	return ok, r, nil
+}
+
+// Invariant 9: never probed. Refused before the guard, before the budget,
+// before a socket could exist.
+func TestSuppressedAddressIsNeverProbed(t *testing.T) {
+	pc := &recordingPacer{}
+	dialed := false
+	p := New(Options{
+		Resolver: stubResolver{}, Pacer: pc,
+		Suppress: &fakeSuppression{on: true, hits: map[string]string{
+			"forgotten@example.test": "suppressed by address",
+		}},
+		Dialer: dialFunc(func(context.Context, string, string) (net.Conn, error) {
+			dialed = true
+			return nil, errors.New("must not be reached")
+		}),
+	})
+
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test",
+		Emails: []string{"forgotten@example.test"},
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if dialed {
+		t.Fatal("a suppressed address reached a socket")
+	}
+	if pc.acquires != 0 {
+		t.Errorf("spent %d tokens on a suppressed address", pc.acquires)
+	}
+	r := resp.Results["forgotten@example.test"]
+	if r.Class != ClassSuppressed {
+		t.Errorf("Class = %s, want suppressed", r.Class)
+	}
+	if r.Accepted != nil {
+		t.Error("a suppression produced a verdict")
+	}
+	if r.Err == "" {
+		t.Error("no auditable reason recorded")
+	}
+}
+
+// One suppressed address in a batch must not cost the others their answers.
+func TestSuppressionIsPerAddress(t *testing.T) {
+	p := New(Options{
+		Dialer: scriptedMX("220 mx.test ESMTP", happyPath()), Resolver: stubResolver{},
+		Timeout: 5 * time.Second,
+		Suppress: &fakeSuppression{on: true, hits: map[string]string{
+			"gone@example.test": "suppressed by address",
+		}},
+	})
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test",
+		Emails: []string{"gone@example.test", "live@example.test"},
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := resp.Results["gone@example.test"].Class; got != ClassSuppressed {
+		t.Errorf("suppressed address: class = %s", got)
+	}
+	live := resp.Results["live@example.test"]
+	if live.Accepted == nil || !*live.Accepted {
+		t.Errorf("the other address lost its answer: %+v", live)
+	}
+}
+
+// The local list is a redundancy; the authoritative check already ran upstream.
+// Turning a Redis blip into "we cannot answer anything" would be worse than the
+// thing it guards against.
+func TestUnreadableSuppressionListDoesNotBlockTheRequest(t *testing.T) {
+	var reported error
+	p := New(Options{
+		Dialer: scriptedMX("220 mx.test ESMTP", happyPath()), Resolver: stubResolver{},
+		Timeout:            5 * time.Second,
+		Suppress:           &fakeSuppression{on: true, err: errors.New("connection refused")},
+		OnSuppressionError: func(err error) { reported = err },
+	})
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test", Emails: []string{"a@example.test"},
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	r := resp.Results["a@example.test"]
+	if r.Accepted == nil || !*r.Accepted {
+		t.Errorf("an unreadable redundancy blocked the request: %+v", r)
+	}
+	if reported == nil {
+		t.Error("the failure was not reported; a silent redundancy is no redundancy")
+	}
+}
+
+func TestSuppressionOffChangesNothing(t *testing.T) {
+	p := New(Options{
+		Dialer: scriptedMX("220 mx.test ESMTP", happyPath()), Resolver: stubResolver{},
+		Timeout:  5 * time.Second,
+		Suppress: &fakeSuppression{on: false, hits: map[string]string{"a@example.test": "x"}},
+	})
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test", Emails: []string{"a@example.test"},
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if resp.Results["a@example.test"].Class == ClassSuppressed {
+		t.Error("a disabled list suppressed an address")
+	}
+}
