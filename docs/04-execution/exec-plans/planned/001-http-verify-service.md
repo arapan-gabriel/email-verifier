@@ -30,6 +30,9 @@ for `.test`/lab targets in tests.
   serialise.
 - **Auth (real):** mTLS or API-key middleware; every route but health. Replaces the 000 stub.
 - Per-probe timeout from config; request context bound.
+- **Dial `tcp4`, never `tcp`** (invariant 3) — an explicit config value (`dial_network`), not a
+  default. The sending identity is published for IPv4 only; a dual-stack host would otherwise
+  prefer IPv6 and connect from an address with no FCrDNS and no SPF. See Notes.
 - `source_ip` resolved once at startup (or per config) and returned with every verdict.
 - Verdict enforcement of invariant 1 lives in the classifier: only a `5.x` on `RCPT` after a good
   `MAIL FROM` yields `invalid`; everything else that fails → `unknown`.
@@ -40,7 +43,8 @@ for `.test`/lab targets in tests.
 - [ ] Port the enhanced-code classifier and `IsThrottle`/`IsTemp`
 - [ ] `POST /verify` handler + request/response structs matching `06-generated/api.md`
 - [ ] Real auth middleware (mTLS/API key); wire onto all non-health routes
-- [ ] Config: probe timeout, HELO, MAIL FROM, source IP, auth secret
+- [ ] Config: probe timeout, HELO, MAIL FROM, source IP, `dial_network` (tcp4), auth secret
+- [ ] Test asserting the dialer is address-family-pinned (no bare `tcp`)
 - [ ] Table tests for the classifier; a `/verify` handler test with a fake prober
 - [ ] Update `06-generated/api.md` (mark `/verify` live) and `changelog.md`
 
@@ -57,3 +61,14 @@ for `.test`/lab targets in tests.
 
 Fixed conservative rate here on purpose — real per-MX pacing is 003. Do not add ad-hoc semaphores
 that a second node cannot see; leave pacing to the central bucket in 003.
+
+**IPv4-only is not a preference, it is correctness** (measured on the deployed node, 2026-08-28).
+The OVH VPS is dual-stack, and a plain `net.Dial("tcp", ...)` chose the IPv6 address on the first
+try: Gmail was reached from `2001:41d0:404:200::169b`, whose PTR is the provider default and which
+appears in no SPF record. Google accepts the connection (`220`) and rejects later with a `5.7.x`,
+which this service classifies as `ClassPolicy` — so **every probe would return `unknown`** while
+looking like a classifier bug rather than a network one. The same trap applies to any manual
+testing: `swaks -4`, never bare `swaks`.
+
+Either pin `tcp4`, or publish a full IPv6 identity (PTR + `AAAA` + `ip6:` in SPF). The second buys
+nothing — many MX have no `AAAA` at all, and providers hold IPv6 senders to stricter rules.

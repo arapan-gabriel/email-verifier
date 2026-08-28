@@ -20,7 +20,7 @@ must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 
 - Replace the in-process prober behind `app/core/providers/email_verify.py` with an HTTP client to
   `POST /verify`, keeping the existing provider interface, timeout, and per-domain cache untouched
-  (invariant 10) — layers 0–5 still run first in Data Scout; only survivors are sent here.
+  (Data Scout invariant 10) — layers 0–5 still run first in Data Scout; only survivors are sent here.
 - Map this service's `{status,...}` onto `email_verifications.status` using the reconciliation from
   005. Store `source_ip` in `signals` — a verdict is bound to the IP that produced it.
 - Retire `app/core/verify/smtp_probe.py` and its in-process ceilings (superseded by this service's

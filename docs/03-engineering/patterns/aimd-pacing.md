@@ -25,13 +25,13 @@ limits-init`); calibration (plan 012) refines them.
   pause. Otherwise three full mailboxes or one blocked IP would drag the whole MX to a crawl. This is
   the fix carried from `ds-smtp-retry`.
 
-## The bucket is central (invariant 2b, ADR-004)
+## The bucket is central (invariant 4, ADR-004)
 
 Pacing goes through the shared Redis token bucket (`token_bucket.lua`), take+refill in one round
 trip. All probe nodes share one bucket per MX; a per-process bucket would let N nodes send N× the
 rate. This is what makes "add a node" a deployment change, not a pacing change.
 
-## Fail closed (invariant 3)
+## Fail closed (invariant 5)
 
 If the bucket call errors (Redis down), the probe is **skipped** (`unknown`), never sent unpaced. An
 unconfirmed verdict is recoverable; a blocklist entry is not.

@@ -35,25 +35,33 @@ Stack: **Go 1.25** · net/smtp (hand-rolled state machine, from `ds-smtp-retry/r
    domain owner can point MX at `127.0.0.1`), so every resolved IP passes an SSRF guard before a
    socket opens. *(This is the one place the `ds-smtp-retry` lab does the opposite on purpose — the
    guard is new code here.)*
-2b. **The rate budget belongs to the recipient MX, and its token bucket is central.** All pacing
+3. **Connect over IPv4 only — dial `tcp4`, never `tcp`.** The sending identity (PTR, FCrDNS, SPF) is
+   published for the IPv4 address alone, but a dual-stack host prefers IPv6 and would leave from an
+   address carrying neither. Providers accept such a connection and reject at `RCPT` with a `5.7.x`,
+   which this service classes as `ClassPolicy` — so every verdict silently becomes `unknown` while
+   looking like a classifier defect. Measured on the deployed node, not hypothetical.
+4. **The rate budget belongs to the recipient MX, and its token bucket is central.** All pacing
    goes through the shared Redis bucket (`ds-smtp-retry` contract, `config/limiter/token_bucket.lua`,
    take+refill in one round trip). N probe nodes with local buckets means N× the intended rate at
    Gmail — the bucket is the one thing that must stay shared as the service scales past one IP.
-3. **Rate ceilings fail *closed*.** If Redis is unreachable, skip the probe (return `unknown`)
+5. **Rate ceilings fail *closed*.** If Redis is unreachable, skip the probe (return `unknown`)
    rather than send unpaced. An unconfirmed verdict is recoverable; a blocklist entry is not.
-4. **`ClassPolicy` (a `5.7.x`/`554 blocked` about our IP) is never counted as throttling** and
+6. **`ClassPolicy` (a `5.7.x`/`554 blocked` about our IP) is never counted as throttling** and
    never lowers a mailbox to `invalid`. Slowing down does not grow a PTR record or exit Spamhaus; if
    it counted, one blocked IP would calibrate every provider to zero.
-5. **`250` is not `valid` on a catch-all or randomising MX** — it is `risky`. Catch-all is a
+7. **`250` is not `valid` on a catch-all or randomising MX** — it is `risky`. Catch-all is a
    per-domain property; a randomiser (Microsoft) is a per-server property that condemns every domain
    on that host.
-6. **Never send `DATA` during verification.** The probe asks the question and disconnects; no message
+8. **Never send `DATA` during verification.** The probe asks the question and disconnects; no message
    is transmitted. (Outbound relay in phase 2 is a separate, authenticated code path.)
-7. **Honour the suppression list.** An address Data Scout has suppressed (GDPR erasure) is never
+9. **Honour the suppression list.** An address Data Scout has suppressed (GDPR erasure) is never
    probed or mailed.
-8. Config from one place (`internal/config`) — no hardcoded secrets, IPs, or connection strings.
-9. The HTTP API is an internet-facing edge: every request is authenticated (mTLS or API key). No
-   unauthenticated endpoint except `GET /healthz` / `GET /readyz`.
+10. Config from one place (`internal/config`) — no hardcoded secrets, IPs, or connection strings.
+11. The HTTP API is an internet-facing edge: every request is authenticated (mTLS or API key). No
+    unauthenticated endpoint except `GET /healthz` / `GET /readyz`.
+
+> Numbered 1–11 with no gaps or letters. Every doc cites these numbers; if the list changes,
+> renumber it here and fix the citations in the same change.
 
 ---
 

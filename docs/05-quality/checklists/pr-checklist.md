@@ -1,6 +1,6 @@
 # PR checklist
 
-Every change confirms all of these before merge. The first four are mandatory and non-negotiable —
+Every change confirms all of these before merge. The first five are mandatory and non-negotiable —
 they are the invariants that keep this service from becoming a list-destroyer or an open relay.
 
 ## Mandatory (invariants)
@@ -9,6 +9,9 @@ they are the invariants that keep this service from becoming a list-destroyer or
       before `MAIL FROM`) into `invalid`. When unsure, `unknown`.
 - [ ] **SSRF guard** — any new resolution/connection path goes through the guard; no socket to a
       private/loopback/link-local IP.
+- [ ] **IPv4 only** — every outbound dial is `tcp4`, never a bare `tcp`. On a dual-stack host a bare
+      `tcp` leaves from an address with no FCrDNS and no SPF, and every verdict silently becomes
+      `unknown`.
 - [ ] **fail closed** — any new pacing/Redis path skips the probe on Redis error; never sends
       unpaced.
 - [ ] **central bucket** — no per-process rate state that a second node cannot see; pacing is via

@@ -6,13 +6,13 @@ index and running order.
 
 Architecture is locked by the ADRs (`docs/02-architecture/decisions/`):
 Go on the `ds-smtp-retry` engine · scope = probe + relay (phased) · HTTP integration now, queue
-later · stateless about business data.
+later · stateless about business data · systemd on the host, no container runtime.
 
 ## Phase A — Verification service (the reason this repo exists)
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 000 | scaffold-and-standards | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), Docker, healthz | `go test ./...` green in CI; `/healthz` 200 |
+| 000 | scaffold-and-standards | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz | `go test ./...` green in CI; `/healthz` 200 |
 | 001 | http-verify-service | port the lab prober; `POST /verify` single address; auth; timeouts; graceful shutdown | `curl /verify` returns a correct verdict for a known good + known bad address |
 | 002 | ssrf-guard-and-safety | resolver SSRF guard (no private/loopback MX); "us ≠ address" verdict rules enforced | probe of a domain whose MX points at `127.0.0.1` is refused, not attempted |
 | 003 | central-redis-limiter | make the shared token bucket THE limiter; per-MX AIMD; fail-closed on Redis down | two concurrent `/verify` bursts to one MX stay under the band; Redis down → `unknown`, no send |
@@ -30,7 +30,7 @@ later · stateless about business data.
 | 010 | ip-health-and-blocklists | blocklist self-monitoring; "burned IP" detection + alert | a simulated listing flips IP health and pauses sends |
 | 011 | suppression-enforcement | suppression-list sync from Data Scout; never probe/mail a suppressed address | a suppressed address is skipped with an auditable reason |
 | 012 | calibration-as-a-service | expose ladder/band calibration (from the lab) as an operator endpoint | operator can re-calibrate one MX and the new band takes effect live |
-| 013 | deployment | Hetzner/OVH host, rDNS/FCrDNS/SPF/DKIM, secrets, Docker/compose, preflight gate | `scripts/preflight.sh` returns GO on the real host; service reachable over mTLS |
+| 013 | deployment | OVH/Hetzner host, rDNS/FCrDNS/SPF/DKIM, secrets, systemd + distro Redis, preflight gate | `scripts/preflight.sh` returns GO on the real host; service reachable over mTLS |
 
 ## Phase C — Outbound relay (send mail from the isolated IP)
 

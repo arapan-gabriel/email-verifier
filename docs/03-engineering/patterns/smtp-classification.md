@@ -28,7 +28,7 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
 
 - **`ClassPolicy`** (`5.7.x` about our IP): temporary for the address (never `invalid`), but **not
   counted as throttling** — slowing down does not grow a PTR record; if it counted, one blocked IP
-  would calibrate every provider to zero (invariant 5).
+  would calibrate every provider to zero (invariant 6).
 - **Per-recipient deferrals** (greylisting, `4.2.2` over-quota): retried, but must **not** drive the
   shared pacer down or arm the MX pause. This is a fix `ds-smtp-retry` already carries — only
   `IsThrottle()` (`421`/timeout/reset) moves the pacer; `IsTemp()` only schedules a retry. See

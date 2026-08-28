@@ -5,7 +5,10 @@ later plan closes it.
 
 ## Open
 
-_None yet — greenfield._
+- **RESP client has no unix-socket support.** The minimal Redis client ported from the lab in
+  plan 003 dials TCP. Production (013) wants Redis on `/run/redis/redis-server.sock` — one
+  `net.Dial("unix", path)` branch plus a config field. Until then 013 falls back to
+  `bind 127.0.0.1`, which works but keeps a loopback TCP hop on the token-bucket hot path.
 
 Known deferrals baked into the roadmap (not debt, but tracked so they are not forgotten):
 

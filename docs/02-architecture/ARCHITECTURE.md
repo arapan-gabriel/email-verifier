@@ -116,6 +116,24 @@ The binding list lives in `CLAUDE.md` ("Hard invariants"). The architectural one
 - **fail closed** — no Redis, no probe.
 - **policy ≠ throttle** — a `5.7.x` about our IP never drives pacing or condemns a mailbox.
 - **stateless about business data** — verdicts belong to Data Scout.
+- **IPv4 only** — the probe dials `tcp4`, never `tcp`. A dual-stack host prefers IPv6, and the
+  sending identity (PTR, FCrDNS, SPF) is published for the IPv4 address only. Connecting from the
+  IPv6 address means no FCrDNS and no SPF, which large providers answer with a `5.7.x` on `RCPT` —
+  every verdict silently becomes `unknown` and it reads like a bug in the classifier.
+
+## Sender identity
+
+Published for the sending IP and carried in every session. HELO must FCrDNS to the connecting
+address; `MAIL FROM` need not, which is what allows the verify/relay split.
+
+| | HELO | `MAIL FROM` |
+|---|---|---|
+| Verification (Phase A/B) | `mail.<mail-domain>` | `verify@probe.<mail-domain>` |
+| Relay (Phase C) | `mail.<mail-domain>` | `noreply@<mail-domain>` |
+
+The `probe.` sub-domain keeps probing reputation off the root that sends real mail to customers; it
+carries its own SPF because a receiving MX checks SPF of the `MAIL FROM` domain against the
+connecting IP during a `RCPT` probe. Concrete values for the deployed node: plan 013.
 
 ## Integration contract with Data Scout
 

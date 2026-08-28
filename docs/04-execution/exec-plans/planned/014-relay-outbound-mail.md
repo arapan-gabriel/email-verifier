@@ -23,7 +23,7 @@ transactional messages (welcome, reset — cf. Data Scout plan 049 SMTP provider
 - Send queue drains through the **same per-MX pacer and central bucket** as verification (one pacing
   model for the IP), and checks **suppression (011)** and **IP health (010)** before each send.
 - **Full SMTP delivery** (this DOES send `DATA`) — kept in a code path entirely separate from
-  verification (invariant 6: verification never sends DATA).
+  verification (invariant 8: verification never sends DATA).
 - SPF/DKIM/DMARC alignment on the sending domain (identity from 013).
 - Retry/backoff for transient send failures reuses the retry-queue pattern (006).
 

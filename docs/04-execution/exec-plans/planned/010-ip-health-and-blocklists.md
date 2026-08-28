@@ -22,7 +22,7 @@ and an operational response. Component: `operations/ip-reputation.md`.
   public resolvers are refused). State in Redis `ip:health:<ip>`.
 - **On listed/burned:** flip health, pause sends/probes for that node (fail-safe, like the per-MX
   pause but IP-wide), emit `ip_health_listed=1`, and alert (page).
-- A policy block never drives per-MX AIMD (invariant 5) — it feeds IP health instead. Keep that
+- A policy block never drives per-MX AIMD (invariant 6) — it feeds IP health instead. Keep that
   separation.
 - Multi-node ready (ADR-004): health is per-IP, so one burned node pauses itself without pausing the
   others.

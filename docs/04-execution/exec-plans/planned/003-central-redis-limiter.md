@@ -19,14 +19,14 @@ decision: ADR-004.
 ## Design
 
 - `internal/limiter` — load `token_bucket.lua`; take+refill in one round trip against
-  `rt:mx:<host>:bucket`. One bucket per MX, shared across nodes (invariant 2b).
+  `rt:mx:<host>:bucket`. One bucket per MX, shared across nodes (invariant 4).
 - `internal/pacer` — per-MX AIMD over the bucket: start at `max_rate`; `×0.5` on `IsThrottle`;
   `×1.1` after 10 clean; pause at floor; move only inside `[min_rate,max_rate]`. **Only `IsThrottle`
   moves it** — deferrals and `ClassPolicy` are retried but never lower the rate or arm the pause
   (carry the `ds-smtp-retry` fix).
 - Bands from `limits:mx:<host>` (seed from `config/limits/*.json`, ported from
   `ds-smtp-retry/config/limits-init`); unknown MX → conservative default.
-- **Fail closed:** a Redis error on the pacing path → skip probe, return `unknown` (invariant 3).
+- **Fail closed:** a Redis error on the pacing path → skip probe, return `unknown` (invariant 5).
 - `internal/redis` — port the minimal RESP client (SET/GET/EVAL/SCAN/PING).
 - Every probe now acquires a token before connecting; state keys (`rt:mx:*`) updated per the
   contract.

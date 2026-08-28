@@ -22,9 +22,9 @@ The only durable state this service holds — operational, not business. Inherit
 ## Rules (enforced by tests)
 
 - **Take and refill in one round trip.** `token_bucket.lua` does both; two calls let concurrent
-  workers (or nodes) double-spend. This is invariant 2b.
+  workers (or nodes) double-spend. This is invariant 4.
 - **The bucket is central.** N nodes share one `rt:mx:<host>:bucket`. Never a per-process bucket.
 - **Fail closed.** A Redis error on the pacing path means skip the probe (`unknown`), never send
-  unpaced (invariant 3).
+  unpaced (invariant 5).
 - AIMD moves inside `[min_rate, max_rate]` only; a saved runtime rate may only ever *lower* the
   start, never raise the ceiling.

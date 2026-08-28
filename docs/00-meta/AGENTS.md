@@ -17,13 +17,18 @@ before doing anything. This file is the short orientation; `CLAUDE.md` is the la
 
 1. A rejection of *us* is never a verdict about the address → `unknown`, never `invalid`.
 2. Never connect to a private/loopback MX (SSRF guard).
-3. The rate bucket is central (Redis); pacing is shared across nodes.
-4. Rate ceilings fail closed — no Redis, no probe.
-5. A `5.7.x` policy block about our IP is not throttling and not `invalid`.
-6. `250` on a catch-all/randomiser is `risky`, not `valid`.
-7. Never send `DATA` during verification.
-8. Honour the suppression list.
-9. Config from one place; the HTTP edge is authenticated.
+3. Dial `tcp4`, never `tcp` — the sending identity is published for IPv4 alone.
+4. The rate bucket is central (Redis); pacing is shared across nodes.
+5. Rate ceilings fail closed — no Redis, no probe.
+6. A `5.7.x` policy block about our IP is not throttling and not `invalid`.
+7. `250` on a catch-all/randomiser is `risky`, not `valid`.
+8. Never send `DATA` during verification.
+9. Honour the suppression list.
+10. Config from one place (`internal/config`).
+11. The HTTP edge is authenticated except `/healthz` and `/readyz`.
+
+These numbers are the ones every other doc cites. They are defined in `CLAUDE.md`; this list only
+mirrors them, so the two must be renumbered together.
 
 ## Where to look
 

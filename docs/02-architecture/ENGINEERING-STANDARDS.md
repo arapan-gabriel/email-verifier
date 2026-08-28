@@ -29,7 +29,7 @@ cmd/verifierd  →  internal/api  →  internal/{prober,pacer,resolver,suppress,
 
 - One source: `internal/config`, loaded from env (+ optional YAML). Validated at startup; the
   service refuses to boot on a bad/missing required value. No hardcoded IPs, hostnames, secrets, or
-  Redis URLs anywhere else (invariant 8).
+  Redis URLs anywhere else (invariant 10).
 
 ## 4. Errors & verdicts
 
@@ -46,7 +46,7 @@ cmd/verifierd  →  internal/api  →  internal/{prober,pacer,resolver,suppress,
   budget is enforced by the central bucket (`internal/limiter`), never by ad-hoc semaphores that a
   second node cannot see.
 - Every resolved MX IP passes the SSRF guard before a socket opens (invariant 2).
-- Rate ceilings **fail closed** (invariant 3): Redis error → skip, return `unknown`.
+- Rate ceilings **fail closed** (invariant 5): Redis error → skip, return `unknown`.
 
 ## 6. State
 
@@ -64,6 +64,6 @@ cmd/verifierd  →  internal/api  →  internal/{prober,pacer,resolver,suppress,
 ## 8. Security posture
 
 - The HTTP surface is internet-facing: authenticated (mTLS/API key) except health probes.
-- Suppression is honoured before any probe or send (invariant 7).
+- Suppression is honoured before any probe or send (invariant 9).
 - The service is designed to be *safe to point at strangers' MXes*: paced, guarded, fail-closed. A
   bug that floods someone's MX is the highest-severity class of defect here.
