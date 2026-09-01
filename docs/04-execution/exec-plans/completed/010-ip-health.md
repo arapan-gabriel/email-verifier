@@ -1,6 +1,6 @@
 # Plan 010 — ip-health-and-blocklists
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** B
 **Depends on:** 003, 009
 
@@ -79,7 +79,7 @@ imagined:
 - [x] Policy replies still never lower a per-MX rate — the plan-003 test still passes
 - [x] A paused node resumes through the operator path, with no redeploy
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

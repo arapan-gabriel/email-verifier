@@ -27,10 +27,10 @@ Scout (ADR-006).
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 009 | observability *(active)* | hand-rolled Prometheus text (no client library), request-id logging, **and a bound on the pacer's in-memory map** — which was also the cardinality bound | ✅ scrape shows results, replies, blocked reasons and per-MX gauges; `verify_tracked_mx` is the canary |
-| 010 | ip-health *(active)* | blocklist self-monitoring, **off unless a DNSBL-capable resolver is named and passes a self-test**; a listing pauses, a policy rate only alerts | ✅ host stub refused without pausing; listing burns the node; resume needs no redeploy |
-| 011 | suppression *(active)* | a **digest-only** second line — Data Scout checks the authoritative list three times before calling. Pushed to `POST /admin/suppress`; addresses never stored | ✅ address and domain refused before any socket; Redis holds two hashes and no `@` |
-| 012 | band-promotion *(active)* | the gap AIMD cannot close: it never climbs past a guessed ceiling. Clean answers **at** the ceiling become a bounded proposal; a person promotes it. The lab's active ladder stays in the lab | ✅ proposal 4→6 from evidence; promoted, cleared, no restart; nothing raised automatically |
+| 009 | observability | hand-rolled Prometheus text (no client library), request-id logging, **and a bound on the pacer's in-memory map** — which was also the cardinality bound | ✅ scrape shows results, replies, blocked reasons and per-MX gauges; `verify_tracked_mx` is the canary |
+| 010 | ip-health | blocklist self-monitoring, **off unless a DNSBL-capable resolver is named and passes a self-test**; a listing pauses, a policy rate only alerts | ✅ host stub refused without pausing; listing burns the node; resume needs no redeploy |
+| 011 | suppression | a **digest-only** second line — Data Scout checks the authoritative list three times before calling. Pushed to `POST /admin/suppress`; addresses never stored | ✅ address and domain refused before any socket; Redis holds two hashes and no `@` |
+| 012 | band-promotion | the gap AIMD cannot close: it never climbs past a guessed ceiling. Clean answers **at** the ceiling become a bounded proposal; a person promotes it. The lab's active ladder stays in the lab | ✅ proposal 4→6 from evidence; promoted, cleared, no restart; nothing raised automatically |
 | 013 | deployment | OVH/Hetzner host, rDNS/FCrDNS/SPF/DKIM, secrets, systemd + distro Redis, preflight gate | `scripts/preflight.sh` returns GO on the real host; service reachable over mTLS |
 
 ## Phase C — Outbound relay (send mail from the isolated IP)

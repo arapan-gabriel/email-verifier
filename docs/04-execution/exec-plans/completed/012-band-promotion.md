@@ -1,6 +1,6 @@
 # Plan 012 — calibration-as-a-service
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** B
 **Depends on:** 003, 004
 
@@ -60,12 +60,13 @@ So the ladder stays in the lab, and this plan builds the thing the pacer genuine
 
 ## Tasks
 
-- [ ] Port `internal/calibrate`
-- [ ] `POST /admin/calibrate` (operator-auth) → writes `limits:mx:<host>`
-- [ ] Live band re-read so new bands apply without restart
-- [ ] Safety gates: healthy IP required, target validation, calibration rate-limit
-- [ ] Tests against `mxsim` (rediscover a known limit — the lab's scenario 12)
-- [ ] Ramp/bisect/soak timing is driven by `synctest`, so a soak window costs no wall-clock time
+- [x] Pacer counts clean answers at the ceiling; forms a bounded proposal on the evidence
+- [x] `limits:mx:<host>:proposed` written, never applied
+- [x] `GET /admin/bands`, `POST /admin/bands/promote`
+- [x] Promotion clears the proposal and the pacer picks up the new band without a restart
+- [x] Config: `promote_after`, step, absolute ceiling
+- [x] Tests: a throttle resets the evidence; a proposal is bounded; promotion applies and clears;
+      nothing is ever raised automatically
 - [x] Update `api.md`, `redis-contract.md`, `aimd-pacing.md`, changelog
 
 ## Definition of Done
@@ -76,7 +77,7 @@ So the ladder stays in the lab, and this plan builds the thing the pacer genuine
 - [x] A proposal never exceeds the configured absolute ceiling
 - [x] Promotion applies the band, clears the proposal, and takes effect without a restart
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

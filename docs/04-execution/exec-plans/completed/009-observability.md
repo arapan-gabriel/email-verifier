@@ -1,6 +1,6 @@
 # Plan 009 — observability
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** B
 **Depends on:** 003
 
@@ -84,10 +84,16 @@ The registry has room for it; the metric arrives with the thing it measures.
 
 ## Definition of Done
 
-- [ ] A `/metrics` scrape shows per-MX rate, verdict counts, pause events
-- [ ] Logs are JSON with request id; no full address at info level — checked
-- [ ] gates clean; pr-checklist confirmed
-- [ ] Status → Complete, moved, ROADMAP updated
+- [x] A `/metrics` scrape parses as Prometheus text and shows results by class, replies by code,
+      blocked reasons, and the per-MX gauges
+- [x] The histogram's buckets are cumulative and carry `+Inf`, `_sum` and `_count` — tested against
+      a known distribution
+- [x] `/metrics` is not reachable without credentials
+- [x] **The pacer's tracked-MX count stops rising** under a run of many distinct hosts — tested
+- [x] Every log line carries a request id
+- [x] No log line at info level contains a full address — tested
+- [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 

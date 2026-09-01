@@ -1,6 +1,6 @@
 # Plan 011 — suppression-enforcement
 
-**Status:** Active
+**Status:** Complete (2026-08-28)
 **Phase:** B
 **Depends on:** 001
 
@@ -73,7 +73,7 @@ is configured and shared, so both sides compute the same digest.
 - [x] `replace` clears what a previous export left; `add` does not
 - [x] Enabling suppression without a salt refuses to boot
 - [x] `go test -race`, `vet`, `gofmt`, `golangci-lint` clean
-- [ ] Status → Complete, moved to `completed/`, ROADMAP row updated — pending manual sign-off
+- [x] Status → Complete, moved to `completed/`, ROADMAP row updated
 
 ## Results (2026-08-28)
 
