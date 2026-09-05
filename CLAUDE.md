@@ -41,7 +41,7 @@ Stack: **Go 1.25** · net/smtp (hand-rolled state machine, from `ds-smtp-retry/r
    which this service classes as `ClassPolicy` — so every verdict silently becomes `unknown` while
    looking like a classifier defect. Measured on the deployed node, not hypothetical.
 4. **The rate budget belongs to the recipient MX, and its token bucket is central.** All pacing
-   goes through the shared Redis bucket (`ds-smtp-retry` contract, `config/limiter/token_bucket.lua`,
+   goes through the shared Redis bucket (`ds-smtp-retry` contract, `internal/limiter/token_bucket.lua`, embedded in the binary,
    take+refill in one round trip). N probe nodes with local buckets means N× the intended rate at
    Gmail — the bucket is the one thing that must stay shared as the service scales past one IP.
 5. **Rate ceilings fail *closed*.** If Redis is unreachable, skip the probe (return `unknown`)

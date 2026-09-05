@@ -9,20 +9,47 @@ Wants=network-online.target
 After=network-online.target redis-server.service
 Requires=redis-server.service
 
+# Give up after three failed starts in ten minutes instead of retrying forever.
+# ExecStartPre performs a live SMTP handshake against Gmail, so Restart=on-failure
+# without a limit means that when the host's identity IS broken — the one case
+# the gate exists to catch — the node dials a real provider every few seconds,
+# indefinitely, from an address already failing its own identity checks. That is
+# how a stuck unit turns a DNS mistake into a reputation problem. Failing and
+# staying failed is the correct end state: the service is useless until a person
+# fixes the host, and its verdicts would measure nothing meanwhile.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
 [Service]
-Type=simple
+# notify, not simple: with simple, systemd calls the unit started as soon as
+# ExecStart forks, which is before the socket is bound — `systemctl restart`
+# returns and the next connection is refused. A deploy then cannot tell a
+# healthy restart from a crash loop. main.go sends READY=1 once it is accepting.
+Type=notify
+NotifyAccess=main
 User=verifierd
 Group=verifierd
 SupplementaryGroups=redis
 
-# Plan 013 wires the preflight as a hard start gate here — GO is a precondition,
-# not advisory (RUNBOOK). Left commented until that plan installs the script.
-#ExecStartPre=/usr/local/bin/verifierd-preflight
+# The preflight is a hard start gate — GO is a precondition, not advisory
+# (RUNBOOK). Wired by plan 013. It exits non-zero only on a [FAIL], so an
+# advisory such as the ASN-wide UCEPROTECT L3 listing does not hold the service
+# down, while a blocked :25 or broken FCrDNS does. A deploy onto such a host
+# produces verdicts that measure nothing, which is worse than not starting.
+ExecStartPre=/usr/local/bin/verifierd-preflight
 ExecStart=/usr/local/bin/verifierd -config /etc/verifierd/verifierd.yaml
 EnvironmentFile=-/etc/verifierd/env
 
+# ExecStartPre above runs live SMTP handshakes and DNS lookups against three
+# providers; the default 90s start budget is not enough for a slow or retried
+# lookup, and a timeout there would read as a failed deploy.
+TimeoutStartSec=180s
+
 Restart=on-failure
-RestartSec=5s
+# Long enough that three attempts spread across a minute rather than fifteen
+# seconds, which gives a transient network blip room to clear without turning
+# the start limit into a hair trigger.
+RestartSec=20s
 
 # Verification opens one short-lived socket per address; the pacer bounds the
 # rate, not the file-descriptor table.

@@ -34,11 +34,47 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
   `IsThrottle()` (`421`/timeout/reset) moves the pacer; `IsTemp()` only schedules a retry. See
   `aimd-pacing.md`.
 
+## When a server has decided about us (plan 007)
+
+`ClassPolicy` is about the connecting client and holds for the whole session. After
+`probe.policy_stop` **consecutive** policy replies the session ends and the rest of the batch is
+reported `connected:false` with `not attempted:` — continuing would spend a token per recipient on an
+answer already known, and keep hammering a server that has just said no, which is how a soft block
+hardens.
+
+Consecutive matters. A single `5.7.x` can be a per-recipient policy — a distribution list that
+rejects external senders — and stopping a fifty-recipient batch on one reply would throw away
+forty-nine answers. The counter resets on any non-policy reply.
+
+None of this reaches the pacer (invariant 6). Remembering the refusal *across* requests is plan 010's
+job, where it belongs with IP health and the alert.
+
+## Catch-all versus randomiser (plan 005)
+
+A `250` is only worth something if the server would have said `550` to a name that does not exist.
+Establishing that takes several known-bad local parts, not one:
+
+| Bogus probes | Meaning | Scope |
+|---|---|---|
+| all accepted | **catch-all** — the domain takes anything | the domain |
+| all rejected | the server answers honestly; the real replies stand | — |
+| anything between | **randomiser** — the server answers by coin flip | **the server** |
+
+One probe cannot tell the last case from the first two: it lands on accept or reject more or less at
+random, so the same domain reports catch-all on one run and clean on the next, and a real mailbox
+behind it is reported `valid` on the strength of a `250` that meant nothing.
+
+The scope column is the part that is easy to get backwards. A catch-all is one domain's business. A
+randomiser is the host's, so it condemns every domain behind it — which is why the verdict is
+remembered per MX host (`mx:<host>:randomiser`) rather than per domain, and why Data Scout's own
+per-domain catch-all cache does not cover it.
+
 ## Data Scout status reconciliation (plan 005)
 
-Data Scout's `email_verifications.status` vocabulary (`verified/valid/accept_all/risky/invalid/
-unknown`) is the contract the HTTP response must map onto. The reconciliation table lives in plan
-005; this classifier produces the four internal verdicts and the boundary maps them.
+**Superseded by ADR-006.** This service returns facts — `accepted`, `catch_all`, `randomiser`, the
+SMTP code and its enhanced code — and Data Scout scores them into
+`email_verifications.status` with the machinery it already has. There is no reconciliation table
+here to keep in sync.
 
 ## Testing
 

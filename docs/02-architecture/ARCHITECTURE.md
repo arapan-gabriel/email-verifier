@@ -74,7 +74,8 @@ internal/
   redis/                minimal RESP client                                         ← from lab
 config/
   limiter/token_bucket.lua   the central take+refill bucket                         ← from lab
-  limits/*.json              seed bands per provider                                ← from ds-smtp-retry/config/limits-init
+internal/limiter/token_bucket.lua   the central take+refill bucket, go:embed        ← from lab
+internal/pacer/bands/*.json         seed bands per provider, go:embed               ← from lab
 scripts/preflight.sh         cold-IP go/no-go check                                 ← from ds-smtp-retry
 ```
 
@@ -105,6 +106,30 @@ scripts/preflight.sh         cold-IP go/no-go check                             
 
 This service has **no SQL database**. If it dies, nothing about a customer's data is lost — only the
 learned working point, which is re-learned. That is the whole point of the split.
+
+### Which Redis, and why not Data Scout's
+
+"Central" in ADR-004 means **shared between probe nodes** — one bucket per MX that node 1, node 2
+and node 3 all draw from. It does not mean "on the application host". The operational Redis lives
+next to the prober, currently on a unix socket with `port 0` set, and ADR-006 did not change that:
+it moved *job orchestration* to Data Scout, not operational state.
+
+Putting the bucket in Data Scout's Redis was considered and rejected:
+
+- **The rate limit protects the sending IP, so it has to be enforced where the socket opens.** A
+  limit applied by the caller is advisory: an operator running plan 012's calibration, a retry loop,
+  a second integration or a stray `curl` all bypass it, and unpaced traffic leaves the IP anyway.
+- **Take+refill runs once per probe.** A unix socket is microseconds; a cross-host round trip is
+  milliseconds, on the hot path, at volume.
+- **Fail-closed would become coupling.** Invariant 5 says no Redis, no probe — so a network blip
+  between the two hosts would stop all probing, re-coupling the very hosts this project exists to
+  separate.
+- **Redis is currently not on the network at all.** Sharing it across hosts means exposing a service
+  with no meaningful default authentication.
+
+Open for the multi-node plan: *where* the shared Redis physically sits once there is more than one
+probe node — on the first node, on a small dedicated host, or managed. ADR-004 fixes that it is
+shared, not where it lives.
 
 ## Invariants
 
@@ -137,11 +162,23 @@ connecting IP during a `RCPT` probe. Concrete values for the deployed node: plan
 
 ## Integration contract with Data Scout
 
-- Transport: HTTPS, authenticated (mTLS or API key). Single: `POST /verify`. Bulk: `POST /verify/bulk`
-  (job id + poll, or shared queue — see ROADMAP 007).
-- Request: `{email, [helo], [mail_from]}`. Response: `{status, smtp_code, enhanced_code, catch_all,
-  signals, checked_at, source_ip}`. `status ∈ {valid, invalid, risky, unknown}`.
-- `source_ip` is always returned — a verdict is only as good as the IP that produced it, and Data
-  Scout stores it alongside the verdict (its `email_verifications.signals`).
-- Data Scout's `email_verify.py` provider wraps this with a timeout and the existing per-domain
-  cache (Data Scout invariant 10). See `docs/02-architecture/service/storage-contract.md`.
+Settled by **ADR-006** (which supersedes ADR-003's transport shape).
+
+- Transport: HTTPS with **mTLS**. One endpoint: `POST /probe`, a batch scoped to one recipient MX.
+- **The seam is `smtp_probe.probe_many`, not the provider.** Data Scout runs layers 0–5, resolves
+  MX, groups survivors by domain (its plan 067) and calls this service once per domain. Cutting
+  higher would issue one request per address and destroy that grouping — which exists specifically
+  so the traffic looks like a mail client rather than a directory harvest.
+- Request `{mx_host, domain, emails[], need_catch_all}` → response
+  `{source_ip, checked_at, results{email → {connected, accepted, catch_all, smtp_code,
+  enhanced_code, class}}}`. Shapes in `docs/06-generated/api.md`.
+- `source_ip` always travels with the answer — a verdict is only as good as the IP that produced it,
+  and Data Scout stores it in `email_verifications.signals`.
+- **No jobs here.** Chunking, progress, quota metering and the result artifact stay in Data Scout's
+  Celery task, which already owns them. This service is a synchronous batch executor.
+- **A transport failure is `unknown`, never `invalid`** — invariant 1 governs the HTTP hop exactly
+  as it governs SMTP.
+- `mx_host` is caller-supplied but still attacker-influenced (a domain owner chose that MX record),
+  so it is resolved and SSRF-guarded here regardless (invariant 2).
+
+See `docs/02-architecture/service/storage-contract.md`.

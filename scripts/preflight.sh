@@ -35,12 +35,21 @@ digq(){ dig +short "@$DNS" "$@" 2>/dev/null; }
 hd "Egress IP"
 IP=${IP:-}
 if [ -z "$IP" ]; then
-  IP=$(curl -s --max-time 8 https://ifconfig.me 2>/dev/null)
-  [ -z "$IP" ] && IP=$(curl -s --max-time 8 https://api.ipify.org 2>/dev/null)
+  # -4 is not a preference, it is the whole measurement. The sending identity
+  # (PTR, FCrDNS, SPF) is published for the IPv4 address alone; a dual-stack
+  # host answers over IPv6 by default, so without this the script reports on an
+  # identity the prober never uses and calls a healthy node NO-GO. Same reason
+  # the prober pins tcp4 -- invariant 3.
+  IP=$(curl -4 -s --max-time 8 https://ifconfig.me 2>/dev/null)
+  [ -z "$IP" ] && IP=$(curl -4 -s --max-time 8 https://api.ipify.org 2>/dev/null)
 fi
 if [ -z "$IP" ]; then
   er "could not determine egress IP (pass it: IP=x.x.x.x $0 ...)"
   IP="0.0.0.0"
+elif ! echo "$IP" | grep -Eq '^[0-9]+(\.[0-9]+){3}$'; then
+  # Refuse to grade a non-IPv4 egress rather than measure the wrong identity.
+  er "egress '$IP' is not IPv4 -- every check below would grade an identity the prober never uses"
+  IP=0.0.0.0
 else
   ok "egress IP: $IP  (this is who the MX sees; must match your rDNS/SPF)"
 fi
@@ -49,7 +58,11 @@ fi
 hd "Outbound port 25"
 open25=0
 for h in gmail-smtp-in.l.google.com mx.yandex.ru smtpin.zoho.com; do
-  if timeout 8 bash -c "exec 3<>/dev/tcp/$h/25" 2>/dev/null; then
+  # Dial the A record literally: bash's /dev/tcp has no -4, and on a dual-stack
+  # host it would otherwise prove that *IPv6* egress works.
+  h4=$(getent ahostsv4 "$h" 2>/dev/null | awk 'NR==1{print $1}')
+  h4=${h4:-$h}
+  if timeout 8 bash -c "exec 3<>/dev/tcp/$h4/25" 2>/dev/null; then
     ok ":25 -> $h reachable"; open25=$((open25+1))
   else
     er ":25 -> $h BLOCKED/timeout"
@@ -129,7 +142,12 @@ fi
 
 # --------------------------------------------------------------- blocklists
 hd "Blocklists (DNSBL)"
-if [ "$IP" != "0.0.0.0" ]; then
+if [ "$IP" = "0.0.0.0" ]; then
+  wn "skipped -- no usable IPv4 egress to look up"
+else
+  # These zones are IPv4-only in the form queried here. Reversing anything else
+  # with awk -F. yields a name nobody publishes, the lookup returns nothing, and
+  # the case below reads that as "not listed" -- a false clean.
   REV=$(echo "$IP" | awk -F. '{print $4"."$3"."$2"."$1}')
   for bl in zen.spamhaus.org b.barracudacentral.org bl.spamcop.net; do
     res=$(digq "$REV.$bl" A | head -1)
@@ -155,9 +173,14 @@ else
           printf 'MAIL FROM:<postmaster@%s>\r\n' "$DOMAIN"; sleep 1; \
           printf 'RCPT TO:<%s>\r\n' "$probe"; sleep 1; \
           printf 'QUIT\r\n'; sleep 1; } \
-        | timeout 25 nc -w 8 gmail-smtp-in.l.google.com 25 2>/dev/null)
+        | timeout 25 nc -4 -w 8 gmail-smtp-in.l.google.com 25 2>/dev/null)
   banner=$(echo "$out" | grep -m1 '^220')
-  rcpt=$(echo "$out" | grep -m1 -E '^(250|550|450|421|452)')
+  # The RCPT reply is the LAST final-form line before the QUIT acknowledgement.
+  # grep -m1 '^250' would match "250-mx.google.com at your service" -- the first
+  # continuation line of the EHLO greeting -- and report a 250 whatever the
+  # server actually said about the recipient, including a 5.7.x block of us.
+  # A final-form reply has a space after the code; a continuation has a hyphen.
+  rcpt=$(echo "$out" | grep -E '^[245][0-9][0-9] ' | grep -v '^221 ' | tail -1)
   if [ -z "$banner" ]; then
     er "no 220 banner -- connection refused/tarpitted (IP reputation or block)"
   else

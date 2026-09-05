@@ -4,21 +4,136 @@
 http:
   addr: "127.0.0.1:8080"
   read_timeout: 10s
-  write_timeout: 30s
+  write_timeout: 60s
   idle_timeout: 60s
   shutdown_timeout: 30s
+
+# The integration boundary is mTLS (ADR-006). Leaving these empty serves plain
+# HTTP, which is for local development only — the host is on a public IP with
+# :25 open and is scanned continuously.
+tls:
+  cert_file: ""        # /etc/verifierd/tls/server.pem
+  key_file: ""         # /etc/verifierd/tls/server.key
+  client_ca_file: ""   # /etc/verifierd/tls/client-ca.pem — set this for mTLS
 
 redis:
   # "unix:/path" or "host:port". The socket keeps Redis off the network entirely.
   addr: "unix:/run/redis/redis-server.sock"
   dial_timeout: 2s
 
-auth:
-  # False while /healthz and /readyz are the only routes — they are
-  # unauthenticated by design. Plan 001 adds POST /verify and flips this to
-  # true; the service then refuses to boot without api_key (invariant 11).
+dns:
+  # Empty means the host's resolver. On the node that is systemd-resolved on
+  # 127.0.0.53 — fine for A records, and the RUNBOOK's warning about stubs bites
+  # on DNSBL lookups (plan 010), not here. Set this to move off it if needed.
+  servers: []
+  timeout: 5s
+  # An in-process cache, not Redis: the node already runs a caching resolver, so
+  # a Redis round trip to avoid a cached lookup would be slower, not faster.
+  # This exists so a 500-domain bulk job is not 500 identical queries wherever
+  # resolv.conf points straight at a public resolver.
+  cache_ttl: 5m
+  negative_ttl: 1m
+  cache_size: 4096
+
+# The pacer's in-memory map is keyed by a value that arrives in the request, so
+# it needs a ceiling. Eviction is lossless — the working point is in Redis — and
+# these two numbers also bound the cardinality of every per-MX metric.
+pacer:
+  idle_ttl: 30m
+  max_tracked: 512
+  # AIMD can never climb past a band's ceiling, and all 71 shipped bands are
+  # guesses. After this many consecutive clean answers *at the ceiling*, the
+  # pacer records a proposal to widen it — and stops there. Raising a ceiling is
+  # the one direction the loop cannot undo, so a person promotes it via
+  # POST /admin/bands/promote. 0 disables proposals.
+  promote_after: 500
+  promote_step: 1.5
+  promote_ceiling: 20
+
+# Blocklist checking is OFF unless a resolver is named here, and there is no
+# fallback to the host's: on this node that is systemd-resolved on 127.0.0.53,
+# and a stub answers "listed" to every zone. Acting on that would pause the node
+# for a resolver misconfiguration. Whatever is configured also has to pass a
+# self-test against each zone's documented test points before any answer is
+# acted on.
+#
+# Zones default to Spamhaus ZEN and SpamCop. UCEPROTECT L3 is deliberately not
+# among them: it lists a whole ASN — measured on this very address, while
+# Spamhaus was clean and both Gmail and Microsoft accepted the session.
+ip_health:
+  resolvers: []      # e.g. ["1.1.1.1:53"] — but verify it can answer DNSBL first
+  zones: []          # empty = the defaults above
+  interval: 15m
+  timeout: 5s
+
+# Data Scout owns the suppression list and checks it three times before calling
+# here, so this is a second line rather than the control. It stores **no
+# addresses** — only salted digests, because a suppression list is a list of
+# email addresses and copying one onto a second host, for a mechanism whose
+# purpose is erasure, would create the liability it exists to discharge.
+#
+# A stale or unreadable copy is loud, not fatal, on the verify path. Phase C
+# relay fails closed instead: sending is irreversible and has no upstream check.
+suppress:
   enabled: false
-  # api_key: set via VERIFIERD_AUTH_API_KEY, not in this file.
+  # salt: set via VERIFIERD_SUPPRESS_SALT, never in this file. Both sides must
+  # use the same value; an empty one would silently make every lookup miss,
+  # which is why enabling without it refuses to boot.
+  stale: 24h
+  max_hashes_per_import: 200000
+
+probe:
+  # Must FCrDNS to source_ip, or Yahoo/Apple/GMX/Microsoft reject the session
+  # with a 5.7.x before RCPT is ever considered.
+  helo: "mail.datascoutmail.com"
+  # Need not FCrDNS — which is what lets verification use a sub-domain isolated
+  # from the domain that sends real mail (ARCHITECTURE §"Sender identity").
+  #
+  # The intended value is verify@probe.datascoutmail.com, and it is BLOCKED on
+  # that sub-domain getting an MX record. It currently carries only the SPF TXT,
+  # so a receiving MX that checks whether the envelope sender could accept a
+  # bounce answers 554 5.1.8 — measured against gammait.net (plan 001). That is
+  # a rejection of *us*, so every such probe classes as unknown (invariant 1)
+  # and the tier silently returns nothing. Switch back the same day the MX
+  # record exists; until then probing reputation sits on the root domain.
+  mail_from: "verify@datascoutmail.com"
+  # Travels with every answer: a verdict is only as good as the IP behind it.
+  source_ip: "92.222.87.97"
+  # Invariant 3. Anything but tcp4 is refused at startup: a bare "tcp" on this
+  # dual-stack host prefers IPv6 and leaves from an address with no FCrDNS and
+  # no SPF, and every result would silently become unusable.
+  dial_network: "tcp4"
+  # 25 in production; overridable so a staging instance can aim at a lab MX.
+  port: "25"
+  timeout: 20s
+  # An unbounded recipient list is itself a harvesting signal, and servers
+  # commonly cap it near 100.
+  max_rcpt_per_session: 50
+  # How many known-bad local parts establish whether a domain takes anything.
+  # One catches a plain catch-all but not a host answering by coin flip, where a
+  # single probe says catch-all on one run and clean on the next. The lab kept
+  # up to 30 available for Microsoft-class hosts; raising it for a host already
+  # suspected of randomising is calibration work (plan 012).
+  catch_all_probes: 3
+  # End a session after this many *consecutive* replies that are about our
+  # client rather than about a recipient (5.7.x and friends). A server that
+  # refuses us refuses us for the whole session, so the rest of the batch would
+  # spend a token each on a known answer while hammering a server that has just
+  # said no. 0 disables; 1 is refused, because a single 5.7.x can be a
+  # per-recipient policy and would throw away the rest of the batch.
+  policy_stop: 5
+  # How long a per-server randomiser verdict is remembered. It is a fact about
+  # the host, so it applies to every domain behind it.
+  randomiser_ttl: 24h
+  # What to tell the caller when a greylisting server gives no hint of its own.
+  # The retry queue is Data Scout's (plan 006); this is what lets it schedule
+  # rather than back off blindly into a window that has not opened.
+  deferral_retry: 15m
+  max_emails_per_request: 500
+
+auth:
+  enabled: true
+  # api_key: set via VERIFIERD_AUTH_API_KEY, never in this file.
 
 log:
   level: info

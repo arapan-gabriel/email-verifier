@@ -20,6 +20,12 @@ they are the invariants that keep this service from becoming a list-destroyer or
 ## Correctness
 
 - [ ] Reply→verdict changes are in `internal/prober` only and covered by table tests.
+- [ ] **No error is classified by message text.** `errors.Is`/`errors.As` or an explicit class —
+      never `strings.Contains(err.Error(), …)` (ENGINEERING-STANDARDS §4).
+- [ ] **Time-dependent tests run under `synctest`**, not `time.Sleep`. No new hand-rolled clock.
+- [ ] New interfaces are declared by the consumer and have one or two methods (§2).
+- [ ] No new package-level mutable state and no `init()`; dependencies are passed in (§2).
+- [ ] `context.Context` is the first parameter of anything doing IO, and cancellation is honoured.
 - [ ] `policy` (5.7.x about our IP) and per-recipient deferrals do not drive the pacer.
 - [ ] `250` on catch-all/randomiser resolves to `risky`, not `valid`.
 - [ ] Suppression checked before any probe/send.

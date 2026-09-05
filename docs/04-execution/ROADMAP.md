@@ -5,32 +5,34 @@ before the next starts. Plans live in `exec-plans/{active,planned,completed}/`; 
 index and running order.
 
 Architecture is locked by the ADRs (`docs/02-architecture/decisions/`):
-Go on the `ds-smtp-retry` engine · scope = probe + relay (phased) · HTTP integration now, queue
-later · stateless about business data · systemd on the host, no container runtime.
+Go on the `ds-smtp-retry` engine · scope = probe + relay (phased) · stateless about business data ·
+systemd on the host, no container runtime · the seam is `probe_many`, orchestration stays in Data
+Scout (ADR-006).
 
 ## Phase A — Verification service (the reason this repo exists)
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 000 | scaffold-and-standards *(active)* | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz, `mxsim` | `go test ./...` green in CI; `/healthz` 200 |
-| 001 | http-verify-service | port the lab prober; `POST /verify` single address; auth; timeouts; graceful shutdown | `curl /verify` returns a correct verdict for a known good + known bad address |
-| 002 | ssrf-guard-and-safety | resolver SSRF guard (no private/loopback MX); "us ≠ address" verdict rules enforced | probe of a domain whose MX points at `127.0.0.1` is refused, not attempted |
-| 003 | central-redis-limiter | make the shared token bucket THE limiter; per-MX AIMD; fail-closed on Redis down | two concurrent `/verify` bursts to one MX stay under the band; Redis down → `unknown`, no send |
-| 004 | dns-resolver-and-cache | MX/A resolution, cache, no-MX fallback (implicit MX), "no mail server" verdict | `void`/`nomx` domains classified correctly; cache hit on repeat |
-| 005 | catch-all-and-classification | catch-all + randomiser detection; verdict vocabulary reconciled with Data Scout statuses | catch-all domain → `risky`; a real mailbox on a normal domain → `valid` |
-| 006 | greylist-retry-queue | persistent retry queue for 4xx/greylisting that survives restart | greylisted address is retried later and resolves; queue survives a process restart |
-| 007 | bulk-verify-and-queue | `POST /verify/bulk` job (id + poll); optional shared-queue worker mode | a 1k-address bulk job completes, paced per MX, results retrievable |
+| 000 | ~~scaffold-and-standards~~ **done 2026-08-28** | repo layout, `cmd/verifierd`, config, CI (test/vet/fmt/lint), static build + systemd unit, healthz, `mxsim` | ✅ gate green; `/healthz` 200; drains on SIGTERM |
+| 001 | ~~http-verify-service~~ **done 2026-08-28** | lab prober ported; `POST /probe` batch-per-MX (ADR-006); auth; mTLS wired, enabled by 013 | ✅ correct per-address results in one session, against `mxsim` and against real MXes from the node |
+| 002 | ~~ssrf-guard-and-safety~~ **done 2026-08-28** | deny-by-default guard between the lookup and the socket; prober takes vetted IPs, never a hostname | ✅ loopback, private, link-local, v4-mapped and `localhost` all refused with zero SYNs; real MX unaffected |
+| 003 | ~~central-redis-limiter~~ **done 2026-08-28** | shared bucket is THE limiter; per-MX AIMD; fail-closed | ✅ 12 recipients at 1.99/s against a 2/s band; Redis stopped → `no_budget`, zero connections opened |
+| 004 | ~~dns-resolver-and-cache~~ **done 2026-08-28** | configurable resolvers + own timeout; in-process TTL cache of *vetted* results and refusals (not Redis — see the contract) | ✅ 10 resolutions = 1 lookup; refusals cached; bounded; literals bypass |
+| 005 | ~~catch-all-and-randomisers~~ **done 2026-08-28** | N bogus probes tell a catch-all from a coin flip; the randomiser verdict is per **server** and remembered | ✅ catch-all → `catch_all:true`; coin-flip host → `randomiser:true`, remembered, neighbours condemned with zero probes |
+| 006 | ~~greylist-retry~~ **done 2026-08-28** | no queue here — a retry's answer has nowhere to land (ADR-003/006). `retry_after_seconds`, exact for a paused MX, clamped otherwise | ✅ defers with a usable hint; same tuple after the window resolves; answers carry no hint |
+| 007 | ~~policy-stop~~ **done 2026-08-28** | all that ADR-006 left of `bulk-verify-and-queue`: N **consecutive** policy replies end the session; orchestration is Data Scout's Celery | ✅ trips at the threshold, budget stops with it, an isolated `5.7.x` does not trip it |
 | 008 | data-scout-integration | Data Scout `email_verify.py` → HTTP client to this service; retire in-process `smtp_probe` | Data Scout verify endpoint returns this service's verdict end-to-end |
 
 ## Phase B — Operations & hardening
 
 | # | Plan | Delivers | Manual-test gate |
 |---|---|---|---|
-| 009 | observability | structured logs, Prometheus metrics, request tracing | metrics scrape shows per-MX rate, verdict counts, pause events |
-| 010 | ip-health-and-blocklists | blocklist self-monitoring; "burned IP" detection + alert | a simulated listing flips IP health and pauses sends |
-| 011 | suppression-enforcement | suppression-list sync from Data Scout; never probe/mail a suppressed address | a suppressed address is skipped with an auditable reason |
-| 012 | calibration-as-a-service | expose ladder/band calibration (from the lab) as an operator endpoint | operator can re-calibrate one MX and the new band takes effect live |
-| 013 | deployment | OVH/Hetzner host, rDNS/FCrDNS/SPF/DKIM, secrets, systemd + distro Redis, preflight gate | `scripts/preflight.sh` returns GO on the real host; service reachable over mTLS |
+| 009 | observability | hand-rolled Prometheus text (no client library), request-id logging, **and a bound on the pacer's in-memory map** — which was also the cardinality bound | ✅ scrape shows results, replies, blocked reasons and per-MX gauges; `verify_tracked_mx` is the canary |
+| 010 | ip-health | blocklist self-monitoring, **off unless a DNSBL-capable resolver is named and passes a self-test**; a listing pauses, a policy rate only alerts | ✅ host stub refused without pausing; listing burns the node; resume needs no redeploy |
+| 011 | suppression | a **digest-only** second line — Data Scout checks the authoritative list three times before calling. Pushed to `POST /admin/suppress`; addresses never stored | ✅ address and domain refused before any socket; Redis holds two hashes and no `@` |
+| 012 | band-promotion | the gap AIMD cannot close: it never climbs past a guessed ceiling. Clean answers **at** the ceiling become a bounded proposal; a person promotes it. The lab's active ladder stays in the lab | ✅ proposal 4→6 from evidence; promoted, cleared, no restart; nothing raised automatically |
+| 013 | deployment | OVH host, systemd + distro Redis on a unix socket, mTLS boundary, preflight as a hard `ExecStartPre`. The gate itself had to be fixed first — it was grading the IPv6 identity and reading the EHLO greeting as the `RCPT` reply | ✅ preflight GO on the real host; no certificate → TLS alert, not 401; live probe returns `source_ip` = egress. Firewall stays shut: who may reach the API is 008's call |
+| 016 | release-and-deploy | the half of 013 left undone: a `workflow_dispatch` deploy of the artifact CI actually tested, a `deploy` user whose sudoers holds one root-owned script, and a rollback that tells a bad release from a broken host identity — the previous binary fails the same start gate | a broken binary rolls itself back; a forced preflight NO-GO does **not** roll back; a non-green commit is refused |
 
 ## Phase C — Outbound relay (send mail from the isolated IP)
 

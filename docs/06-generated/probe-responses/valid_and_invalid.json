@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-08-28T00:00:00Z",
+  "results": {
+    "nope@gmail-sim.test": {
+      "accepted": false,
+      "catch_all": false,
+      "class": "invalid",
+      "connected": true,
+      "enhanced_code": "5.1.1",
+      "randomiser": false,
+      "reply": "550 5.1.1 The email account that you tried to reach does not exist",
+      "smtp_code": 550
+    },
+    "valid@gmail-sim.test": {
+      "accepted": true,
+      "catch_all": false,
+      "class": "valid",
+      "connected": true,
+      "enhanced_code": "2.1.5",
+      "randomiser": false,
+      "reply": "250 2.1.5 OK",
+      "smtp_code": 250
+    }
+  },
+  "source_ip": "92.222.87.97"
+}

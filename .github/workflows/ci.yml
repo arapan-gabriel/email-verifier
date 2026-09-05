@@ -57,7 +57,32 @@ jobs:
             echo "binary is dynamically linked"; exit 1
           fi
 
+      # The bundle, not a bare executable (plan 016). Everything the node runs
+      # that lives in this repository ships together, so a fix cannot reach the
+      # binary while missing the thing that gates it.
+      #
+      # preflight.sh is the ExecStartPre start gate — plan 013 found three bugs
+      # in it, and a corrected gate that never reaches the node is a gate that
+      # keeps lying. verifierd.yaml ships verbatim: the host's own values live
+      # in its EnvironmentFile, so the installed config stays byte-identical to
+      # this one and a key added here is not silently missing there.
+      - name: assemble the release bundle
+        run: |
+          mkdir -p release
+          cp bin/verifierd                   release/verifierd
+          cp packaging/verifierd.service     release/verifierd.service
+          cp scripts/preflight.sh            release/preflight.sh
+          # scripts/verifierd-deploy is deliberately NOT here. The staging
+          # directory is writable by the `deploy` user, so a bundle that
+          # carried the privileged script — and a deploy that installed it —
+          # would let `deploy` put arbitrary code where root runs it, which is
+          # exactly what the one-line sudoers entry exists to prevent. Updating
+          # it on the node is a manual, root action.
+          cp config/verifierd.yaml           release/verifierd.yaml
+          cd release && sha256sum verifierd verifierd.service preflight.sh verifierd.yaml > SHA256SUMS
+          cat SHA256SUMS
+
       - uses: actions/upload-artifact@v4
         with:
-          name: verifierd
-          path: bin/verifierd
+          name: verifierd-release
+          path: release/
