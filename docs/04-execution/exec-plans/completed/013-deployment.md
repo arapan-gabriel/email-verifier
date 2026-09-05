@@ -154,6 +154,16 @@ and no SPF — see plan 001 Notes.
   probably dynamic, and a rule pinned to it would fail the day it rotates, silently, looking
   configured. Recorded as plan 008's decision; the service binds `0.0.0.0:8443` so opening it is one
   `ufw` rule.
+
+  > **Corrected 2026-09-05, and the correction matters more than the item.** Every sentence above
+  > that names `ufw` was describing a firewall that did not exist. `ufw status` reported `active`
+  > because it reads that from its own config file; neither `nft` nor `iptables` was installed, so
+  > it had never programmed the kernel, and `ufw.service` was `inactive (dead)`. The host had **no
+  > packet filter**. What dropped the traffic was OVH's edge, off the box. The port is now genuinely
+  > filtered by an `nftables` ruleset (`inet filter`, input `policy drop`, `8443/tcp` from the
+  > caller's address alone), persisted and enabled. See `changelog.md` 2026-09-05 and plan 008.
+  > This sign-off checked what a tool *said* instead of what the kernel *did* — the same mistake the
+  > preflight bugs above were about, made one layer down.
 - **No CI deploy gate.** `ExecStartPre` is wired and runs on every start. The CI half needs a deploy
   workflow with SSH credentials as repository secrets — a production deploy pipeline is its own
   decision, not a side effect of this plan, and nothing has been pushed. `ci.yml` already builds and

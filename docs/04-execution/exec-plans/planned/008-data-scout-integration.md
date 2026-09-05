@@ -47,9 +47,21 @@ carries the token.
 **Our contract did not move**, which was the right call: `06-generated/api.md` matches the handler
 field for field and it is the published interface.
 
-**What is still unproven is the wire itself.** Neither side has ever made a real round trip, because
-`ufw` here permits `22/tcp` only — see below. That single round trip stays a task: the mismatch
-existed precisely because both sides were checked against a document instead of each other.
+**The path is now open, and was verified from the caller itself (2026-09-05).** From the Pi —
+`178.18.32.148`, the address the `nftables` rule names — `92.222.87.97:8443` accepts in 56 ms, the
+TLS handshake completes, the server presents `CN=mail.datascoutmail.com` issued by
+`datascoutmail verifier CA`, and it **asks for a client certificate** ("Acceptable client
+certificate CA names"). Verification fails there only because the Pi does not yet hold the CA. No
+private key was moved to run this: `openssl s_client` with no client certificate is enough to prove
+reachability *and* that the boundary demands one.
+
+The same check from a third address (`217.26.166.243`) times out rather than being refused — a drop,
+not a closed port — which is what the `policy drop` default should look like from anywhere the rule
+does not name.
+
+**What remains unproven is one authenticated round trip**, and it needs only the bundle and the
+token on the Pi. That task stays: the five-way mismatch existed precisely because both sides were
+checked against a document instead of against each other.
 
 ## Design (Data Scout side — cross-repo)
 

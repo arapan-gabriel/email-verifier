@@ -3,6 +3,38 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-05 — The path was tested from the caller, and one sign-off corrected
+
+Prompted by being told to distinguish a drop from a reject, to read `nft` rather than `ufw`, and to
+test from somewhere other than my own address. All three were the right instruction, and the first
+two had already been acted on in `4640cb2`; the third had not, and it is the one that produced new
+information.
+
+**From the Pi itself** — `178.18.32.148`, the address the `nftables` rule names — `:8443` accepts in
+**56 ms**. The TLS handshake completes, the server presents `CN=mail.datascoutmail.com` issued by
+`datascoutmail verifier CA`, and it asks for a client certificate. Nothing secret was moved to
+establish this: `openssl s_client` with no client certificate proves both reachability and that the
+boundary demands one. The caller has now touched this service for the first time, and the answer was
+the right one.
+
+From a third address the same port **times out** rather than refusing — a drop, not a closed port,
+which is what `policy drop` looks like from an address the rule does not name. Confirmed on the box:
+`nftables.service` enabled and active, the rule persisted in `/etc/nftables.conf`, `ufw` disabled so
+the two cannot fight at boot, and `verifierd` listening on `0.0.0.0:8443` rather than loopback.
+
+**A completed plan was corrected.** Plan 013's sign-off said "the API port is closed at the
+firewall — `ufw` permits `22/tcp` only". Every clause naming `ufw` there described a firewall that
+was not running. That plan checked what a tool *reported* instead of what the kernel *held* — the
+same class of mistake as the preflight bugs it proudly documents, one layer down, and it went into a
+sign-off rather than being caught by one. The note now sits inline in `completed/013-deployment.md`,
+because a false statement left in a finished plan is exactly how the claim spread into this
+repository's operations doc, its `SECURITY.md`, and both of Data Scout's.
+
+**Still to do before the tier can be enabled**, now that the firewall is not among them: deliver the
+client bundle and the API token to Data Scout's CD secrets as base64 PEM, make one authenticated
+round trip, run its manual tests 1–10, and decide invariant 7 before the reconciliation is spent
+twice.
+
 ## 2026-09-05 — The firewall this repository documented did not exist
 
 The entry below says the blocker is "one firewall rule". It was not a rule. **There was no packet
