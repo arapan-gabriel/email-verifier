@@ -42,11 +42,20 @@ repository and host is now empty.
 Also: the node got its own health-check client certificate, separate from Data Scout's bundle, so
 `/readyz` checks keep working after that bundle is delivered and deleted from the host.
 
-**Not done, and it needs the repository owner:** the two workflows have never run — they cannot
-until the branch is pushed — and the `probe1` environment needs `PROBE_SSH_KEY`, `PROBE_HOST` and
-`PROBE_HOST_KEY`. The key pair exists with its public half installed; the private half is in the
-session scratchpad, deliberately not in the repository. Until then the by-hand procedure is the
-working path, and it is the one every deploy so far has used.
+**Signed off the same day.** Merged to `main` as `6a4eb9c`, `ci` green, secrets set, deploy run from
+the button: `EXIT=0`. The proof it was the pipeline is the hash — the node had been running a laptop
+build, `2591c7c3…`, and now runs CI's `83a4435a…` with the old one kept as `verifierd.prev`.
+
+The deployed binary was then re-verified on the node, including the thing that matters most: with
+Redis pointed at a socket that does not exist, a probe of a live address returns `class: no_budget`
+and **`accepted: null`**, not `false`. Fail-closed proven against the artifact a pipeline installed,
+not against a test double.
+
+One DoD item stays unticked and is recorded rather than inferred: **no deploy has ever been
+refused.** The predicate behind the refusal was checked against the live API — a commit with no
+green `ci` run returns nothing, which the step turns into `exit 1` — but the workflow has only taken
+the success branch. Ticking it on the strength of two lines of shell would be claiming a test that
+was not run.
 
 ## 2026-09-05 — Plan 013: deployed, after fixing the gate that guards the deploy
 

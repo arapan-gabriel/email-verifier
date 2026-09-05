@@ -1,7 +1,6 @@
 # Plan 016 — release-and-deploy
 
-**Status:** Active — **the node half is complete and tested 2026-09-05**; the GitHub half is
-written but unproven, and needs a push plus three repository settings. See *Residuals*.
+**Status:** Complete (2026-09-05)
 **Phase:** B
 **Depends on:** 013 (the host, the unit, the start gate), 000 (the static-build job)
 
@@ -159,21 +158,24 @@ should leave the host entirely.
       `SHA256SUMS`) instead of a bare executable
 - [x] `.github/workflows/deploy.yml`: `workflow_dispatch` with a `sha` input defaulting to `main`;
       resolve that commit's green `ci` run and download its artifact; refuse if it is not green
-- [ ] Secrets/variables in the `probe1` environment: `PROBE_SSH_KEY`, `PROBE_HOST`, `PROBE_HOST_KEY`
-      — **needs the repository owner**
+- [x] Secrets/variables set by the repository owner: `PROBE_SSH_KEY`, `PROBE_HOST`, `PROBE_HOST_KEY`
 - [x] Docs: `operations/deployment.md` gains the pipeline and keeps the by-hand procedure as the
       documented fallback; `SECURITY.md` gains what the deploy credential can and cannot reach
 - [x] Update `docs/08-decisions/changelog.md`
 
 ## Definition of Done
 
-- [ ] A no-op commit deploys end to end **from the button** — needs the secrets and a push
+- [x] A commit deploys end to end **from the button** — run against `6a4eb9c`, `EXIT=0`
 - [x] The node runs the artifact it was handed, verified by `sha256sum` against `SHA256SUMS`
 - [x] **A deliberately broken binary is deployed and rolls itself back**, the service ends up
       healthy on the previous version, and the run is red — done, `EXIT=1`, see Results
 - [x] **A simulated host-identity failure does not trigger a rollback** — done, `EXIT=2`, the
       preflight's own `[FAIL]` line printed, the previous binary left alone, see Results
-- [ ] Deploying a commit whose CI is not green is refused — logic written, needs a run to prove
+- [ ] Deploying a commit whose CI is not green is refused — **not run.** The predicate it rests on
+      was verified against the live API with three inputs (green `main` → a run id; a commit with no
+      green `ci` → empty; a nonsense SHA → empty) and the step is `[ -z "$ID" ] && exit 1` around
+      it. Left unticked rather than ticked on inference: the workflow path itself has only ever
+      taken the success branch
 - [x] A tampered bundle (checksum mismatch) is refused before anything is installed — `EXIT=3`,
       the installed binary's hash unchanged
 - [x] `deploy` cannot read `/etc/verifierd/tls/ca.key`, cannot read or write `/etc/verifierd/env`,
@@ -185,7 +187,7 @@ should leave the host entirely.
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean
 - [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Results (2026-09-05)
 
@@ -222,18 +224,34 @@ real `deploy` user through `sudo`, against the live service.
 **Config drift is gone.** `diff` between the repo's `config/verifierd.yaml` and the installed one is
 empty; `VERIFIERD_HTTP_ADDR` and the three `VERIFIERD_TLS_*` values moved to the EnvironmentFile.
 
-## Residuals — what is left, and who can do it
+## The pipeline ran (2026-09-05)
 
-Everything remaining needs the repository owner, because it needs a push and repository settings.
+Merged to `main` as `6a4eb9c`, `ci` green (run `33970368110`, artifact `verifierd-release`), secrets
+and the host-key variable set by the owner, deploy run from the button: **`EXIT=0`**.
 
-| Task | Status |
-|---|---|
-| `.github/workflows/ci.yml` and `deploy.yml` | **written, not run.** They cannot execute until the branch is pushed; both parse as valid YAML, and nothing about them has been proven beyond that |
-| Environment `probe1` with `PROBE_SSH_KEY` (secret), `PROBE_HOST` (secret), `PROBE_HOST_KEY` (variable) | **NOT DONE.** The key pair exists and its public half is installed for `deploy`; the private half was left in the session scratchpad, not in the repository |
-| First real deploy from the button | **NOT RUN** — the last two DoD items depend on it |
+The proof it was the pipeline and not another hand-install is the hash. The node had been running
+`2591c7c3…`, built on a laptop; after the deploy it runs `83a4435a…`, built by CI, with `2591c7c3…`
+kept as `verifierd.prev`. `sha256sum -c SHA256SUMS` in the staging directory returns `OK` for all
+four files.
 
-Until then the by-hand procedure in `operations/deployment.md` is the working path, and it is the
-one every deploy so far has used.
+**The deployed binary was then re-verified end to end on the node** — the boundary (TLS alert
+without a certificate, `401` without the key, `200` with both), a live `invalid` from Gmail
+(`550 5.1.1`) and a live `valid` with `catch_all` from our own domain, both carrying
+`source_ip: 92.222.87.97`; metrics populate; `systemctl restart` returns and `/readyz` answers `200`
+immediately; `:8443` is unreachable from outside and nothing listens on `:25`.
+
+**Fail-closed was proven against the deployed binary, not just in tests.** With Redis pointed at a
+socket that does not exist, `/readyz` returns `503` and a probe of a live address comes back
+`class: no_budget` with **`accepted: null`** — not `false`. The one failure this system must never
+produce, checked on the real node. The test drop-in was removed and the service restored.
+
+## Residual
+
+One DoD item is unticked: no deploy has ever been *refused*. Everything the refusal depends on is
+verified — the API predicate returns empty for a commit without a green `ci` run — but the workflow
+has only taken the success branch. A deploy of any pre-merge SHA would close it in one run.
+
+The by-hand procedure in `operations/deployment.md` stays documented as the fallback.
 
 ## Notes / decisions / deviations
 
