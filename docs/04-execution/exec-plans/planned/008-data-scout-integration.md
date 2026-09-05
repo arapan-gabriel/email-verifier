@@ -26,35 +26,30 @@ This closes the loop the whole project is for. Data Scout keeps layers 0–5, qu
 lives in **both repos** — coordinate. Data Scout invariant 10 (provider timeout + per-domain cache)
 must hold. Contract: `service/storage-contract.md`, `06-generated/api.md`.
 
-## Blocker found 2026-09-04 — the two sides do not speak the same protocol
+## The contract blocker is closed (2026-09-05)
 
-Data Scout's plan `073` wrote its HTTP client against **its own prose description** of `POST /probe`
-and flagged the risk itself: *"reconcile this against the Go service before enabling the tier — a
-field-name mismatch would present as every address coming back a non-answer, which fails safe but
-silently."* Reconciled. It does not match, in three independent ways:
+Reconciled 2026-09-04 and **fixed on the Data Scout side the same day** (`389f3ae`, *"speak the
+protocol email-verifier actually publishes"*). It had been written from that plan's prose rather
+than from `internal/api/probe.go` and did not match in five ways: `recipients` vs `emails`, a
+missing required `domain`, `results` as a list vs a map keyed by address, batch-level vs per-result
+`catch_all`/`randomiser`, and `accepted`/`rejected` vs `valid`/`invalid`. Any one of them alone made
+the tier inert; all of them failed in the safe direction, so invariant 1 held by construction while
+the feature delivered nothing.
 
-| | Data Scout sends / expects | This service accepts / returns |
-|---|---|---|
-| request | `recipients: [...]` | `emails: [...]`, plus `domain`, required when `need_catch_all` |
-| response | `results` — a **list** of `{recipient, ...}` | `results` — a **map** keyed by address |
-| `catch_all` / `randomiser` | top level, once per batch | per result |
-| `class` vocabulary | `accepted` / `rejected` | `valid` / `invalid` |
+Verified against the current Python: the payload is `{mx_host, domain, emails, need_catch_all}`,
+`results` is read as a map, `valid`/`invalid` drive `accepted`, and `catch_all`/`randomiser` are
+read per result. `domain` is derived as `addresses[0].rpartition("@")[2]` — sound, because a batch
+is one domain by construction (their plan 067 groups before this point), and an empty batch returns
+early rather than indexing. They also caught something this plan had not written down: `POST /probe`
+sits behind our auth as well as mTLS, so a client certificate alone is a `401`; their config now
+carries the token.
 
-Any one of them alone makes the tier inert. The first is not even quiet: `handleProbe` sets
-`dec.DisallowUnknownFields()`, so `recipients` is a **400 on the first request**, which `httpx`
-raises and `_post_probe` maps to `None`. Fixing only that one hits the second: iterating a JSON
-object in Python yields keys, `isinstance(entry, dict)` is false, and every entry is skipped — zero
-results, no error.
+**Our contract did not move**, which was the right call: `06-generated/api.md` matches the handler
+field for field and it is the published interface.
 
-**Every one of these fails in the safe direction.** No path through the mismatch can produce
-`accepted=False`, so invariant 1 holds on both sides by construction. What it costs is the whole
-feature: a tier that looks configured and finds nothing.
-
-**This service's contract does not move.** It is implemented and documented consistently
-(`06-generated/api.md` matches `internal/api/probe.go` field for field) and it is the published
-interface. The error is in `073`'s prose. The fix is one file on the Data Scout side —
-`app/core/verify/smtp_probe.py`: the `_post_probe` payload, the results loop, and `_result_of`'s
-class vocabulary. `073` must be corrected too, or it will re-seed the same mistake.
+**What is still unproven is the wire itself.** Neither side has ever made a real round trip, because
+`ufw` here permits `22/tcp` only — see below. That single round trip stays a task: the mismatch
+existed precisely because both sides were checked against a document instead of each other.
 
 ## Design (Data Scout side — cross-repo)
 
@@ -75,10 +70,13 @@ class vocabulary. `073` must be corrected too, or it will re-seed the same mista
 
 Most of the work is on Data Scout's side. What this repository owes the cut-over:
 
-- **mTLS material and the switch to requiring it.** `tls.cert_file`, `tls.key_file` and
-  `tls.client_ca_file` are already implemented and validated (plan 001); what is missing is the CA,
-  the certificates, and setting `client_ca_file` so the handshake actually requires one. Until then
-  the API key is the only guard and startup warns about it.
+- ~~**mTLS material and the switch to requiring it.**~~ **Done, plan 013.** A private CA on the
+  host, a server certificate carrying `DNS:mail.datascoutmail.com` and `IP:92.222.87.97`, a client
+  bundle for Data Scout at `/etc/verifierd/tls/client/`, and `client_ca_file` set so the handshake
+  requires one. Proven in all four states: no certificate → `tlsv13 alert certificate required`,
+  foreign CA → `unknown ca`, certificate without the API key → `401`, both → `200`. **Delivering
+  the bundle** to Data Scout's CD secrets as base64 PEM is what remains, and it is one command per
+  file — `operations/deployment.md` in that repository carries them.
 - **`ufw` narrowed to the caller.** Not, as previously recorded, a port left open to everyone —
   measured 2026-09-04, `ufw` allows `22/tcp` and nothing else, so the API port has never been
   opened at all. 013 opens it; this plan decides to whom. **Open question:** the caller is a Pi on
@@ -92,9 +90,8 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
 
 ## Tasks
 
-- [ ] **Data Scout: reconcile the wire contract** — `emails` not `recipients`; send `domain`;
-      read `results` as a map keyed by address; `catch_all`/`randomiser` per result; `valid`/
-      `invalid` not `accepted`/`rejected`. Correct `073`'s description in the same change
+- [x] **Data Scout: reconcile the wire contract** — done `389f3ae`; `073`'s description corrected
+      in the same change, so it cannot re-seed the mistake
 - [ ] **Both: one round trip against the real handler before any rollout** — the mismatch above
       existed only because both sides were checked against a document instead of each other
 - [ ] Data Scout: `smtp_probe.probe_many` → HTTP client over mTLS; `set_prober` seam preserved

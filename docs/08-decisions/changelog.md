@@ -3,6 +3,39 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-05 — Plan 008's contract blocker is closed; one firewall rule now blocks everything
+
+Cross-repo check, no code here. Data Scout fixed the wire contract on 2026-09-04 (`389f3ae`) and
+corrected `073`'s description in the same change, so the prose that caused it cannot re-seed it.
+Verified against their current client rather than taking the commit message for it: the payload is
+`{mx_host, domain, emails, need_catch_all}`, `results` is read as a map keyed by address,
+`valid`/`invalid` drive `accepted`, `catch_all` and `randomiser` are read per result, an unrecognised
+class degrades to a non-answer, and `domain` is derived from the batch's first address — sound,
+because a batch is one domain by construction and an empty batch returns before indexing.
+
+They also caught something plan 008 had not written down: `POST /probe` is behind our API key as
+well as mTLS, so a client certificate alone is a `401`. Their config now carries the token. Our
+contract did not move, which was the right call — `api.md` matches the handler field for field.
+
+**The blocker list is now one item: our own `ufw`.** It permits `22/tcp` only, so `:8443` cannot be
+reached from the Pi and the single round trip against the live handler — the check that would have
+caught the five-way mismatch in the first place — still cannot be attempted. The rule is one line;
+the question behind it is not. The caller sits on a consumer line whose address is probably dynamic,
+so a rule pinned to it fails silently the day it rotates.
+
+**Updated on their side** (docs and plans only, no code): `073`'s residuals now say mTLS is done and
+the firewall is binding; `tech-debt` records that its three remaining items became one-and-a-bit;
+the ROADMAP rows reflect a live, pipeline-deployed verifier. Two facts about this service were
+written down there because they change how verdicts must be read: **we never emit
+`class: "risky"`** — a `250` from a catch-all arrives as `valid` with `catch_all: true`, and their
+`scoring.py` already makes the downgrade — and our envelope sender is still the root domain, not the
+`probe.` sub-domain, which has SPF but no MX.
+
+**And one document there would have cost an afternoon.** Their cut-over runbook still showed the
+`curl` posting `{"mx_host":…,"recipients":[…]}` — the contract that never existed. Run verbatim it
+returns `400` and reads as a broken verifier. Now corrected, with the bearer token and the exact
+`base64 -w0` commands for the four CD secrets.
+
 ## 2026-09-05 — Plan 016: a deploy that can tell a bad release from a bad host
 
 The node half is built and tested; the GitHub half is written and unproven. Trigger is
