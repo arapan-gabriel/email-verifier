@@ -3,6 +3,113 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-05 — Plan 013: deployed, after fixing the gate that guards the deploy
+
+`verifierd` runs on `92.222.87.97` under `systemd`, beside a distro Redis on a unix socket with AOF.
+mTLS boundary, preflight as a hard `ExecStartPre`, rollback binary kept alongside. Most of the host
+was already right from the sender-identity session; what this plan added is the service, the
+boundary and the gate — and most of the work turned out to be in the gate.
+
+**The preflight returned NO-GO on a healthy node**, and the three reasons were all the same shape:
+the script reported something other than what it measured.
+
+1. It found the egress with `curl https://ifconfig.me` — over IPv6, on a dual-stack host. So it
+   graded an identity with no PTR and no SPF and called FCrDNS broken. **Invariant 3 catching the
+   tool written to check invariant 3.** Now IPv4 is forced at every step that picks a path,
+   including the `:25` dials, where bash's `/dev/tcp` has no `-4` and must be given the resolved A
+   record literally.
+2. The DNSBL check reverses the address with `awk -F.`. Handed an IPv6 address it built a name
+   nobody publishes, got nothing back, and read nothing as **not listed** — three blocklists
+   reported clean for an address never queried. The same false-clean shape as the NXDOMAIN bug in
+   plan 010, in a different script.
+3. The live handshake read the `RCPT` reply with `grep -m1 '^250'`, which matches
+   `250-mx.google.com at your service`, the first continuation line of the EHLO greeting. It would
+   have reported a clean `250` whatever the server said — **a `5.7.x` block of our IP included**,
+   the one thing the check exists to catch. Read correctly, Gmail says `550 5.1.1 NoSuchUser`.
+
+A gate nobody has ever seen fail is not evidence that it passes.
+
+**`Type=simple` was lying about readiness.** systemd calls the unit started when `ExecStart` forks,
+before the socket is bound: a request issued the instant `systemctl restart` returned was refused.
+Invisible by hand, fatal to the CD path plan 008 needs — a deploy cannot tell a healthy restart from
+a crash loop. `main.go` now binds with `ListenConfig.Listen` before announcing anything and sends
+`READY=1`; the unit is `Type=notify`. `sd_notify` is a dozen hand-rolled lines over a unixgram
+socket, no dependency, three tests. Binding first also demotes "address already in use" from an
+asynchronous surprise to a plain startup error.
+
+**The boundary was proven, not just configured**: `200` with certificate and key, `401` with the
+certificate alone, `tlsv13 alert certificate required` with none, `tlsv1 alert unknown ca` with a
+foreign one. The last two never reach a handler, which is what invariant 11 asks for.
+
+**A live probe of our own domain exposed a documentation defect.** It returned `class: "valid"` on a
+domain with `catch_all: true`. Invariant 7 — a *hard* invariant — says a `250` on a catch-all is
+`risky`, and `smtp-classification.md`, `ARCHITECTURE.md`, `ENGINEERING-STANDARDS.md` and
+`storage-contract.md` all name `risky` as a value this service emits. `ClassRisky` does not exist in
+the classifier and never has. Nothing is wrong end to end — `catch_all` travels alongside and Data
+Scout scores it — but the exposure is exactly the naive consumer the invariant was written to stop.
+**Recorded in tech-debt with two ways to close it and deliberately not decided here:** a deployment
+plan is the wrong place to change a published contract, and plan 008 is about to reconcile Data
+Scout against this exact shape. Settle it before 008 enables the tier, so that happens once.
+
+**Two things left undone on purpose.** The API port stays closed at the firewall — the plan wants it
+open to "Data Scout's address", and that address is the unsettled question, since the caller is a Pi
+on a consumer line and a pinned rule would fail silently when it rotates. And there is no CI deploy
+gate: that needs a deploy workflow with SSH secrets, which is its own decision. Both are recorded in
+008, which is where the answers live.
+
+Also fixed while deploying: `mail_from` and the `ufw` claim from yesterday's entry are now
+reflected on the host, and the CA private key sits on the machine it protects — noted in
+`SECURITY.md` as the weak point of this arrangement, to be moved offline before the link carries
+production traffic.
+
+## 2026-09-04 — Plan 008 reconciled against the code, and found unrunnable
+
+Checked whether the Data Scout cut-over can start. It cannot, and the reason is the one its own
+plan `073` predicted and then did not act on.
+
+**The two sides were written against a document, not against each other.** `073` implemented its
+HTTP client from its own prose sketch of `POST /probe` and closed with a warning to reconcile
+before enabling the tier. Reconciled: `recipients` vs `emails`, a missing required `domain`, a
+`results` list vs a map keyed by address, batch-level vs per-result `catch_all`/`randomiser`, and
+`accepted`/`rejected` vs `valid`/`invalid`. Five differences, three of them independently fatal.
+
+The first is not subtle — `handleProbe` sets `DisallowUnknownFields()`, so `recipients` is a 400 on
+the first request. What makes this worth writing down is that **every one of the five fails in the
+safe direction**: nothing in the mismatch can produce `accepted=False`, so invariant 1 held on both
+sides without either side having verified the other. The cost is not a wrong verdict, it is a tier
+that looks configured and finds nothing — the failure mode `073` named exactly and shipped anyway.
+
+Our contract does not move: `api.md` matches `internal/api/probe.go` field for field, and it is the
+published interface. The fix is one file on the Data Scout side, plus correcting `073` so it stops
+re-seeding the mistake. Recorded as a blocker in plan 008 along with a task that no rollout starts
+before one real round trip against the live handler.
+
+**008 also gained a dependency it was missing: 013.** The node has no `verifierd` unit, no
+`/etc/verifierd/verifierd.yaml`, no binary, and nothing listening but `:22`. There is nothing to
+point Data Scout at. The related debt item — "`ufw` leaves the API port open to everyone" — was
+simply wrong: `ufw` allows `22/tcp` alone, because the port was never opened.
+
+**Two more measurements changed planned work.**
+
+- `mail_from` still defaulted to `verify@probe.datascoutmail.com`, the address plan 001 proved
+  unroutable: SPF TXT but no MX and no A, so a strict receiver answers `554 5.1.8`, which is a
+  rejection of *us* and classes `unknown`. Deploying 013 with that default would have produced a
+  cut-over that looked broken for a reason no log would name. Now `verify@datascoutmail.com`, in
+  config and in the `api.md` example, with the `probe.` MX record written into 013 as the
+  precondition for switching back. The identity split is still the design — it is just not live.
+- Redis on the node listens on its unix socket only; `127.0.0.1:6379` is refused. **Recorded here
+  first as a blocker for 013, on the claim that the RESP client is TCP-only. That claim was wrong**
+  — the node was measured, the client was not read. Plan 003 implemented the `unix:` branch
+  (`internal/redis/client.go:51`, `config.Redis.Endpoint()`, tested both sides) and left the
+  tech-debt entry standing, which is what the claim came from. `config/verifierd.yaml` already
+  points at the socket. No fallback to `bind 127.0.0.1` is needed; the debt entry is now Resolved.
+
+**An open decision for 013, not settled here.** Both plans ask that `ufw` admit "the API's address
+only". The API is a Pi on the consumer line whose ISP blocks `:25` — the line this whole service
+exists to route around — so that address is probably dynamic, and a rule pinned to it would fail
+the same silent way as the contract mismatch. mTLS with a stable address in front, or a tunnel:
+worth choosing before 013 writes the rule.
+
 ## 2026-08-28 — Plan 012: bands widen on evidence, and only by a person
 
 Renamed from `calibration-as-a-service`. Its own note already preferred passive calibration over

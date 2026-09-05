@@ -10,16 +10,29 @@ After=network-online.target redis-server.service
 Requires=redis-server.service
 
 [Service]
-Type=simple
+# notify, not simple: with simple, systemd calls the unit started as soon as
+# ExecStart forks, which is before the socket is bound — `systemctl restart`
+# returns and the next connection is refused. A deploy then cannot tell a
+# healthy restart from a crash loop. main.go sends READY=1 once it is accepting.
+Type=notify
+NotifyAccess=main
 User=verifierd
 Group=verifierd
 SupplementaryGroups=redis
 
-# Plan 013 wires the preflight as a hard start gate here — GO is a precondition,
-# not advisory (RUNBOOK). Left commented until that plan installs the script.
-#ExecStartPre=/usr/local/bin/verifierd-preflight
+# The preflight is a hard start gate — GO is a precondition, not advisory
+# (RUNBOOK). Wired by plan 013. It exits non-zero only on a [FAIL], so an
+# advisory such as the ASN-wide UCEPROTECT L3 listing does not hold the service
+# down, while a blocked :25 or broken FCrDNS does. A deploy onto such a host
+# produces verdicts that measure nothing, which is worse than not starting.
+ExecStartPre=/usr/local/bin/verifierd-preflight
 ExecStart=/usr/local/bin/verifierd -config /etc/verifierd/verifierd.yaml
 EnvironmentFile=-/etc/verifierd/env
+
+# ExecStartPre above runs live SMTP handshakes and DNS lookups against three
+# providers; the default 90s start budget is not enough for a slow or retried
+# lookup, and a timeout there would read as a failed deploy.
+TimeoutStartSec=180s
 
 Restart=on-failure
 RestartSec=5s

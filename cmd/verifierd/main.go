@@ -180,21 +180,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	}
 	srv.TLSConfig = tlsCfg
 
+	// Bind before announcing anything. ListenAndServe binds inside the
+	// goroutine, so a failure there — "address already in use" above all —
+	// surfaces asynchronously, after we have already logged that we are
+	// listening. Binding here makes that a plain startup error, and gives us
+	// the one moment at which READY=1 is true.
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", cfg.HTTP.Addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", cfg.HTTP.Addr, err)
+	}
+
 	serveErr := make(chan error, 1)
 	go func() {
-		logger.Info("listening",
-			"addr", cfg.HTTP.Addr,
-			"redis", cfg.Redis.Addr,
-			"tls", cfg.TLS.Enabled(),
-			"mtls", cfg.TLS.MutualAuth(),
-			"helo", cfg.Probe.Helo,
-			"source_ip", cfg.Probe.SourceIP,
-			"seed_bands", pacer.SeedCount())
 		var err error
 		if cfg.TLS.Enabled() {
-			err = srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+			err = srv.ServeTLS(ln, cfg.TLS.CertFile, cfg.TLS.KeyFile)
 		} else {
-			err = srv.ListenAndServe()
+			err = srv.Serve(ln)
 		}
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
@@ -202,10 +205,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		serveErr <- err
 	}()
 
+	logger.Info("listening",
+		"addr", cfg.HTTP.Addr,
+		"redis", cfg.Redis.Addr,
+		"tls", cfg.TLS.Enabled(),
+		"mtls", cfg.TLS.MutualAuth(),
+		"helo", cfg.Probe.Helo,
+		"source_ip", cfg.Probe.SourceIP,
+		"seed_bands", pacer.SeedCount())
+	sdNotify("READY=1")
+
 	select {
 	case err := <-serveErr:
 		return err
 	case <-ctx.Done():
+		// Tell systemd the drain has begun, so TimeoutStopSec is measured
+		// against a shutdown we acknowledged rather than a process that went
+		// quiet.
+		sdNotify("STOPPING=1")
 		logger.Info("shutdown signal received", "drain_timeout", cfg.HTTP.ShutdownTimeout)
 	}
 

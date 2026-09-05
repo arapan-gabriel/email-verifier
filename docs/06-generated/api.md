@@ -37,7 +37,7 @@ addresses; this endpoint asks one server about several mailboxes in one session.
   "emails":         ["a@gmail.com", "b@gmail.com"],
   "need_catch_all": true,                          // caller owns the domain-profile cache
   "helo":           "mail.datascoutmail.com",      // optional, defaults from config
-  "mail_from":      "verify@probe.datascoutmail.com"
+  "mail_from":      "verify@datascoutmail.com"       // probe. sub-domain awaits its MX record
 }
 ```
 ```jsonc

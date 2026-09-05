@@ -88,7 +88,15 @@ probe:
   helo: "mail.datascoutmail.com"
   # Need not FCrDNS — which is what lets verification use a sub-domain isolated
   # from the domain that sends real mail (ARCHITECTURE §"Sender identity").
-  mail_from: "verify@probe.datascoutmail.com"
+  #
+  # The intended value is verify@probe.datascoutmail.com, and it is BLOCKED on
+  # that sub-domain getting an MX record. It currently carries only the SPF TXT,
+  # so a receiving MX that checks whether the envelope sender could accept a
+  # bounce answers 554 5.1.8 — measured against gammait.net (plan 001). That is
+  # a rejection of *us*, so every such probe classes as unknown (invariant 1)
+  # and the tier silently returns nothing. Switch back the same day the MX
+  # record exists; until then probing reputation sits on the root domain.
+  mail_from: "verify@datascoutmail.com"
   # Travels with every answer: a verdict is only as good as the IP behind it.
   source_ip: "92.222.87.97"
   # Invariant 3. Anything but tcp4 is refused at startup: a bare "tcp" on this
