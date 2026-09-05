@@ -77,13 +77,22 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
   foreign CA → `unknown ca`, certificate without the API key → `401`, both → `200`. **Delivering
   the bundle** to Data Scout's CD secrets as base64 PEM is what remains, and it is one command per
   file — `operations/deployment.md` in that repository carries them.
-- **`ufw` narrowed to the caller.** Not, as previously recorded, a port left open to everyone —
-  measured 2026-09-04, `ufw` allows `22/tcp` and nothing else, so the API port has never been
-  opened at all. 013 opens it; this plan decides to whom. **Open question:** the caller is a Pi on
-  a consumer line (the line whose ISP blocks `:25` — the reason this service exists), so its
-  address is likely dynamic, and an allow-rule pinned to it would fail exactly like the contract
-  mismatch above: silently, looking configured. Decide between mTLS as the real boundary with a
-  stable address in front, or a tunnel, **before** 013 writes the rule.
+- **The host filter narrowed to the caller — `nftables`, 2026-09-05.** The `ufw` this plan kept
+  citing was never enforcing anything: `ufw status` reads `active` from its own config file, and
+  neither `nft` nor `iptables` was installed, so it could not program the kernel. An
+  `ufw allow from <caller> to any port 8443` would have printed nothing and changed no packet —
+  failing precisely the way this bullet warns a pinned address would fail. The traffic was being
+  dropped by **OVH's edge**, off the box. See `changelog.md`, 2026-09-05.
+
+  There is now a real host filter: `inet filter`, input `policy drop`, `8443/tcp` from the caller's
+  address alone, `22/tcp` unrestricted, output `accept` so outbound `:25` is untouched.
+
+  **The open question stands, and only its urgency changed.** The caller is a Pi on a consumer line
+  (the line whose ISP blocks `:25` — the reason this service exists), so its address may rotate, and
+  the rule naming it would then fail silently. Still to decide: mTLS as the real boundary with a
+  stable address in front, or a tunnel. What is settled is that the decision is now enforced in two
+  places — this host's ruleset and OVH's edge — and **the edge is the one that still blocks the
+  round trip**, because it is configured in a panel rather than in either repository.
 - **Response completeness confirmed against what Data Scout stores** — `connected`, `accepted`,
   `catch_all`, `randomiser`, `smtp_code`, `enhanced_code`, `class`, `retry_after_seconds`,
   `source_ip`, `checked_at`.
@@ -111,7 +120,12 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
 - [ ] This service: bring up a small CA; server certificate for the verifier, client certificate for
       the API; set `tls.client_ca_file` so a client certificate is required, and prove a `curl`
       through it **before** either side's application code changes
-- [ ] This service: `ufw` allows the API's address only
+- [x] This service: the host filter allows the API's address only — `nftables` 2026-09-05,
+      persisted and verified. **`ufw` was never enforcing**; see the design note above
+- [ ] **OVH's edge opened for the caller on `8443`** — the outer filter, configured in the panel.
+      Until this lands the port is unreachable regardless of the host ruleset. Verify outbound
+      `:25` still works afterwards: the edge filter is stateless, and breaking the replies to
+      outbound sessions would end verification rather than protect it
 - [ ] This service: response completeness confirmed against Data Scout's `ProbeResult` mapping
 - [ ] Both: integration test of the end-to-end path
 - [ ] Docs both repos: Data Scout providers doc + this `changelog.md`

@@ -28,9 +28,27 @@ highest-severity class here.
   `tlsv13 alert certificate required`; a certificate from another CA → `tlsv1 alert unknown ca`.
   Both are TLS alerts — the request never reaches a handler. A valid certificate without the API
   key is a `401`.
-- **The API port is closed at the firewall.** `ufw` permits `22/tcp` only; `0.0.0.0:8443` is
-  reachable from the host alone. Who may reach it is plan 008's decision (the caller's address is
-  probably dynamic, and a rule pinned to it would fail silently when it rotates).
+- **The API port is closed at the firewall — `nftables`, since 2026-09-05.** `/etc/nftables.conf`,
+  table `inet filter`, input `policy drop`: established/related, loopback, ICMP, `22/tcp` from
+  anywhere, and `8443/tcp` from Data Scout's caller alone. Output stays `accept` — this host exists
+  to open outbound SMTP sessions, and the established rule is what keeps their replies flowing.
+  `nftables.service` is enabled, so the ruleset survives a reboot. Verified after applying:
+  outbound `:25` still reaches Gmail, a fresh SSH connection still lands, and the policy counter is
+  already collecting scanner traffic.
+
+  **This claim used to be false, and how it was false is the point.** It read "`ufw` permits
+  `22/tcp` only". `ufw status` did report `active` — but it reads that from `ENABLED=yes` in its own
+  config file, and **neither `nft` nor `iptables` was installed**, so `ufw` could not write one rule
+  into the kernel; `ufw.service` was `inactive (dead)`. The host had no packet filter at all. What
+  actually dropped the traffic was OVH's edge, off the box and outside this repository. Measured
+  from outside: `22` open, while `80`, `8443` **and `8444`, where nothing listens**, all timed out
+  instead of being refused — which is only possible if the packets never reach the host. A firewall
+  that reports intent rather than enforcement is worse than none, because it gets quoted in
+  documents like this one. `ufw` is now disabled outright so two systems cannot fight at boot.
+
+  Who may reach `8443` is still plan 008's decision. The rule names the caller's public address
+  today; that address is on a consumer line and may rotate, which is a live risk rather than a
+  settled question — see 008.
 - **The CA private key is on the host it protects** (`/etc/verifierd/tls/ca.key`, root-only). That
   is the weak point of this arrangement and it is deliberate for now: moving it to offline storage
   costs nothing and should happen before the link carries production traffic.

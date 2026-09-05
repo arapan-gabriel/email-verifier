@@ -3,6 +3,62 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-05 — The firewall this repository documented did not exist
+
+The entry below says the blocker is "one firewall rule". It was not a rule. **There was no packet
+filter on the host at all.**
+
+`ufw status` reported `active` with `22/tcp` allowed, and every document here quoted it —
+`SECURITY.md`, plan `008` twice, the `013` ROADMAP row, two changelog entries. But `ufw status`
+reads `active` from `ENABLED=yes` in `/etc/ufw/ufw.conf`, not from the kernel, and **neither `nft`
+nor `iptables` was installed on this Debian 13 host**, so `ufw` could not install a single rule.
+`ufw.service` was `inactive (dead)` the whole time.
+
+What actually dropped the traffic was **OVH's edge**, off the box entirely. The measurement that
+settles it: from outside, `22` connects, while `80`, `8443` **and `8444` — a port where nothing
+listens** — all *time out* rather than being refused. A host receiving those packets would answer
+`8444` with an `RST`. It never saw them. A probe to `:8443` from outside also left no line in
+`verifierd`'s log, which logs TLS handshake failures.
+
+**So the next step everyone was queued behind was the wrong one.** An `ufw allow from <caller> to
+any port 8443` would have printed nothing, added a line to `ufw status`, and changed no packet —
+failing exactly the way this plan warns a pinned address would fail: silently, looking configured.
+That is the second time in two days that a component was checked against a document instead of
+against itself.
+
+**Fixed:** `nftables` installed; `/etc/nftables.conf` written; `nftables.service` enabled so it
+survives a reboot; `ufw` disabled outright so the two cannot fight at boot.
+
+```
+table inet filter, input policy drop
+  ct established,related · lo · icmp/icmpv6 · tcp/22 from anywhere
+  tcp/8443 from the Data Scout caller only
+  output: accept
+```
+
+Three deliberate choices in that ruleset:
+
+* **Output stays `accept`.** This host exists to open outbound SMTP sessions. A stateless ruleset
+  that dropped their replies would not protect verification, it would end it — so the
+  established/related rule sits first, carrying almost all legitimate traffic.
+* **`22/tcp` is not restricted by source.** Pinning SSH to one address, on a box administered from a
+  consumer line that changes address, is how a host becomes unreachable with no console. The API
+  port is the one that gets a source restriction, because losing it costs a feature rather than the
+  machine.
+* **ICMP is accepted.** Path-MTU discovery keeps long SMTP sessions alive; dropping it produces
+  hangs that read as a slow remote server.
+
+Applied behind a five-minute rollback timer, then verified before the timer was cancelled: outbound
+`:25` still reaches Gmail, a *new* SSH connection still lands, `8443` still refuses everyone, and
+the policy counter is already collecting scanner traffic.
+
+**What this does not change:** `8443` is still unreachable from outside, because OVH's edge drops it
+too. The host filter is now a real second layer, but the edge remains the outer one and it is
+configured in a panel, not in this repository. Opening the port end-to-end still needs that side —
+and the caller is still down, so the round trip 008 asks for has not happened.
+
+---
+
 ## 2026-09-05 — Plan 008's contract blocker is closed; one firewall rule now blocks everything
 
 Cross-repo check, no code here. Data Scout fixed the wire contract on 2026-09-04 (`389f3ae`) and
