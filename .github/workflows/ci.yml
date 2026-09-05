@@ -12,9 +12,9 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache: true
@@ -32,16 +32,19 @@ jobs:
           if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # Pinned, not `latest`: an upstream release adding a check turns main
+          # red with no change of ours, and the version CI runs should be the
+          # version the Phase-4 gate runs locally. Bump it deliberately.
+          version: v2.13.2
 
   binary:
     runs-on: ubuntu-latest
     needs: gate
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache: true
@@ -82,7 +85,7 @@ jobs:
           cd release && sha256sum verifierd verifierd.service preflight.sh verifierd.yaml > SHA256SUMS
           cat SHA256SUMS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: verifierd-release
           path: release/
