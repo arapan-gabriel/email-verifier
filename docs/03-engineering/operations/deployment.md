@@ -22,13 +22,21 @@ sandboxing directives in `packaging/verifierd.service` are what a container woul
 |---|---|---|
 | `/usr/local/bin/verifierd` | `root:root 755` | the static binary (`CGO_ENABLED=0`) |
 | `/etc/systemd/system/verifierd.service` | `root:root 644` | `packaging/verifierd.service`, verbatim |
-| `/etc/verifierd/verifierd.yaml` | `root:verifierd 640` | `config/verifierd.yaml` with the host's `http.addr` and `tls.*` |
-| `/etc/verifierd/env` | `root:verifierd 640` | `VERIFIERD_AUTH_API_KEY` — the only secret, never in the unit or the repo (invariant 10) |
+| `/etc/verifierd/verifierd.yaml` | `root:verifierd 640` | `config/verifierd.yaml` **verbatim** — `diff` against the repo is empty |
+| `/etc/verifierd/env` | `root:verifierd 640` | `VERIFIERD_AUTH_API_KEY`, plus the host's own `VERIFIERD_HTTP_ADDR` and `VERIFIERD_TLS_*`. Secrets never in the unit or the repo (invariant 10) |
+| `/etc/verifierd/tls/healthcheck/` | `root:root 700` | the node's own client identity, so health checks survive the Data Scout bundle being delivered and removed |
+| `/usr/local/sbin/verifierd-deploy` | `root:root 755` | the privileged half of a deploy; the only `sudo` the `deploy` user has |
 | `/etc/verifierd/tls/` | `root:verifierd 750` | CA, server pair, `ca.pem` as the client CA |
 | `/etc/verifierd/tls/client/` | `root:root 700` | the client bundle Data Scout is issued (plan 008) |
 | `/etc/verifierd/dkim/s1.private` | `verifierd:verifierd 600` | DKIM key, phase C |
 | `/usr/local/lib/verifierd/preflight.sh` | `root:root 755` | `scripts/preflight.sh` |
 | `/usr/local/bin/verifierd-preflight` | `root:root 755` | wrapper supplying the domain, HELO name and DKIM selector |
+
+The installed config is byte-identical to the repository's. It used to be that file with four values
+rewritten by `sed` at install time, which is drift waiting to happen — a key added upstream would
+never reach the node. All four already had environment overrides (`VERIFIERD_HTTP_ADDR`,
+`VERIFIERD_TLS_CERT_FILE`, `VERIFIERD_TLS_KEY_FILE`, `VERIFIERD_TLS_CLIENT_CA_FILE`), so the host's
+differences moved into the EnvironmentFile and "what is deployed" became answerable with `diff`.
 
 Redis is the distro package with `port 0`, `unixsocket /run/redis/redis-server.sock`,
 `unixsocketperm 660`, `appendonly yes`, `appendfsync everysec`. `verifierd` is in the `redis` group.
@@ -54,6 +62,35 @@ a crash loop. `main.go` binds with `net.Listen` first and sends `READY=1` once i
 
 ## Deploying a new build
 
+The pipeline (plan 016) is `workflow_dispatch` — a button, not a push trigger. Once plan 008 enables
+the tier the node is mid-batch most of the day: a restart cuts in-flight SMTP sessions, and during
+the warm-up ladder a deploy on the wrong day smears the measurement the ladder exists to take.
+
+It deploys **the artifact CI tested**, never a rebuild: the workflow resolves the commit's green
+`ci` run and downloads its bundle, so a commit whose gate is not green cannot be deployed. The
+bundle carries the binary, the unit, `preflight.sh`, the config and `SHA256SUMS`, because a fix that
+reaches the binary but not the gate that guards it is worse than no fix.
+
+On the node the privileged half is one root-owned, argument-less script,
+`/usr/local/sbin/verifierd-deploy` (source: `scripts/verifierd-deploy`), and it is the *only* thing
+the `deploy` user may run through `sudo`. Its exit codes are the interface:
+
+| Code | Meaning | What it did |
+|---|---|---|
+| 0 | deployed and healthy | restart returned (Type=notify ⇒ accepting) and `/readyz` answered 200 |
+| 1 | bad release | restored the previous binary and unit, restarted, confirmed healthy |
+| 2 | **bad host** | installed nothing back; left the service down deliberately |
+| 3 | refused | checksum mismatch or an incomplete bundle; touched nothing |
+
+**Why 1 and 2 are different is the point of the script.** `ExecStartPre` runs the preflight, so when
+the host's own identity breaks — a re-proxied `mail.` record, a fresh blocklist entry, `:25` being
+filtered — the *previous* binary fails to start for exactly the same reason. Rolling back would
+achieve nothing, cost a second outage to discover, and bury the cause. So the script reads the
+journal for the gate's verdict before deciding, and on a `NO-GO` it prints the preflight's own words
+and stops.
+
+### By hand (the fallback, and how 013 did it)
+
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o /tmp/verifierd ./cmd/verifierd
 scp /tmp/verifierd packaging/verifierd.service probe1:/tmp/
@@ -63,8 +100,9 @@ ssh probe1 'sudo cp /usr/local/bin/verifierd /usr/local/bin/verifierd.prev
             sudo systemctl daemon-reload && sudo systemctl restart verifierd'
 ```
 
-**Rollback** is the previous binary kept alongside: `sudo cp /usr/local/bin/verifierd.prev
-/usr/local/bin/verifierd && sudo systemctl restart verifierd`.
+**Rollback by hand** is the previous binary kept alongside: `sudo cp /usr/local/bin/verifierd.prev
+/usr/local/bin/verifierd && sudo systemctl restart verifierd`. The script does this for you on a
+code-1 failure.
 
 ## The boundary
 

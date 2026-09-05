@@ -1,0 +1,126 @@
+# Deploy the probe (plan 016).
+#
+# Manual on purpose. Once plan 008 enables the tier the node is mid-batch most
+# of the day: a restart cuts in-flight SMTP sessions, and during the warm-up
+# ladder a deploy on the wrong day smears the measurement the ladder exists to
+# take. The button costs one click and buys the choice of moment.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit to deploy (default: current main)'
+        required: false
+        default: ''
+
+# Two deploys must never interleave: the second would stage its bundle over the
+# first one's while the first is still installing.
+concurrency:
+  group: deploy-probe
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read          # to find and download the ci run's artifact
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: probe1  # scopes the SSH key to this workflow, not the whole repo
+    steps:
+      - name: resolve the commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          SHA="$INPUT_SHA"
+          if [ -z "$SHA" ]; then
+            SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" -q .sha)
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Deploying $SHA"
+
+      # The artifact CI tested, not a rebuild. A commit whose gate is not green
+      # cannot be deployed — that is the gate. Rebuilding here would ship a
+      # file the tests never ran against, however likely it is to be identical.
+      - name: find that commit's green ci run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success" \
+                 -q '.workflow_runs[0].id // empty')
+          if [ -z "$ID" ]; then
+            echo "::error::no successful ci run for ${SHA} — deploy refused"
+            exit 1
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: verifierd-release
+          path: bundle
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+
+      - name: check the bundle before it leaves the runner
+        run: |
+          set -euo pipefail
+          cd bundle
+          chmod +x verifierd preflight.sh
+          sha256sum -c SHA256SUMS
+
+      # The host key is pinned from a repository variable. ssh-keyscan at deploy
+      # time is trust-on-first-use on every single run, which is no trust.
+      - name: ssh
+        env:
+          KEY: ${{ secrets.PROBE_SSH_KEY }}
+          HOST: ${{ secrets.PROBE_HOST }}
+          HOSTKEY: ${{ vars.PROBE_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$HOSTKEY" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<CFG
+          Host probe
+            HostName $HOST
+            User deploy
+            IdentityFile ~/.ssh/id_deploy
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: stage the bundle
+        run: |
+          set -euo pipefail
+          # Clear first: a leftover file from an earlier run would be verified
+          # against a SHA256SUMS that does not mention it and installed anyway.
+          ssh probe 'rm -f /home/deploy/staging/*'
+          scp bundle/verifierd bundle/verifierd.service bundle/preflight.sh \
+              bundle/verifierd.yaml bundle/SHA256SUMS probe:/home/deploy/staging/
+
+      # The runner never talks to :8443 — the firewall is shut and the endpoint
+      # wants a client certificate. Every check runs on the node.
+      - name: install, restart, verify
+        run: |
+          set -uo pipefail
+          ssh probe 'sudo /usr/local/sbin/verifierd-deploy'; rc=$?
+          case $rc in
+            0) echo "::notice::deployed and healthy" ;;
+            1) echo "::error::bad release — rolled back to the previous version" ;;
+            2) echo "::error::the HOST failed its start gate. NOT a bad release, and not rolled back: the previous binary would fail the same preflight. Fix the sender identity, then redeploy." ;;
+            3) echo "::error::refused before installing anything (bad or tampered bundle)" ;;
+            *) echo "::error::deploy script exited $rc" ;;
+          esac
+          exit $rc
+
+      - name: what is running now
+        if: always()
+        run: ssh probe 'systemctl is-active verifierd; sha256sum /usr/local/bin/verifierd' || true

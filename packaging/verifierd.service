@@ -9,6 +9,17 @@ Wants=network-online.target
 After=network-online.target redis-server.service
 Requires=redis-server.service
 
+# Give up after three failed starts in ten minutes instead of retrying forever.
+# ExecStartPre performs a live SMTP handshake against Gmail, so Restart=on-failure
+# without a limit means that when the host's identity IS broken — the one case
+# the gate exists to catch — the node dials a real provider every few seconds,
+# indefinitely, from an address already failing its own identity checks. That is
+# how a stuck unit turns a DNS mistake into a reputation problem. Failing and
+# staying failed is the correct end state: the service is useless until a person
+# fixes the host, and its verdicts would measure nothing meanwhile.
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
 [Service]
 # notify, not simple: with simple, systemd calls the unit started as soon as
 # ExecStart forks, which is before the socket is bound — `systemctl restart`
@@ -35,7 +46,10 @@ EnvironmentFile=-/etc/verifierd/env
 TimeoutStartSec=180s
 
 Restart=on-failure
-RestartSec=5s
+# Long enough that three attempts spread across a minute rather than fifteen
+# seconds, which gives a transient network blip room to clear without turning
+# the start limit into a hair trigger.
+RestartSec=20s
 
 # Verification opens one short-lived socket per address; the pacer bounds the
 # rate, not the file-descriptor table.

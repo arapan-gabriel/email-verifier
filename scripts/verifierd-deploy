@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# verifierd-deploy -- the privileged half of a deploy (plan 016).
+#
+# Installed at /usr/local/sbin/verifierd-deploy, root-owned, and the ONLY thing
+# the `deploy` user may run through sudo. It takes no arguments on purpose: a
+# sudoers entry for primitives (install, systemctl, ...) is how a narrow rule
+# quietly becomes a wide one, so the privileged operation is this reviewed
+# script and nothing else.
+#
+# It expects a bundle already staged in $STAGING by the workflow:
+#   verifierd  verifierd.service  preflight.sh  verifierd.yaml  SHA256SUMS
+#
+# Exit codes are the interface:
+#   0  deployed and healthy
+#   1  the release is bad      -- rolled back, previous version healthy
+#   2  the HOST is bad         -- nothing rolled back, service left down
+#   3  refused before touching anything (bad bundle)
+set -uo pipefail
+
+STAGING=/home/deploy/staging
+BIN=/usr/local/bin/verifierd
+UNIT=/etc/systemd/system/verifierd.service
+PREFLIGHT=/usr/local/lib/verifierd/preflight.sh
+CONF=/etc/verifierd/verifierd.yaml
+HC=/etc/verifierd/tls/healthcheck   # the node's own client identity, not Data Scout's
+
+say(){ printf '%s\n' "$*"; }
+die(){ local code=$1; shift; printf '%s\n' "$*" >&2; exit "$code"; }
+
+# ------------------------------------------------------------------ 1. verify
+# A truncated copy is otherwise a broken deploy that looks like a bad build.
+cd "$STAGING" 2>/dev/null || die 3 "refused: no staging directory at $STAGING"
+for f in verifierd verifierd.service preflight.sh verifierd.yaml SHA256SUMS; do
+  [ -f "$f" ] || die 3 "refused: bundle is missing $f"
+done
+if ! sha256sum -c --status SHA256SUMS; then
+  say "refused: checksum mismatch --"
+  sha256sum -c SHA256SUMS 2>&1 | grep -v ': OK$' >&2
+  die 3 "refused: the staged bundle is not the one CI built. Nothing was installed."
+fi
+say "bundle verified: $(grep -c . SHA256SUMS) files"
+
+# --------------------------------------------------------------- 2. previous
+# Rollback is keeping the previous version alongside (ADR-005). Both halves:
+# a unit that no longer matches its binary is its own outage.
+had_previous=no
+if [ -x "$BIN" ]; then
+  cp -a "$BIN" "$BIN.prev" && cp -a "$UNIT" "$UNIT.prev" && had_previous=yes
+fi
+
+# ---------------------------------------------------------------- 3. install
+# The config ships verbatim: the host's own values live in the EnvironmentFile
+# (VERIFIERD_HTTP_ADDR, VERIFIERD_TLS_*), so there is nothing to rewrite here
+# and "what is deployed" stays answerable with diff.
+install -m 755 -o root -g root verifierd            "$BIN"          || die 1 "install: binary"
+install -m 644 -o root -g root verifierd.service    "$UNIT"         || die 1 "install: unit"
+install -m 755 -o root -g root preflight.sh         "$PREFLIGHT"    || die 1 "install: preflight"
+install -m 640 -o root -g verifierd verifierd.yaml  "$CONF"         || die 1 "install: config"
+systemctl daemon-reload
+
+# ---------------------------------------------------------------- 4. restart
+# Type=notify (plan 013), so this returns only once the socket is accepting --
+# the restart is the readiness check, not a sleep.
+cursor=$(journalctl -u verifierd -n 0 --show-cursor 2>/dev/null | sed -n 's/^-- cursor: //p')
+restart_ok=yes
+systemctl restart verifierd || restart_ok=no
+
+# ------------------------------------------------------- 5. health, or blame
+# `is-active` alone would not notice a Redis that has gone away, and with no
+# Redis every probe fails closed (invariant 5) while the process looks fine.
+healthy(){
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+           --cacert "$HC/ca.pem" --cert "$HC/client.pem" --key "$HC/client.key" \
+           --resolve mail.datascoutmail.com:8443:127.0.0.1 \
+           https://mail.datascoutmail.com:8443/readyz 2>/dev/null)
+  [ "$code" = "200" ]
+}
+
+if [ "$restart_ok" = yes ] && healthy; then
+  say "deployed: $(sha256sum "$BIN" | cut -c1-16)  $(systemctl show verifierd -p MainPID --value)"
+  exit 0
+fi
+
+# Which of the two things went wrong? The distinction matters more than the
+# rollback: ExecStartPre runs the preflight, so if the HOST's sender identity
+# has broken -- a re-proxied mail. record, a fresh blocklist entry, :25 being
+# filtered -- then the PREVIOUS binary fails to start for exactly the same
+# reason. Rolling back would achieve nothing, cost a second outage to discover,
+# and bury the real cause.
+gate=$(journalctl -u verifierd ${cursor:+--after-cursor "$cursor"} --no-pager -o cat 2>/dev/null)
+if printf '%s' "$gate" | grep -q 'NO-GO'; then
+  say "--------------------------------------------------------------"
+  say "The host failed its own start gate. This is NOT a bad release,"
+  say "and rolling back would not fix it -- the previous binary runs"
+  say "the same preflight. The service is left down deliberately:"
+  say "probing from a broken identity measures nothing."
+  say "--------------------------------------------------------------"
+  printf '%s\n' "$gate" | grep -E '\[FAIL\]|NO-GO|Verdict|PASS=' >&2
+  exit 2
+fi
+
+# The gate passed, so this is the release. Roll back.
+if [ "$had_previous" = no ]; then
+  die 1 "the new version did not come up and there is no previous binary to restore"
+fi
+say "the new version did not come up -- rolling back"
+cp -a "$BIN.prev" "$BIN" && cp -a "$UNIT.prev" "$UNIT"
+systemctl daemon-reload
+if systemctl restart verifierd && healthy; then
+  die 1 "rolled back to the previous version, which is healthy. Deploy failed."
+fi
+die 1 "ROLLBACK ALSO FAILED -- verifierd is down and needs a person."

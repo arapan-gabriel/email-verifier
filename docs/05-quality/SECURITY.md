@@ -45,5 +45,19 @@ highest-severity class here.
   - *The local suppression copy* (invariant 9) is off, so Data Scout's list is the only one. That
     matches the design — this was always the second line, and the authoritative check runs three
     times upstream — but the second line is not currently there.
+- **What a deploy credential can and cannot reach** (plan 016). `deploy` is key-only, has no
+  password, and `sudo -l` shows exactly one permitted command: a root-owned, argument-less script.
+  It **cannot** read `/etc/verifierd/tls/ca.key`, **cannot** read or write `/etc/verifierd/env`, and
+  has no general `sudo` — all four verified, not assumed. What it *can* do, unavoidably, is replace
+  the binary that runs as `verifierd`, which reads `server.key` and `ca.pem`. The CA private key is
+  root-only and stays outside that radius.
+- **The privileged script never ships in the release bundle.** The staging directory is writable by
+  `deploy`, so a bundle carrying `verifierd-deploy` — and a deploy that installed it — would let
+  `deploy` place arbitrary code where root runs it, defeating the one-line `sudoers` entry entirely.
+  Updating that script is a manual, root action.
+- **The start gate is rate-limited** (`StartLimitBurst=3`, `StartLimitIntervalSec=600`). `ExecStartPre`
+  performs a live SMTP handshake, so an unbounded `Restart=on-failure` would dial a real provider
+  every few seconds forever in exactly the case the gate exists to catch — a host whose identity is
+  already broken. That is how a stuck unit turns a DNS mistake into a reputation problem.
 - No inbound MTA and nothing listening on `:25`; Redis is on a unix socket with `port 0`, so it is
   not on the network at all.

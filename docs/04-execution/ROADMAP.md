@@ -32,6 +32,7 @@ Scout (ADR-006).
 | 011 | suppression | a **digest-only** second line — Data Scout checks the authoritative list three times before calling. Pushed to `POST /admin/suppress`; addresses never stored | ✅ address and domain refused before any socket; Redis holds two hashes and no `@` |
 | 012 | band-promotion | the gap AIMD cannot close: it never climbs past a guessed ceiling. Clean answers **at** the ceiling become a bounded proposal; a person promotes it. The lab's active ladder stays in the lab | ✅ proposal 4→6 from evidence; promoted, cleared, no restart; nothing raised automatically |
 | 013 | deployment | OVH host, systemd + distro Redis on a unix socket, mTLS boundary, preflight as a hard `ExecStartPre`. The gate itself had to be fixed first — it was grading the IPv6 identity and reading the EHLO greeting as the `RCPT` reply | ✅ preflight GO on the real host; no certificate → TLS alert, not 401; live probe returns `source_ip` = egress. Firewall stays shut: who may reach the API is 008's call |
+| 016 | release-and-deploy | the half of 013 left undone: a `workflow_dispatch` deploy of the artifact CI actually tested, a `deploy` user whose sudoers holds one root-owned script, and a rollback that tells a bad release from a broken host identity — the previous binary fails the same start gate | a broken binary rolls itself back; a forced preflight NO-GO does **not** roll back; a non-green commit is refused |
 
 ## Phase C — Outbound relay (send mail from the isolated IP)
 

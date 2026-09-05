@@ -3,6 +3,51 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-05 — Plan 016: a deploy that can tell a bad release from a bad host
+
+The node half is built and tested; the GitHub half is written and unproven. Trigger is
+`workflow_dispatch`, not push-to-main — once 008 enables the tier the probe is mid-batch most of the
+day, and during the warm-up ladder a deploy on the wrong day smears the measurement the ladder
+exists to take. Access is a dedicated `deploy` user whose `sudo` is one root-owned, argument-less
+script; the alternative, handing GitHub the existing `NOPASSWD:ALL` key, would have put passwordless
+root on the machine that holds the CA key into repository secrets.
+
+**The design's real content is the difference between exit 1 and exit 2.** `ExecStartPre` runs the
+preflight, so when the *host's* identity breaks — a re-proxied `mail.` record, a fresh listing, `:25`
+filtered — the previous binary fails to start for exactly the same reason. The obvious rollback
+would achieve nothing, cost a second outage to discover, and bury the cause. So the script reads the
+gate's verdict out of the journal before it reacts: `NO-GO` means the host is wrong, print the
+preflight's own words and leave everything alone; anything else means the release is wrong, restore
+and restart. Both paths were exercised against the live service, not reasoned about.
+
+**Implementing it contradicted the plan once and found a defect once.**
+
+- The plan said the bundle should carry `scripts/verifierd-deploy`. **It must not.** The staging
+  directory is writable by `deploy` — that is what staging is — so installing the privileged script
+  from it would let `deploy` place arbitrary code where root runs it, and the one-line `sudoers`
+  entry would be decoration. Task reversed, reason left as a comment in `ci.yml`.
+- The forced-`NO-GO` test left the unit in `activating`, retrying every five seconds. `ExecStartPre`
+  opens a live SMTP session to Gmail, so **in precisely the case the gate exists to catch the node
+  would dial a real provider every few seconds, indefinitely, from an address already failing its
+  own identity checks.** That is a DNS mistake becoming a reputation problem on the one IP this
+  project exists to protect. `StartLimitBurst=3` / `StartLimitIntervalSec=600`, `RestartSec=20s`;
+  re-tested, the unit reaches `failed` after two retries. A gate nobody has watched fail is not
+  evidence that failing is safe.
+
+**Config drift removed rather than managed.** The installed YAML was the repo's with four values
+`sed`-rewritten at install time, so a key added upstream would silently never reach the node. All
+four already had environment overrides, so they moved to the EnvironmentFile and `diff` between
+repository and host is now empty.
+
+Also: the node got its own health-check client certificate, separate from Data Scout's bundle, so
+`/readyz` checks keep working after that bundle is delivered and deleted from the host.
+
+**Not done, and it needs the repository owner:** the two workflows have never run — they cannot
+until the branch is pushed — and the `probe1` environment needs `PROBE_SSH_KEY`, `PROBE_HOST` and
+`PROBE_HOST_KEY`. The key pair exists with its public half installed; the private half is in the
+session scratchpad, deliberately not in the repository. Until then the by-hand procedure is the
+working path, and it is the one every deploy so far has used.
+
 ## 2026-09-05 — Plan 013: deployed, after fixing the gate that guards the deploy
 
 `verifierd` runs on `92.222.87.97` under `systemd`, beside a distro Redis on a unix socket with AOF.
