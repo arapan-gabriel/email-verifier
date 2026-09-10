@@ -3,6 +3,49 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — Read the warm-up properly, and found the metric it steers by is partly blind
+
+Was told the warm-up runs differently than I had described, and it does. What I had written — "the
+ladder is at its first step, 2,000/day" — confused `verify_total_per_day`, a cap, with the volume.
+**The real ladder is 100 → 250 → 500 → 800 → 1200 → 1600 → 2000 addresses over seven days**, in four
+to six chunks each so a bad batch is caught before the day is spent. Day 1 closed at 0% invalid with
+97 of 100 mailboxes confirmed; day 2 is half spent, 1 invalid of 99 answered.
+
+**The finding is what the ladder cannot see.** Its gate is the invalid share and its stop rule is
+any movement in `block`. Both were measured today, on Data Scout's own M365 tenant rather than a
+stranger's, by probing two unknown recipients in one session:
+
+```
+zz-probe-a-…   class=policy  550 5.4.1 Recipient address rejected: Access denied
+zz-probe-b-…   class=policy  550 5.4.1 Recipient address rejected: Access denied
+```
+
+`5.4.1` on the **first** recipient, not `452` on the second. That corrects yesterday's plan 017,
+which led with the `452` and claimed it was already damaging production pacing across the warm-up.
+It is not: Data Scout groups by domain and that pool yields about one address per domain, so
+sessions are single-recipient and the `452` belongs to the finder's six-candidate ladder. The plan
+now says so, and the halves have swapped importance.
+
+**The consequence nobody had written down.** Microsoft fronts 811 of the pool's 2,586 domains — 31%.
+A dead address at an M365 tenant answers `5.4.1`, classes `ClassPolicy`, arrives as `block: true`
+and is scored `valid`/50 — **never `invalid`**. That is correct and invariant 1 requires it. But the
+ladder advances on the invalid share, so on a third of the list that share cannot move while the
+receiving servers still see us asking about mailboxes that do not exist. The gate understates list
+quality by construction, and whoever reads it should know by how much.
+
+**And the stop rule cannot be applied at all**, which is plan 018. `block` moved — 0 of 102 on day 1
+to 3 of 100 on day 2. Two of the four blocked domains are M365, where this is routine; the other two
+run their own MX and might be the real thing. Those two cases demand opposite responses, carry on or
+stop the ladder, and **nothing recorded distinguishes them**: this service logs request lines only,
+its metrics count replies by code without naming a host, and Data Scout's `ProbeResult` has no field
+for `reply`, `smtp_code` or `enhanced_code` — the verifier returns all three and the client drops
+them. The one signal the rollout is steered by is the one that cannot be investigated.
+
+018 is small — a hook, a log line, three fields carried into `signals` — and it comes before 017,
+because deciding how policy replies should be counted while unable to read them is guessing with
+someone else's IP reputation. **Recommendation: hold the ladder at day 2 until a `block` can be
+explained.** Advancing would be following the letter of a stop rule whose evidence does not exist.
+
 ## 2026-09-10 — The cut-over is live, and it found what no test here could
 
 Went to check whether plan 008 could be implemented and found that most of it already had been, by

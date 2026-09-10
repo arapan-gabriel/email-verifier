@@ -24,19 +24,41 @@ halves land on this service:
    the same thing. A batch of six yields five throttle observations, halves the Microsoft rate five
    times, and returns five addresses as `unknown` that a fresh connection would have answered.
 
-2. **A wrong candidate answers `550 5.4.1 Access denied`** — anti-harvesting. It is classed
-   `ClassPolicy`, correctly, and never `invalid` (invariant 1 holds). But policy-stop counts
-   *consecutive* policy replies, and a ladder of wrong candidates is precisely a run of them, so the
-   session is abandoned before the right candidate is reached. The guard is behaving exactly as
-   designed, against a case its design did not consider.
+2. **Any recipient M365 will not confirm answers `550 5.4.1 Access denied`** — its
+   directory-based edge blocking, worded so as not to confirm or deny. It is classed `ClassPolicy`,
+   correctly, and never `invalid` (invariant 1 holds). Two consequences, and the second was missed
+   at first: policy-stop counts *consecutive* policy replies, so a finder's ladder of guesses
+   abandons its session before reaching the right candidate; and in plain verification an M365
+   address that does not exist is indistinguishable from one the server merely will not discuss.
 
 Neither reply is misclassified. The gap is that the service has **no notion of a per-MX limit on
 recipients per session**, and no way to tell the policy-stop counter that a rejection was about the
 recipient rather than about us.
 
-**This is already happening in production**, at the ladder's first step: the node reports
-`verify_smtp_replies_total{code="452",class="throttled"} 4` over five days at 2,000/day. The ladder
-goes to 30,000, and Microsoft is the second-largest provider this service will ever talk to.
+**Corrected 2026-09-10 by measurement, and the correction changes which half matters.** The first
+draft of this plan led with the `452` and said it was "already happening in production" across the
+warm-up. It is not. Probing two unknown recipients at an M365 tenant we own showed
+`550 5.4.1 Access denied` on the **first** recipient, not `452` on the second:
+
+```
+zz-probe-a-…@…   class=policy  550 5.4.1 Recipient address rejected: Access denied
+zz-probe-b-…@…   class=policy  550 5.4.1 Recipient address rejected: Access denied
+```
+
+M365 answers `5.4.1` to *any* recipient it will not confirm, from the first, in an ordinary
+single-recipient session. The `452 4.5.3` appears when a session carries many recipients — which is
+the finder's candidate ladder, not verification, because Data Scout groups by domain and the
+warm-up pool yields about one address per domain.
+
+So **(2) is the half that bites today** and (1) is the half that bites the finder. Both are still
+worth fixing; the ordering of the work changes.
+
+**And (2) has a consequence nobody had written down: the warm-up's governing metric is blind on a
+third of its pool.** Microsoft fronts 811 of the 2,586 domains in that pool — 31%. A dead address at
+an M365 tenant answers `5.4.1`, classes `ClassPolicy`, reaches Data Scout as `block: true`, and is
+scored `valid`/50 — **never `invalid`**. That is correct, and invariant 1 requires it. But the ladder
+advances on the invalid share, so on 31% of the list that share cannot move, while the receiving
+servers still see us asking about mailboxes that do not exist.
 
 Invariants in play: **4** (the budget belongs to the MX — a reconnect is a new session and must take
 a token), **6** (a limit misattributed to rate calibrates the wrong thing — the same reasoning that
