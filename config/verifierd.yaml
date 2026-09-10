@@ -138,3 +138,10 @@ auth:
 log:
   level: info
   format: json
+  # What a server said, for verdicts that are not self-explanatory — anything
+  # but valid and invalid. Without it one `policy` verdict cannot be told from
+  # another after the fact, and that distinction is what a rollout's stop rule
+  # is made of (plan 018). The reply is redacted before it is logged: no
+  # recipient reaches a log line, not even one the server quotes back at us.
+  replies: true
+  reply_max_chars: 200

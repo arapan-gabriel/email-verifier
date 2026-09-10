@@ -1,6 +1,6 @@
 # Plan 018 — explain-a-verdict
 
-**Status:** Planned
+**Status:** Complete (2026-09-10)
 **Phase:** B
 **Depends on:** 009 (the logging and metrics this extends)
 **Do this before 017**, and before the warm-up ladder cuts another day.
@@ -76,31 +76,74 @@ the obvious next thought and it is wrong.
 
 ## Tasks
 
-- [ ] `internal/prober`: an optional `OnReply` hook, called for classes other than `valid`/`invalid`
-- [ ] `cmd/verifierd`: wire it to `slog` at `info` — `mx_host`, `class`, `smtp_code`,
-      `enhanced_code`, truncated reply
-- [ ] Redact: truncate, then strip anything address-shaped from the remainder
-- [ ] Tests: a line is emitted for `policy`/`throttled`/`deferred`; none for `valid`/`invalid`; **no
-      local part appears in any of them**, including when the server echoes the address back
-- [ ] Config: the truncation length, and an off switch
-- [ ] Update `docs/06-generated/metrics.md` (say why the MX label is deliberately absent),
+- [x] `internal/prober`: an optional `OnReply` hook, called for classes other than `valid`/`invalid`
+- [x] `cmd/verifierd`: wire it to `slog` at `info` — `mx_host`, `class`, `smtp_code`,
+      `enhanced_code`, truncated reply. The off switch returns a **nil** hook rather than a
+      discarding one, so the cost when disabled is one nil test per result, not a call
+- [x] Redact — **strip, then truncate.** The plan had the order backwards and implementing it
+      showed why: cutting `550 5.1.1 <john.smith@example.com> unknown` at 26 characters leaves
+      `<john.smith@examp`, which no longer looks like an address to any matcher and still carries
+      the whole local part. Tokens containing `@` are replaced whole, so a mangled address goes too
+- [x] Tests: a line is emitted for `policy`/`throttled`/`deferred`; none for `valid`/`invalid`;
+      **no local part appears in any of them**, including five shapes of quoted address, and the
+      strip-before-truncate order is asserted rather than only its outcome
+- [x] Config: `log.reply_max_chars` (200) and `log.replies` (on)
+- [x] Update `docs/06-generated/metrics.md` (says why the MX label is deliberately absent),
       `operations/observability.md`, changelog
-- [ ] **Data Scout (cross-repo):** `smtp_code`, `enhanced_code` and `reply` on `ProbeResult`, read in
-      `_result_of`, stored in `signals` for `block` and `invalid` rows; a test that a blocked row can
-      be explained from the row alone
+- [x] **Data Scout (cross-repo):** `smtp_code`, `enhanced_code` and `reply` on `ProbeResult`, read
+      in `_result_of`, stored in `signals` for `block` and `invalid` rows, **and exposed on the API
+      response** — their own contract test caught that half, which is what it exists for; two tests
+      that a blocked row explains itself and an ordinary one carries nothing
 
 ## Definition of Done
 
-- [ ] A `block` verdict from the warm-up can be explained from the journal, naming the MX host and
-      quoting the server — demonstrated on one of the three from day 2
-- [ ] The same verdict can be explained from its `email_verifications` row alone, with no access to
-      the probe node
-- [ ] **No log line at `info` contains a local part**, including when the reply quotes it — tested
-- [ ] `verify_smtp_replies_total` still has bounded cardinality
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added in both repositories
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] A `block` verdict can be explained from the journal, naming the MX host and quoting the
+      server — demonstrated live on `futurefertility.com`, one of the four blocked domains:
+      `{"msg":"smtp_reply","mx_host":"futurefertility-com.mail.protection.outlook.com",`
+      `"class":"policy","smtp_code":550,"enhanced_code":"5.4.1","reply":"550 5.4.1 Recipient address`
+      `rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [...]"}`
+- [x] The same verdict can be explained from its `email_verifications` row alone, with no access
+      to the probe node — `smtp_code`, `enhanced_code`, `smtp_reply` in `signals`, tested
+- [x] **No log line at `info` contains a local part**, including when the reply quotes it —
+      tested, and checked live on the node: the only `@` in the journal is our own DMARC `rua`
+      address, printed by the preflight from a public DNS record
+- [x] `verify_smtp_replies_total` still has bounded cardinality — unchanged, and `metrics.md` now
+      says why it will stay that way
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added in both repositories
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+
+## Results (2026-09-10)
+
+Deployed through the release script and demonstrated against a live Microsoft 365 tenant we own. The
+verdict that could not be explained this morning now reads:
+
+```
+{"msg":"smtp_reply","mx_host":"futurefertility-com.mail.protection.outlook.com","class":"policy",
+ "smtp_code":550,"enhanced_code":"5.4.1","reply":"550 5.4.1 Recipient address rejected: Access
+ denied. For more information see https://aka.ms/EXOSmtpErrors [...]"}
+```
+
+Their side: 848 unit tests green, `mypy` over 187 files, `ruff` and its formatter clean. Ours: 14
+packages with `-race`, `vet`/`gofmt`/`golangci-lint` clean.
+
+**Their contract test earned its place.** Adding the three fields to `signals` failed
+`test_every_stored_signal_is_exposed` immediately — stored in the row, dropped from the API
+response, which is the "recorded and invisible" state that test was written after `randomiser` and
+`source_ip` spent a fortnight in exactly it. Two lines of schema, caught before the commit rather
+than by someone wondering why a field is always absent.
+
+**One design correction found by implementing.** The plan said "truncate, then strip anything
+address-shaped". That is backwards and quietly so: the cut destroys the shape redaction matches on
+while leaving the local part behind. Stripping first is now the code, and the test asserts the
+*order* rather than only the outcome — an outcome test would pass on the broken version for any
+input short enough not to be cut.
+
+**A note on what remains unmeasured.** The point of this plan was to make the warm-up's stop rule
+applicable. It now is, for verdicts produced from here on. The three `block` rows from day 2 are
+**not** retroactively explainable — nothing recorded them. Day 3 is the first that can be judged on
+evidence rather than inference.
 
 ## Notes / decisions / deviations
 

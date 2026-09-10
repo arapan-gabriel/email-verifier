@@ -121,6 +121,17 @@ type Options struct {
 	// it — but something should be listening, because a silent redundancy is
 	// no redundancy.
 	OnSuppressionError func(error)
+
+	// OnReply is called once per result whose class is neither valid nor
+	// invalid — the verdicts somebody will later have to explain. The event
+	// arrives already redacted and truncated (see reply.go), so a careless
+	// wiring cannot put a recipient into a log line. Nil means nobody is
+	// listening.
+	OnReply func(ReplyEvent)
+
+	// ReplyMaxChars caps the logged reply. Zero uses DefaultReplyMaxChars; a
+	// negative value means no cap.
+	ReplyMaxChars int
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
 	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
@@ -310,7 +321,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 		}
 		if len(allowed) == 0 {
 			for _, r := range out.Results {
-				p.record(r)
+				p.record(req.MXHost, r)
 			}
 			return out, nil
 		}
@@ -350,7 +361,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 		}
 	}
 	for _, r := range out.Results {
-		p.record(r)
+		p.record(req.MXHost, r)
 	}
 	return out, nil
 }
@@ -629,7 +640,8 @@ func (p *Prober) observe(ctx context.Context, mxHost string, class Class) {
 // record reports one finished result. Blocked reasons are kept apart from
 // answers: a refusal to send is an operational fact, not a measurement of a
 // mailbox, and an operator alerts on them differently.
-func (p *Prober) record(r Result) {
+func (p *Prober) record(mxHost string, r Result) {
+	p.explain(mxHost, r)
 	m := p.opts.Metrics
 	if m == nil {
 		return
@@ -655,6 +667,26 @@ func budgetClass(err error) Class {
 		return ClassPaused
 	}
 	return ClassNoBudget
+}
+
+// explain hands a hard-to-read verdict to whoever is logging, with the reply
+// redacted here rather than at the caller.
+func (p *Prober) explain(mxHost string, r Result) {
+	if p.opts.OnReply == nil || !r.Class.explains() {
+		return
+	}
+	limit := p.opts.ReplyMaxChars
+	if limit == 0 {
+		limit = DefaultReplyMaxChars
+	}
+	p.opts.OnReply(ReplyEvent{
+		MXHost:       mxHost,
+		Class:        r.Class,
+		SMTPCode:     r.SMTPCode,
+		EnhancedCode: r.EnhancedCode,
+		Reply:        redactReply(r.Reply, limit),
+		Err:          redactReply(r.Err, limit),
+	})
 }
 
 // dialAny tries the vetted addresses in order, as a real sender does, and

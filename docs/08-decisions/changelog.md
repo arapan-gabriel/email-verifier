@@ -3,6 +3,47 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — Plan 018: a verdict that cannot be explained is not evidence
+
+Shipped both halves. One `smtp_reply` line per result whose class is neither `valid` nor `invalid`,
+carrying `mx_host`, `class`, `smtp_code`, `enhanced_code` and the reply; the same three fields on
+Data Scout's `ProbeResult`, into `signals` for `block` and `invalid` rows, and out on the API
+response. The verdict that could not be explained this morning now reads, from a live Microsoft
+tenant we own:
+
+```
+{"msg":"smtp_reply","mx_host":"futurefertility-com.mail.protection.outlook.com","class":"policy",
+ "smtp_code":550,"enhanced_code":"5.4.1","reply":"550 5.4.1 Recipient address rejected: Access
+ denied. For more information see https://aka.ms/EXOSmtpErrors [...]"}
+```
+
+**The reply is the one field where an address arrives through the server's mouth rather than ours** —
+many servers quote the recipient back when refusing it — so the prober redacts before the hook
+fires, and no caller can leak by wiring it carelessly. Tokens containing `@` are replaced whole
+rather than pattern-matched: the goal is that nothing address-shaped survives, not that well-formed
+addresses are recognised.
+
+**The plan had the redaction order backwards and implementing it showed why.** It said "truncate,
+then strip". Cutting `550 5.1.1 <john.smith@example.com> unknown` at 26 characters leaves
+`<john.smith@examp` — no longer address-shaped to any matcher, and still carrying the whole local
+part. Stripping first is now the code, and the test asserts the *order*: an outcome-only test would
+pass on the broken version for every input short enough not to be cut.
+
+**`metrics.md` now records a thing we did not do.** Adding `mx_host` to `verify_smtp_replies_total`
+is the obvious next thought and it is wrong — the label is unbounded by request input, which is the
+cardinality plan 009 spent its effort bounding. The log line is the per-host record; the counter
+stays aggregate. Written down because the next person to want this will want it for good reasons.
+
+**Data Scout's own contract test earned its place.** The three fields failed
+`test_every_stored_signal_is_exposed` on the first run — stored in the row, dropped from the
+response, which is the "recorded and invisible" state that test was written after `randomiser` and
+`source_ip` spent a fortnight in it. 848 unit tests, `mypy` over 187 files, `ruff` and its formatter
+clean there; 14 packages with `-race` here.
+
+**What this does not do.** The three `block` rows from day 2 stay unexplainable — nothing recorded
+them. Day 3 is the first the ladder can judge on evidence rather than inference, which is the
+argument for cutting it rather than holding further.
+
 ## 2026-09-10 — Plan 008 closed: the product host no longer opens port 25
 
 The reason this project exists is met. `smtp_probe.probe_many` is an HTTP client to `POST /probe`

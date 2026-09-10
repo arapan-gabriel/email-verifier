@@ -210,6 +210,14 @@ type Auth struct {
 type Log struct {
 	Level  string `yaml:"level"`  // debug | info | warn | error
 	Format string `yaml:"format"` // json | text
+	// Replies logs what a server actually said, for verdicts that are not
+	// self-explanatory. On by default: without it a `policy` verdict cannot be
+	// told from another `policy` verdict after the fact, and that distinction
+	// is what a rollout's stop rule is made of. The volume is small because it
+	// skips valid and invalid, which are the common case.
+	Replies bool `yaml:"replies"`
+	// ReplyMaxChars caps a logged reply. Negative means no cap.
+	ReplyMaxChars int `yaml:"reply_max_chars"`
 }
 
 func defaults() Config {
@@ -251,7 +259,11 @@ func defaults() Config {
 		// POST /probe exists from plan 001 on, so the edge is authenticated by
 		// default and the service refuses to boot without a key (invariant 11).
 		Auth: Auth{Enabled: true},
-		Log:  Log{Level: "info", Format: "json"},
+		// 200 characters is the enhanced code plus the sentence after it, which
+		// is where the meaning is. Kept as a literal rather than imported from
+		// internal/prober: configuration should not depend on the engine it
+		// configures.
+		Log: Log{Level: "info", Format: "json", Replies: true, ReplyMaxChars: 200},
 	}
 }
 

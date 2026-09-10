@@ -150,6 +150,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			// check has already run upstream.
 			logger.Error("suppression list unreadable; continuing on the caller's check", "error", err)
 		},
+		// Plan 018. Without this a `policy` verdict cannot be told from another
+		// `policy` verdict an hour later, and Data Scout's warm-up ladder stops
+		// on exactly that verdict moving. The reply is redacted inside the
+		// prober, so nothing here can leak a recipient.
+		ReplyMaxChars: cfg.Log.ReplyMaxChars,
+		OnReply:       replyLogger(cfg.Log.Replies, logger),
 	})
 
 	srv := &http.Server{
@@ -236,6 +242,25 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	}
 	logger.Info("stopped cleanly")
 	return <-serveErr
+}
+
+// replyLogger returns the hook that writes what a server said, or nil when the
+// operator has turned it off. Returning nil rather than a no-op function keeps
+// the check on the prober's side, where it is one nil test per result instead
+// of a call per result.
+func replyLogger(enabled bool, logger *slog.Logger) func(prober.ReplyEvent) {
+	if !enabled {
+		return nil
+	}
+	return func(ev prober.ReplyEvent) {
+		logger.Info("smtp_reply",
+			"mx_host", ev.MXHost,
+			"class", string(ev.Class),
+			"smtp_code", ev.SMTPCode,
+			"enhanced_code", ev.EnhancedCode,
+			"reply", ev.Reply,
+			"err", ev.Err)
+	}
 }
 
 // clientAuthTLS builds the listener's TLS configuration. When a client CA is
