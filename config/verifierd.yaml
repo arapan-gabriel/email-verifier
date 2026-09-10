@@ -87,16 +87,23 @@ probe:
   # with a 5.7.x before RCPT is ever considered.
   helo: "mail.datascoutmail.com"
   # Need not FCrDNS — which is what lets verification use a sub-domain isolated
-  # from the domain that sends real mail (ARCHITECTURE §"Sender identity").
+  # from the domain that sends real mail (ARCHITECTURE §"Sender identity"). The
+  # root now carries DKIM selectors, so that isolation is load-bearing: without
+  # it every probe spends the sending domain's reputation.
   #
-  # The intended value is verify@probe.datascoutmail.com, and it is BLOCKED on
-  # that sub-domain getting an MX record. It currently carries only the SPF TXT,
-  # so a receiving MX that checks whether the envelope sender could accept a
-  # bounce answers 554 5.1.8 — measured against gammait.net (plan 001). That is
-  # a rejection of *us*, so every such probe classes as unknown (invariant 1)
-  # and the tier silently returns nothing. Switch back the same day the MX
-  # record exists; until then probing reputation sits on the root domain.
-  mail_from: "verify@datascoutmail.com"
+  # The sub-domain needs BOTH halves, and only one was ever missing (plan 019).
+  # A strict receiver looks up MX for the envelope sender's domain before it
+  # asks anything else; with only the SPF TXT that lookup found nothing and the
+  # answer was 554 5.1.8 — a rejection of *us*, so unknown under invariant 1,
+  # and the tier silently returned nothing (measured against gammait.net, plan
+  # 001). The callout half had been passing the whole time: Cloudflare answers
+  # 250 to a RCPT for this sub-domain whether or not an MX points at it.
+  #
+  # Do not "fix" a future recurrence with an A record. RFC 5321 falls back to A
+  # only when no MX exists, so an A here would name this node as its own
+  # implicit MX — and inbound :25 is shut, turning a router that answers into a
+  # closed port.
+  mail_from: "verify@probe.datascoutmail.com"
   # Travels with every answer: a verdict is only as good as the IP behind it.
   source_ip: "92.222.87.97"
   # Invariant 3. Anything but tcp4 is refused at startup: a bare "tcp" on this

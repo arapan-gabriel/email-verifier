@@ -33,4 +33,9 @@ the verified state: plan 013. The shape:
   nothing, and rejects with `554 5.1.8` — every probe, on every strict server. Measured against a
   real MX on 2026-08-28. Pointing it at the same routers as the root also makes sender *callouts*
   pass, not just the DNS existence check.
+  **Deployed 2026-09-10** (plan 019): `probe.datascoutmail.com` MX 22/60/84 → `route3`/`route1`/
+  `route2.mx.cloudflare.net`, and `mail_from` moved onto it. Only the existence half had ever been
+  missing — the routers answered `250` to a `RCPT` for the sub-domain before any MX pointed at them.
+  **Never substitute an A record**: with no MX, RFC 5321 falls back to A, which would name the probe
+  node as its own implicit MX and send callouts at a closed inbound `:25`.
 - Rotate DKIM by adding a new selector, never by replacing an existing key in place.

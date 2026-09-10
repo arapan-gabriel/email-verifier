@@ -29,6 +29,15 @@ later plan closes it.
   Settle it before 008 enables the tier, so the reconciliation happens once.
 
 
+- **Bounces to `verify@probe.datascoutmail.com` are discarded** (plan 019). Cloudflare Email
+  Routing answers `250` for the sub-domain with no route behind it, which is what makes sender
+  callouts pass; anything delivered there is dropped. Harmless while verification is the only
+  consumer — the prober never sends `DATA`, so there is nothing to bounce, and the address exists
+  to be *looked up*, not to be read. Phase C is where it stops being harmless: plan 015 captures
+  bounces and needs a mailbox that exists. Its sender is `noreply@<root>`, not this one, so the fix
+  belongs to 015 rather than here — recorded so 015 does not inherit the assumption silently.
+
+
 Known deferrals baked into the roadmap (not debt, but tracked so they are not forgotten):
 
 - **Shared-queue integration** is deferred behind HTTP (ADR-003); revisit when bulk volume warrants

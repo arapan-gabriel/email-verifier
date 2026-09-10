@@ -217,6 +217,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		"tls", cfg.TLS.Enabled(),
 		"mtls", cfg.TLS.MutualAuth(),
 		"helo", cfg.Probe.Helo,
+		// The envelope sender is deployed identity, same as the HELO name and
+		// the egress address, and it decides whose reputation a probe spends
+		// (plan 019). Without it here, "which sender is live" is answerable
+		// only by reading the file on the host.
+		"mail_from", cfg.Probe.MailFrom,
 		"source_ip", cfg.Probe.SourceIP,
 		"seed_bands", pacer.SeedCount())
 	sdNotify("READY=1")

@@ -3,6 +3,35 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — Plan 019: envelope sender isolation
+
+`mail_from` is `verify@probe.datascoutmail.com`. Probing no longer spends the reputation of the
+domain that sends real mail — which had stopped being theoretical: the root picked up DKIM
+selectors `s1` and `cf2024-1` in the meantime, so it is now armed to send.
+
+**The blocker was one DNS record, and the evidence that it was only one had been in the file since
+plan 013.** A strict receiver does two things with an envelope sender's domain: it looks the domain
+up, then it asks whether the address would take a bounce. `probe.` had SPF and nothing else, so the
+*lookup* failed and the answer was `554 5.1.8`. 013 recorded that as "the sub-domain is not usable
+yet" and, four lines later, that the routers were "already verified to answer `250` to `RCPT`" —
+the callout half, passing all along. Re-measured 2026-09-10 before adding anything: Cloudflare
+answers `250` to `RCPT TO:<verify@probe.datascoutmail.com>` whether or not an MX points at it. Two
+correct sentences, one wrong conclusion between them, thirteen days.
+
+**An A record is the tempting wrong fix and is worse than the bug.** RFC 5321 falls back to A only
+when no MX exists, so an A on `probe.` would name the probe node as its own implicit MX — and
+inbound `:25` there is shut. Callouts would reach a closed port instead of a router that answers.
+The comment in `verifierd.yaml` says so where someone would go looking.
+
+**Bounces to this sender are discarded, deliberately.** Cloudflare accepts for the sub-domain with
+no route behind it. Verification never sends `DATA`, so there is nothing to bounce and the address
+exists only to satisfy callouts. Phase C is where that stops being true — plan 015 needs a real
+mailbox, on `noreply@<root>` rather than here. In `tech-debt.md`.
+
+**No code changed.** `helo` and `mail_from` were already config, already validated at startup, and
+already overridable per request; the plan is a DNS record, a config value and the documents that
+recorded the blocker.
+
 ## 2026-09-10 — Plan 018: a verdict that cannot be explained is not evidence
 
 Shipped both halves. One `smtp_reply` line per result whose class is neither `valid` nor `invalid`,

@@ -57,6 +57,13 @@ Redis — no container runtime (ADR-005). Component:
   (plan 001). **Deployment task: give `probe.` an MX pointing at the same Cloudflare routers as the
   root** — already verified to answer `250` to `RCPT`. Until that record exists, `mail_from` stays
   `verify@datascoutmail.com` and the identity split above is aspirational, not live.
+
+  **Resolved 2026-09-10 by plan 019.** The MX records exist and `mail_from` is
+  `verify@probe.datascoutmail.com`; the split above is live. Worth recording what this cost: the
+  deployment task sat open for thirteen days, and the note above already contained its own answer —
+  the routers were *"already verified to answer 250 to RCPT"*. The measurement that read as a
+  blocker (`554 5.1.8`) was the MX lookup that precedes the callout, not the callout, and nobody
+  re-read the two sentences together.
 - **IPv4 only** — the host is dual-stack; the published identity covers the IPv4 address only. The
   prober pins `tcp4` (plan 001). Do not publish an IPv6 identity without deciding to.
 - **No inbound MTA.** Purge anything listening on `:25` (Debian images may ship `exim4`);

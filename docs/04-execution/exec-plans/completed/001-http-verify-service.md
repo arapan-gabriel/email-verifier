@@ -138,6 +138,13 @@ Verified that Cloudflare answers `250` to `RCPT TO:<verify@probe.datascoutmail.c
 callouts pass too, not just DNS existence checks. Until that record exists, `mail_from` must be
 `verify@datascoutmail.com` and the sub-domain isolation is not in effect.
 
+**Done 2026-09-10 by plan 019** — thirteen days later, and this paragraph had already said
+everything needed to do it in one afternoon. It names the fix, names the records, and reports the
+callout as verified. What kept it open was that the finding travelled onward as "`probe.` is not a
+routable sender domain", which is not what was measured: the *lookup* failed, the callout passed.
+Stated that way it reads as a property of the sub-domain rather than a missing record, and a
+property does not look like a task.
+
 **Deviations from the plan as written:**
 
 - `probe.port` was added to config. It is 25 in production; it exists so a staging instance (and the
