@@ -3,6 +3,49 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — The cut-over is live, and it found what no test here could
+
+Went to check whether plan 008 could be implemented and found that most of it already had been, by
+Data Scout, on 8–9 September: `VERIFY_SMTP_ENABLED=true`, the warm-up ladder running at 2,000/day,
+the authenticated round trip done twice — the second from inside their `api` container with
+CD-delivered material and their own client code — and manual test steps 2, 3, 4, 7, 8 and 9 passed
+against the live deployment. Step 8 passed in production without a greylisting domain at all,
+because a throttling MX handed out a 900-second hint during the first warm-up batch and all five
+re-queued rows came back within seconds of it. Plan 008 here was the stale half; it now says so.
+
+I re-ran the round trip from the Pi before reading their plan. That was the wrong order — the check
+was already recorded — and it is worth writing down as the lesson it is: the same failure mode as
+the contract mismatch, reading one's own document instead of the other side's.
+
+**Their step 6 does not pass, and the reason is work for this repository.** The finder cannot
+confirm an address on Microsoft 365, and M365 defeats a candidate ladder twice over, both halves
+landing here:
+
+- **`452 4.5.3 Too many recipients` on the second recipient of a session.** Checked against our own
+  classifier rather than assumed: it is `ClassThrottled` and `IsThrottle()` is true. So the pacer is
+  told the *rate* is wrong when the truth is the *session* is full, and the `RCPT` loop continues on
+  the same connection, collecting the same reply. A batch of six produces five throttle
+  observations, halves the Microsoft rate five times, and returns five addresses `unknown` that a
+  fresh connection would have answered. Live metrics confirm it is already firing:
+  `verify_smtp_replies_total{code="452",class="throttled"} 4` over five days at the ladder's
+  *first* step.
+- **`550 5.4.1 Access denied` on a wrong candidate.** Classed `ClassPolicy`, correctly, and never
+  `invalid`. But policy-stop counts *consecutive* policy replies and a ladder of guesses is exactly
+  a run of them, so the session is abandoned before the right candidate is reached. The guard is
+  working as designed against a case the design did not have in mind.
+
+Neither reply is misclassified. What is missing is any notion of a **per-MX limit on recipients per
+session**, and any way to tell policy-stop that a rejection was about the recipient rather than
+about us. **Plan 017** written for both, with the per-recipient-policy half recorded as a decision
+rather than picked silently, because it changes the API and the conservative option is to let the
+caller lower its own ceiling instead of asking this service to judge which rejections are "really"
+about us.
+
+**`mxsim` gets a task in that plan, and it is the part worth remembering.** The simulator has no
+recipients-per-session behaviour, so no test in this repository could have failed. Production found
+this, in the one manual test that needed a real provider, at 2,000/day. Whether the next provider
+that does something similar is caught here or at 30,000/day depends on the simulator learning it.
+
 ## 2026-09-05 — The path was tested from the caller, and one sign-off corrected
 
 Prompted by being told to distinguish a drop from a reject, to read `nft` rather than `ufw`, and to

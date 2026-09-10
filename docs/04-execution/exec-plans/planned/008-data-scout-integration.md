@@ -59,9 +59,30 @@ The same check from a third address (`217.26.166.243`) times out rather than bei
 not a closed port — which is what the `policy drop` default should look like from anywhere the rule
 does not name.
 
-**What remains unproven is one authenticated round trip**, and it needs only the bundle and the
-token on the Pi. That task stays: the five-way mismatch existed precisely because both sides were
-checked against a document instead of against each other.
+**The authenticated round trip is done — by Data Scout, 2026-09-08, twice**, and the second is the
+one that counts: from inside the `api` container, using the CD-delivered material and *their own
+client code*, `_post_probe` returned a live Gmail verdict. A `curl` proves the wire; their client
+proves the meaning.
+
+Re-verified independently 2026-09-10 from the Pi host, with the client bundle and the API token
+staged in `tmpfs` and removed afterwards so nothing touched that host's disk: `POST /probe` answered
+**`HTTP 200` in 363 ms**, `source_ip: 92.222.87.97`,
+`class: invalid` from a clean `550 5.1.1`. The same request without the bearer token answered
+**`401`** — the token is load-bearing exactly as their boot validator assumes.
+
+Then the part that matters, because a `curl` proves the wire and not the meaning: the live payloads
+were fed through **Data Scout's own `_result_of`**, not through a description of it.
+
+| Verifier said | Data Scout got |
+|---|---|
+| `class: invalid`, `550 5.1.1` | `accepted=False` — the only case allowed to say that |
+| `class: valid`, `catch_all: true` | `accepted=True`, `catch_all=True` — `scoring.py` makes the downgrade |
+| `class: no_budget` (Redis unreachable) | `connected=False`, `accepted=None` — nobody refused us, we never arrived |
+| an invented future class | `accepted=None`, `blocked=True` |
+
+**No non-answer became `accepted=False`.** The five-way mismatch existed because both sides were
+checked against a document instead of against each other; they have now been checked against each
+other, over the wire, with the real client and the real mapping.
 
 ## Design (Data Scout side — cross-repo)
 
@@ -113,12 +134,14 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
 
 - [x] **Data Scout: reconcile the wire contract** — done `389f3ae`; `073`'s description corrected
       in the same change, so it cannot re-seed the mistake
-- [ ] **Both: one round trip against the real handler before any rollout** — the mismatch above
-      existed only because both sides were checked against a document instead of each other
-- [ ] Data Scout: `smtp_probe.probe_many` → HTTP client over mTLS; `set_prober` seam preserved
-- [ ] Data Scout: transport failure → `connected:false`, asserted by test
+- [x] **Both: one round trip against the real handler before any rollout** — done 2026-09-08 by
+      Data Scout from inside the `api` container with CD-delivered material; re-verified from the
+      Pi host 2026-09-10, plus the mapping check above
+- [x] Data Scout: `smtp_probe.probe_many` → HTTP client over mTLS; `set_prober` seam preserved
+- [x] Data Scout: transport failure → `connected:false`, asserted by test — their
+      `test_verify_smtp_probe.py` is green, 45 passed
 - [ ] Data Scout: status reconciliation + store `source_ip`
-- [ ] Data Scout: retire `smtp_probe.py` in-process probing (keep as reference/tests)
+- [x] Data Scout: retire `smtp_probe.py` in-process probing (keep as reference/tests)
 - [ ] Data Scout: the Celery task keeps driving the chunk loop; it calls `/probe` once per domain
 - [ ] **Data Scout owns the greylist retry** (plan 006). A `class:deferred` row is re-queued using
       the existing Celery backoff, scheduled by `retry_after_seconds` rather than by blind
@@ -129,27 +152,61 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
       `(sender, recipient, IP)`: a retry from a different node or with a different `MAIL FROM` is a
       new tuple and restarts the window. Automatic with one node; a routing constraint the moment
       there are two.
-- [ ] This service: bring up a small CA; server certificate for the verifier, client certificate for
-      the API; set `tls.client_ca_file` so a client certificate is required, and prove a `curl`
-      through it **before** either side's application code changes
+- [x] This service: a small CA, a server certificate, a client certificate for the API, and
+      `tls.client_ca_file` set so one is required, with a `curl` proven through it — plan 013
 - [x] This service: the host filter allows the API's address only — `nftables` 2026-09-05,
       persisted and verified. **`ufw` was never enforcing**; see the design note above
-- [ ] **OVH's edge opened for the caller on `8443`** — the outer filter, configured in the panel.
-      Until this lands the port is unreachable regardless of the host ruleset. Verify outbound
-      `:25` still works afterwards: the edge filter is stateless, and breaking the replies to
-      outbound sessions would end verification rather than protect it
-- [ ] This service: response completeness confirmed against Data Scout's `ProbeResult` mapping
+- [x] **OVH's edge opened for the caller on `8443`** — confirmed 2026-09-10 by the round trip
+      itself: the Pi reaches the port, any other address still times out. Outbound `:25` survived
+      it — the same round trip drove a live Gmail session, and `ExecStartPre` handshakes Gmail on
+      every restart
+- [x] This service: response completeness confirmed against Data Scout's `ProbeResult` mapping —
+      by running live payloads through their `_result_of`, not by comparing field lists
 - [ ] Both: integration test of the end-to-end path
 - [ ] Docs both repos: Data Scout providers doc + this `changelog.md`
 
 ## Definition of Done
 
-- [ ] A recorded request/response pair from the live handler, matching `06-generated/api.md`
+- [x] A recorded request/response pair from the live handler, matching `06-generated/api.md`
 - [ ] Data Scout's verify endpoint returns this service's verdict end-to-end (staging) — recorded
 - [ ] Layers 0–5 still short-circuit before any call here (no wasted probes) — test
 - [ ] `source_ip` stored with each verdict — test
 - [ ] Both repos' gates green; pr-checklists confirmed
 - [ ] Status → Complete, moved, ROADMAP updated; Data Scout changelog entry too
+
+## Status of the cut-over (2026-09-10) — it is live, and this plan was the stale half
+
+Checked against Data Scout rather than assumed. **The tier is on.** `VERIFY_SMTP_ENABLED=true` since
+2026-09-08 and the warm-up ladder is running at its first step, 2,000/day. Their manual test steps
+2, 3, 4, 7, 8 and 9 have passed against the live deployment — step 8 (greylisting) passed in
+production without needing a greylisting domain, because a throttling MX handed out a 900-second
+hint during the first warm-up batch and all five re-queued rows came back within seconds of it.
+Step 7 exposed and fixed a real defect on their side: an unreachable verifier was returning a
+billable `valid`, and now returns `unknown`.
+
+**Their step 6 does not pass, and the reason is work for *this* repository.** The finder cannot
+confirm an address on Microsoft 365, because M365 defeats a candidate ladder twice over:
+
+1. A wrong candidate answers `550 5.4.1 Access denied` — anti-harvesting, correctly classed here as
+   `ClassPolicy` and never `invalid`. But policy-stop counts **consecutive** policy replies, and a
+   ladder of wrong candidates produces exactly that, so the session is abandoned before the right
+   candidate is reached. The guard is behaving as designed against a case the design did not have
+   in mind: per-recipient anti-harvesting is not the same fact as a server refusing the client.
+2. The second recipient in a session answers `452 4.5.3 Too many recipients` with a 900s hint.
+   Verified against our own classifier: that reply is `ClassThrottled` and `IsThrottle()` is true.
+   **So the pacer is told the rate is wrong when the truth is the session is full**, and the loop
+   moves on to the next recipient in the same session, which answers the same thing. One batch of
+   six therefore yields five throttle observations, halving the Microsoft rate five times, and five
+   addresses come back `unknown` that a fresh connection would have answered.
+
+Live metrics from the node confirm the mechanism is already firing, at low volume for now:
+`verify_smtp_replies_total{code="452",class="throttled"} 4` over five days at 2,000/day. The ladder
+goes to 30,000.
+
+Neither is a bug in the classifier — both replies are labelled correctly. The gap is that **this
+service has no notion of a per-MX limit on recipients per session**, and no way to say "that
+rejection was about this recipient, not about us" to the policy-stop counter. Worth its own plan;
+it should not be smuggled into a cut-over plan.
 
 ## Notes / decisions / deviations
 
