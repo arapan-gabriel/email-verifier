@@ -53,6 +53,24 @@ warm-up pool yields about one address per domain.
 So **(2) is the half that bites today** and (1) is the half that bites the finder. Both are still
 worth fixing; the ordering of the work changes.
 
+**Refined again the same day, with a six-recipient session — the finder's exact shape.** Against the
+same tenant:
+
+```
+1-5.  550 5.4.1 Access denied                                            -> policy
+6.    not attempted: 5 consecutive policy replies from this server       -> policy-stop
+```
+
+**No `452` at any point.** The session limit never fired, and this is a faithful reproduction of
+Data Scout's failing manual test 6: the sixth candidate was never asked, so an address sitting there
+is invisible. Their `find_max_candidates` is 6 and `probe.policy_stop` is 5, which means **the
+guard trips exactly one candidate before the ladder ends** — the worst possible place for it.
+
+That makes (1) speculative here. Their `452 4.5.3` observation is real and recorded in their `073`,
+but it did not reproduce on this tenant at six recipients, so it is either tenant-specific or
+load-dependent. **(1) is therefore descoped to "when we can reproduce it"**, and this plan is now
+about (2), which reproduces on demand.
+
 **And (2) has a consequence nobody had written down: the warm-up's governing metric is blind on a
 third of its pool.** Microsoft fronts 811 of the 2,586 domains in that pool — 31%. A dead address at
 an M365 tenant answers `5.4.1`, classes `ClassPolicy`, reaches Data Scout as `block: true`, and is
@@ -106,6 +124,11 @@ finder knows its candidates are guesses; this service cannot.
 Option 2 splits `ClassPolicy` into "about the connection" (`5.7.x` before `MAIL FROM`, PTR, SPF,
 blocklist wording) and "about this recipient" (`5.4.1 Access denied` on a `RCPT` after a good
 `MAIL FROM`), counting only the first toward policy-stop.
+
+**The measurement above sharpens the choice.** `policy_stop: 5` against `find_max_candidates: 6` is
+not a near miss — the guard fires on the last candidate but one, every time, at every M365 tenant.
+Whatever is chosen, that arithmetic should not survive: two settings in two repositories that only
+interact at a customer-visible failure.
 
 **Recommended: option 1**, and it is the conservative one. Option 2 asks this service to decide
 which rejections are "really" about us, and being wrong in one direction means probing on through a
