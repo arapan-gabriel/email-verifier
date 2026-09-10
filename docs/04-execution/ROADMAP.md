@@ -21,7 +21,7 @@ Scout (ADR-006).
 | 005 | ~~catch-all-and-randomisers~~ **done 2026-08-28** | N bogus probes tell a catch-all from a coin flip; the randomiser verdict is per **server** and remembered | ✅ catch-all → `catch_all:true`; coin-flip host → `randomiser:true`, remembered, neighbours condemned with zero probes |
 | 006 | ~~greylist-retry~~ **done 2026-08-28** | no queue here — a retry's answer has nowhere to land (ADR-003/006). `retry_after_seconds`, exact for a paused MX, clamped otherwise | ✅ defers with a usable hint; same tuple after the window resolves; answers carry no hint |
 | 007 | ~~policy-stop~~ **done 2026-08-28** | all that ADR-006 left of `bulk-verify-and-queue`: N **consecutive** policy replies end the session; orchestration is Data Scout's Celery | ✅ trips at the threshold, budget stops with it, an isolated `5.7.x` does not trip it |
-| 008 | data-scout-integration | Data Scout `email_verify.py` → HTTP client to this service; retire in-process `smtp_probe` | Data Scout verify endpoint returns this service's verdict end-to-end |
+| 008 ✅ | ~~data-scout-integration~~ **done 2026-09-10** | the cut-over: `probe_many` is an mTLS+token HTTP client to `POST /probe`, and **the main product host opens no outbound `:25`** — the reputation goal the project exists for. Live since 2026-09-08, `ENGINE_VERSION` 4 | ✅ in production, not staging: 200+ verdicts carrying `source_ip: 92.222.87.97`; greylist retry proven live on a server's own 900s hint. The ladder, their finder test and the two defects the cut-over found (017, 018) are reassigned, not waited on |
 
 ## Phase B — Operations & hardening
 

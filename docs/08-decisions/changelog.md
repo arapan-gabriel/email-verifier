@@ -3,6 +3,30 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — Plan 008 closed: the product host no longer opens port 25
+
+The reason this project exists is met. `smtp_probe.probe_many` is an HTTP client to `POST /probe`
+over mTLS with a bearer token, the tier has been on since 2026-09-08, and every verdict since
+carries `source_ip: 92.222.87.97`. No outbound `:25` leaves the Data Scout host.
+
+Closed on evidence rather than on the checklist being tickable. `source_ip` is on live rows and has
+a test of its own, because a field can reach the engine and never the database. Layers 0–5 still
+short-circuit before a probe is spent — `test_verify_many_short_circuits_cost_nothing` and the two
+per-layer tests beside it. The greylist retry was proven **in production** on 2026-09-09 rather than
+in a fixture: a throttling MX gave a 900-second hint during a warm-up batch, five rows were
+re-queued, and all five came back within seconds of the server's own number. Both gates green — 88
+tests across their verify suite, 14 packages with `-race` here.
+
+**Three things were reassigned rather than waited on**, and saying which is the point of closing it
+now. The warm-up ladder is at day 2 of 7 and belongs to their `073` rollout row, which owns the gate
+and the stop rule; holding 008 open until day 7 would mirror that plan rather than add to it. Their
+manual test 6 — the finder against Microsoft 365 — is blocked on **plan 017** here. And explaining a
+`block` at all is **plan 018**.
+
+The last two are defects the cut-over *found*, which is what a rollout is for. Giving them their own
+plans is deliberate: folded into 008 they would have been closed along with it and forgotten, and
+one of them currently blocks a stop rule that is protecting an IP address.
+
 ## 2026-09-10 — Read the warm-up properly, and found the metric it steers by is partly blind
 
 Was told the warm-up runs differently than I had described, and it does. What I had written — "the

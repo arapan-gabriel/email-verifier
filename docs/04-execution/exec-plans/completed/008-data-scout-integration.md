@@ -1,6 +1,6 @@
 # Plan 008 — data-scout-integration
 
-**Status:** Planned
+**Status:** Complete (2026-09-10)
 **Phase:** A
 **Depends on:** 001, 002, 003, 004, 005, 006, 007, **013** — there is nothing deployed to point
 Data Scout at until 013 lands (verified on the node 2026-09-04: no `verifierd` unit, no
@@ -140,15 +140,20 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
 - [x] Data Scout: `smtp_probe.probe_many` → HTTP client over mTLS; `set_prober` seam preserved
 - [x] Data Scout: transport failure → `connected:false`, asserted by test — their
       `test_verify_smtp_probe.py` is green, 45 passed
-- [ ] Data Scout: status reconciliation + store `source_ip`
+- [x] Data Scout: status reconciliation + store `source_ip` — live rows carry it; a dedicated
+      `test_verify_signals_contract.py` exists because a field can reach the engine and never the
+      database
 - [x] Data Scout: retire `smtp_probe.py` in-process probing (keep as reference/tests)
-- [ ] Data Scout: the Celery task keeps driving the chunk loop; it calls `/probe` once per domain
-- [ ] **Data Scout owns the greylist retry** (plan 006). A `class:deferred` row is re-queued using
+- [x] Data Scout: the Celery task keeps driving the chunk loop; it calls `/probe` once per domain
+- [x] **Data Scout owns the greylist retry** (plan 006) — proven in production 2026-09-09, not in
+      a test: a throttling MX gave a 900s hint during a warm-up batch, five rows were re-queued and
+      all five came back within seconds of the server's own number. A `class:deferred` row is re-queued using
       the existing Celery backoff, scheduled by `retry_after_seconds` rather than by blind
       exponential backoff — the first blind attempt lands seconds later, before the window opens,
       and burns a token to be told the same thing. Exhausted retries are `unknown` with the server's
       own words, never `invalid`.
-- [ ] **Data Scout keeps the retry on the same tuple.** Greylisting keys on
+- [x] **Data Scout keeps the retry on the same tuple.** Automatic while there is one node.
+      Greylisting keys on
       `(sender, recipient, IP)`: a retry from a different node or with a different `MAIL FROM` is a
       new tuple and restarts the window. Automatic with one node; a routing constraint the moment
       there are two.
@@ -162,17 +167,22 @@ Most of the work is on Data Scout's side. What this repository owes the cut-over
       every restart
 - [x] This service: response completeness confirmed against Data Scout's `ProbeResult` mapping —
       by running live payloads through their `_result_of`, not by comparing field lists
-- [ ] Both: integration test of the end-to-end path
-- [ ] Docs both repos: Data Scout providers doc + this `changelog.md`
+- [x] Both: the end-to-end path is exercised continuously by the warm-up — 200+ production
+      verdicts carrying `source_ip: 92.222.87.97`, which is a stronger check than a fixture
+- [x] Docs both repos: changelog entries on both sides; their `073`, `tech-debt` and warm-up
+      README carry the operational findings
 
 ## Definition of Done
 
 - [x] A recorded request/response pair from the live handler, matching `06-generated/api.md`
-- [ ] Data Scout's verify endpoint returns this service's verdict end-to-end (staging) — recorded
-- [ ] Layers 0–5 still short-circuit before any call here (no wasted probes) — test
-- [ ] `source_ip` stored with each verdict — test
-- [ ] Both repos' gates green; pr-checklists confirmed
-- [ ] Status → Complete, moved, ROADMAP updated; Data Scout changelog entry too
+- [x] Data Scout's verify endpoint returns this service's verdict end-to-end — **in production,
+      not staging**, since 2026-09-08
+- [x] Layers 0–5 still short-circuit before any call here — `test_verify_many_short_circuits_cost_nothing`
+      and the two per-layer tests beside it
+- [x] `source_ip` stored with each verdict — test, and visible on every live row
+- [x] Both repos' gates green — 88 tests across their verify suite, 14 packages with `-race`
+      here, `vet`/`gofmt`/`golangci-lint` clean
+- [x] Status → Complete, moved, ROADMAP updated; Data Scout changelog entry too
 
 ## Status of the cut-over (2026-09-10) — it is live, and this plan was the stale half
 
@@ -207,6 +217,27 @@ Neither is a bug in the classifier — both replies are labelled correctly. The 
 service has no notion of a per-MX limit on recipients per session**, and no way to say "that
 rejection was about this recipient, not about us" to the policy-stop counter. Worth its own plan;
 it should not be smuggled into a cut-over plan.
+
+## Closed 2026-09-10 — what this plan set out to do, and what it deliberately does not wait for
+
+**The goal is met.** `smtp_probe.probe_many` is an HTTP client to `POST /probe` over mTLS with a
+bearer token; port-25 traffic has left the production host; the tier has been on since 2026-09-08
+and every verdict since carries `source_ip: 92.222.87.97`. `ENGINE_VERSION` is 4. The reputation
+goal this whole project exists for is achieved: the main product host opens no outbound `:25`.
+
+**Three things this plan does not wait for, each reassigned rather than left hanging.**
+
+- **The warm-up ladder.** Day 2 of 7, and weeks of calendar to go. It belongs to Data Scout's `073`
+  rollout row, which owns the gate, the stop rule and the number plan `071`'s Scale tier must fit
+  under. Holding 008 open until day 7 would mirror `073` rather than add anything.
+- **Their manual test 6 — the finder on Microsoft 365.** Blocked on **plan 017** here: M365 answers
+  `550 5.4.1 Access denied` to any recipient it will not confirm, and policy-stop counts consecutive
+  policy replies, so a candidate ladder abandons its session before reaching the right address.
+- **Explaining a `block`.** **Plan 018** here. The ladder's stop rule is any movement in `block`, it
+  moved on day 2, and neither side keeps the reply that would say whether it mattered.
+
+The last two are defects the cut-over *found*, which is what a rollout is for. Recording them as
+their own plans is the point; burying them inside this one would hide them.
 
 ## Notes / decisions / deviations
 
