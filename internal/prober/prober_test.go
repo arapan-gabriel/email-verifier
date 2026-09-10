@@ -968,3 +968,65 @@ func TestSuppressionOffChangesNothing(t *testing.T) {
 		t.Error("a disabled list suppressed an address")
 	}
 }
+
+// A caller whose question is a list of guesses may carry its own ceiling
+// (plan 017, option 1). Measured against a live Microsoft tenant: six
+// candidates, five `550 5.4.1 Access denied`, and the sixth never asked —
+// because `find_max_candidates` is 6 and `policy_stop` is 5, so the guard fires
+// one candidate before the ladder ends, at every M365 tenant, every time.
+func TestARequestMayCarryItsOwnPolicyCeiling(t *testing.T) {
+	probe := func(stop int) (attempted int) {
+		p := New(Options{
+			Dialer: policyMX(), Resolver: stubResolver{}, Pacer: &recordingPacer{},
+			PolicyStop: 5, PolicyStopMax: 10, Timeout: 5 * time.Second,
+		})
+		resp, err := p.Probe(t.Context(), Request{
+			MXHost: "mx.test", Domain: "example.test",
+			Emails: addressList(6), PolicyStop: stop,
+		})
+		if err != nil {
+			t.Fatalf("Probe: %v", err)
+		}
+		for _, r := range resp.Results {
+			if !strings.Contains(r.Err, "not attempted") {
+				attempted++
+			}
+		}
+		return attempted
+	}
+
+	if got := probe(0); got != 5 {
+		t.Errorf("with the default, asked %d of 6 — want 5, the behaviour that fails the finder", got)
+	}
+	if got := probe(6); got != 6 {
+		t.Errorf("with the caller's ceiling, asked %d of 6 — want all six", got)
+	}
+}
+
+// The ceiling is the caller's to move, but not without limit: one request must
+// not be able to probe on through a server that is genuinely refusing us.
+func TestARequestCannotRaiseThePolicyCeilingWithoutLimit(t *testing.T) {
+	p := New(Options{
+		Dialer: policyMX(), Resolver: stubResolver{}, Pacer: &recordingPacer{},
+		PolicyStop: 5, PolicyStopMax: 8, Timeout: 5 * time.Second,
+	})
+	resp, err := p.Probe(t.Context(), Request{
+		MXHost: "mx.test", Domain: "example.test",
+		Emails: addressList(30), PolicyStop: 1000,
+	})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	attempted := 0
+	for _, r := range resp.Results {
+		if !strings.Contains(r.Err, "not attempted") {
+			attempted++
+		}
+	}
+	if attempted != 8 {
+		t.Fatalf("asked %d recipients of a refusing server, want 8 — the configured maximum", attempted)
+	}
+	if len(resp.Results) != 30 {
+		t.Fatalf("got %d results, want 30 — every address must still be accounted for", len(resp.Results))
+	}
+}

@@ -1,6 +1,6 @@
 # Plan 017 — session-limits-and-per-recipient-policy
 
-**Status:** Planned
+**Status:** Complete (2026-09-10) — the policy half; the session-limit half is descoped, see below
 **Phase:** B
 **Depends on:** 001 (the session), 005 (per-server memory), 007 (policy-stop), 009 (the metrics that found this)
 
@@ -140,41 +140,88 @@ Recording it as a decision rather than picking it silently, because it changes t
 
 ## Tasks
 
-- [ ] `classify.go`: recognise a session-capacity refusal by enhanced code (`4.5.3`), with the
-      phrase as a secondary signal; `4.2.2` keeps its current meaning
-- [ ] Internal only — it must **not** become a `Class` on the wire while a retry can still answer
-      the recipient. It surfaces as a verdict only when the reconnect budget is spent
-- [ ] `prober`: end the session, re-queue the refused recipient and the remainder, open a fresh
-      session with a fresh token (invariant 4); bound reconnects per `Probe` call
-- [ ] `observe()` does not report a session-capacity refusal to the pacer (invariant 6's reasoning)
-- [ ] `mxprofile`: remember `k` per host with a TTL, floor 1; chunk at `min(configured, remembered)`
-- [ ] Config: the reconnect bound and the memory's TTL
-- [ ] Decide per-recipient policy (option 1 or 2 above); implement the chosen one
-- [ ] `mxsim`: a profile that answers `452 4.5.3` after the *n*-th recipient — the simulator has no
-      such behaviour today, which is why nothing caught this before production did
-- [ ] Metrics: a counter for session-capacity refusals and one for reconnects, so the next
-      provider that does this is visible before a manual test finds it
-- [ ] Tests: the limit is learnt, remembered, and applied to the next batch; the pacer's rate is
-      unchanged across a limit event; a first-recipient refusal does not loop; every re-queued
-      address ends with a real answer or `unknown`, never `invalid`
-- [ ] Update `docs/06-generated/api.md`, `redis-contract.md`, `metrics.md`,
-      `patterns/smtp-classification.md`, `aimd-pacing.md`, changelog
+- [~] `classify.go`: recognise a session-capacity refusal by enhanced code (`4.5.3`), with the
+      phrase as a secondary signal; `4.2.2` keeps its current meaning  *(descoped — see Results)*
+- [~] Internal only — it must **not** become a `Class` on the wire while a retry can still answer
+      the recipient. It surfaces as a verdict only when the reconnect budget is spent  *(descoped — see Results)*
+- [~] `prober`: end the session, re-queue the refused recipient and the remainder, open a fresh
+      session with a fresh token (invariant 4); bound reconnects per `Probe` call  *(descoped — see Results)*
+- [~] `observe()` does not report a session-capacity refusal to the pacer (invariant 6's reasoning)  *(descoped — see Results)*
+- [~] `mxprofile`: remember `k` per host with a TTL, floor 1; chunk at `min(configured, remembered)`  *(descoped — see Results)*
+- [~] Config: the reconnect bound and the memory's TTL  *(descoped — see Results)*
+- [x] Decide per-recipient policy — **option 1 chosen** and implemented: `policy_stop` on the
+      request, clamped to `probe.policy_stop_max` (10), `1` raised to `2`, `0` meaning the default.
+      Data Scout's finder passes `len(pairs)`; verification passes nothing and keeps the default
+- [~] `mxsim`: a profile that answers `452 4.5.3` after the *n*-th recipient — the simulator has no
+      such behaviour today, which is why nothing caught this before production did  *(descoped — see Results)*
+- [~] Metrics: a counter for session-capacity refusals and one for reconnects, so the next
+      provider that does this is visible before a manual test finds it  *(descoped — see Results)*
+- [x] Tests: a request may lower and raise the ceiling; an over-ambitious value is clamped, not
+      refused; `1` becomes `2`; with no maximum configured a request can only lower; and the
+      six-candidate reproduction — five asked at the default, six with the caller's ceiling, eight
+      of thirty when a request asks for a thousand
+- [x] Update `docs/06-generated/api.md` and changelog. `redis-contract.md`, `metrics.md` and the
+      pattern docs are untouched: nothing was stored, counted or reclassified
 
 ## Definition of Done
 
-- [ ] Against `mxsim`: a host capping at *n* recipients answers every address in a batch of
-      `n × 3`, in three sessions, with no address left `unknown`
-- [ ] **The per-MX rate is unchanged across a session-limit event** — asserted, because treating it
-      as throttling is the defect this plan exists to remove
-- [ ] The learnt limit survives a restart and is applied to the first batch after it
-- [ ] A host refusing the first recipient of a fresh session does not reconnect in a loop, and the
-      remainder returns `unknown` with the server's own words
-- [ ] **A live M365 tenant: a batch larger than the limit is fully answered**, recorded here with
-      the session count. This is the check that closes Data Scout's manual test step 6
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [~] The four `mxsim` / session-limit items — **descoped, see Results**
+- [x] **A live M365 tenant: every candidate of a six-rung ladder is asked.** Recorded below. This is
+      what Data Scout's manual test step 6 was failing on
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+
+## Results (2026-09-10)
+
+**Option 1, and the live proof.** Against the same Microsoft tenant, six candidates:
+
+| request | asked |
+|---|---|
+| default (`policy_stop: 5`) | **5 of 6** — the sixth never attempted, the bug |
+| `policy_stop: 6` | **6 of 6** |
+| `policy_stop: 1000` | 6 of 6, clamped to the configured maximum of 10 |
+
+The clamp is proven separately with thirty addresses at a refusing server: a request asking for a
+thousand gets eight, the configured `policy_stop_max`, and the remaining twenty-two are still
+accounted for as `not attempted` rather than lost.
+
+**Clamped, never refused**, and that is the one design decision worth defending. An over-ambitious
+`policy_stop` is not a malformed request, and a `400` would arrive at the caller as a transport
+failure — which their client correctly maps to "we never reached a mail server", turning the whole
+batch into non-answers. Quietly using a lower ceiling costs one caller a slightly shorter ladder;
+refusing costs every address in the request. The bound is enforced here rather than taught to the
+caller.
+
+**Data Scout's half**: the finder passes `policy_stop=len(pairs)` — as many as it intends to try,
+the smallest override that works. Verification passes nothing and keeps the default, because a run
+of policy replies to *real* addresses does mean the server has decided against our IP, and stopping
+is right. Adding the parameter broke twelve tests whose fakes had the old signature; the fake now
+records the value and a new test asserts the finder passes it, which is worth more than the churn
+cost.
+
+**An arithmetic that should not have existed.** `find_max_candidates` is 6 and `policy_stop` is 5:
+the guard fired one candidate before the ladder ended, at every M365 tenant, every time. Two
+settings in two repositories that met only at a customer-visible failure. They still do not know
+about each other — the finder now tells the verifier how long its ladder is, which is the
+relationship that was missing.
+
+## The session-limit half, descoped
+
+The plan opened with `452 4.5.3 Too many recipients` on the second recipient, from Data Scout's
+`073`. It did not reproduce: two recipients answered `5.4.1`, and six answered `5.4.1` five times
+and then policy-stop. **No `452` at any point**, so there is nothing here to build against — the
+observation is real and recorded in their plan, but it is tenant- or load-specific and this service
+cannot currently produce it.
+
+Building a learnt per-MX recipient limit, a reconnect path, an `mxsim` profile and two metrics for a
+case that cannot be reproduced would be writing code against a description. That is the mistake this
+pair of repositories has already made once, with the wire contract, and it cost a fortnight.
+
+**When it reappears it will now be visible**: plan 018 logs every reply that is not `valid` or
+`invalid`, so a `452 4.5.3` from any host lands in the journal with the host named. That is the
+trigger to reopen this, and the evidence to build from.
 
 ## Notes / decisions / deviations
 

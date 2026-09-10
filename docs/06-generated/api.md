@@ -37,7 +37,8 @@ addresses; this endpoint asks one server about several mailboxes in one session.
   "emails":         ["a@gmail.com", "b@gmail.com"],
   "need_catch_all": true,                          // caller owns the domain-profile cache
   "helo":           "mail.datascoutmail.com",      // optional, defaults from config
-  "mail_from":      "verify@probe.datascoutmail.com"  // isolated from the sending domain (019)
+  "mail_from":      "verify@probe.datascoutmail.com",
+  "policy_stop":    6                               // optional; clamped, see below  // isolated from the sending domain (019)
 }
 ```
 ```jsonc
@@ -77,6 +78,19 @@ All three return `connected:false` and `accepted:null`.
 cooldown ends; otherwise it is parsed from the server's reply when it offers a number and falls back
 to `probe.deferral_retry`. It is always clamped, so a server does not get to set the caller's
 schedule. An answered address (`valid`, `invalid`) carries no hint.
+
+**`policy_stop` is the caller's to move, within a bound.** The caller knows the shape of its
+question and this service cannot: a finder's candidate ladder is a list of *guesses*, and every
+wrong guess at a Microsoft tenant answers `550 5.4.1 Access denied` — a reply about us, not about
+the address. Measured live: with the default of 5 and a six-rung ladder, **the sixth candidate is
+never asked**, at every M365 tenant, every time. A verification batch of real addresses has no such
+shape and wants the default.
+
+Omitted or `0` uses the configured default. The value is **clamped to `probe.policy_stop_max`,
+never refused** — an over-ambitious number is not a malformed request, and a `400` would reach the
+caller as a transport failure and turn the whole batch into non-answers. `1` is raised to `2`, for
+the same reason the configuration refuses it: one `5.7.x` can be a per-recipient policy, and
+stopping on it would throw away the batch on one server's opinion of one address.
 
 **Policy-stop.** After `probe.policy_stop` *consecutive* replies that are about our client rather
 than about a recipient (`class:policy`), the session ends and the remaining addresses come back

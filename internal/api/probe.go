@@ -31,6 +31,12 @@ type probeRequest struct {
 	NeedCatchAll bool     `json:"need_catch_all"`
 	Helo         string   `json:"helo,omitempty"`
 	MailFrom     string   `json:"mail_from,omitempty"`
+	// PolicyStop raises or lowers, for this request only, how many consecutive
+	// replies about our client end the session (plan 017). Omitted or zero uses
+	// the configured default; the service clamps it, so an over-ambitious value
+	// is quietly bounded rather than refused — a 400 here would reach the
+	// caller as a transport failure and turn a whole batch into non-answers.
+	PolicyStop int `json:"policy_stop,omitempty"`
 }
 
 type probeResponse struct {
@@ -49,6 +55,8 @@ func (r probeRequest) validate(maxEmails int) error {
 		return errors.New("emails exceeds the per-request limit")
 	case r.NeedCatchAll && strings.TrimSpace(r.Domain) == "":
 		return errors.New("domain is required when need_catch_all is set")
+	case r.PolicyStop < 0:
+		return errors.New("policy_stop must not be negative")
 	}
 	for _, e := range r.Emails {
 		if !strings.Contains(e, "@") {
@@ -86,6 +94,7 @@ func handleProbe(p Prober, sourceIP string, maxEmails int) http.HandlerFunc {
 			NeedCatchAll: req.NeedCatchAll,
 			Helo:         req.Helo,
 			MailFrom:     req.MailFrom,
+			PolicyStop:   req.PolicyStop,
 		})
 		if err != nil {
 			WriteError(w, http.StatusBadGateway, "probe_failed", err.Error())

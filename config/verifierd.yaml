@@ -129,6 +129,14 @@ probe:
   # said no. 0 disables; 1 is refused, because a single 5.7.x can be a
   # per-recipient policy and would throw away the rest of the batch.
   policy_stop: 5
+  # What a single request may raise policy_stop to (plan 017). The caller knows
+  # the shape of its question and this service does not: a finder's candidate
+  # ladder is a list of guesses, and every wrong guess at a Microsoft tenant
+  # answers 550 5.4.1, so the default of 5 ends the session one candidate before
+  # a six-rung ladder finishes — every time, at every M365 tenant. But "the
+  # caller decides" must not mean "without limit", or one request could probe on
+  # through a server genuinely refusing us. 0 = requests may only lower it.
+  policy_stop_max: 10
   # How long a per-server randomiser verdict is remembered. It is a fact about
   # the host, so it applies to every domain behind it.
   randomiser_ttl: 24h

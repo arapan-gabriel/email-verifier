@@ -161,6 +161,14 @@ type Probe struct {
 	// PolicyStop ends a session after this many consecutive replies that are
 	// about our client rather than about a recipient. Zero disables it.
 	PolicyStop int `yaml:"policy_stop"`
+	// PolicyStopMax bounds what a single request may raise PolicyStop to
+	// (plan 017). The caller knows the shape of its question and this service
+	// does not — a candidate ladder is a list of guesses and every wrong guess
+	// at a Microsoft tenant is a policy reply — but "the caller decides" must
+	// not mean "the caller decides without limit", or one request could probe
+	// on through a server that is genuinely refusing us. Zero means requests
+	// may lower the ceiling and never raise it.
+	PolicyStopMax int `yaml:"policy_stop_max"`
 	// RandomiserTTL is how long a per-server randomiser verdict is remembered.
 	RandomiserTTL time.Duration `yaml:"randomiser_ttl"`
 	// DeferralRetry is the retry hint returned when a greylisting server gives
@@ -252,6 +260,7 @@ func defaults() Config {
 			MaxRCPTPerSession:   50,
 			CatchAllProbes:      3,
 			PolicyStop:          5,
+			PolicyStopMax:       10,
 			RandomiserTTL:       24 * time.Hour,
 			DeferralRetry:       15 * time.Minute,
 			MaxEmailsPerRequest: 500,
@@ -386,6 +395,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
 		func() error { return integer("PROBE_POLICY_STOP", &cfg.Probe.PolicyStop) },
+		func() error { return integer("PROBE_POLICY_STOP_MAX", &cfg.Probe.PolicyStopMax) },
 		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
 		func() error { return dur("PROBE_DEFERRAL_RETRY", &cfg.Probe.DeferralRetry) },
 		func() error { return integer("PROBE_MAX_EMAILS_PER_REQUEST", &cfg.Probe.MaxEmailsPerRequest) },
@@ -513,6 +523,15 @@ func (c Config) Validate() error {
 	// and stopping a whole batch on it would throw away answers we could have.
 	if c.Probe.PolicyStop < 0 || c.Probe.PolicyStop == 1 {
 		add("probe.policy_stop must be 0 (disabled) or at least 2, got %d", c.Probe.PolicyStop)
+	}
+	if c.Probe.PolicyStopMax < 0 {
+		add("probe.policy_stop_max must not be negative, got %d", c.Probe.PolicyStopMax)
+	}
+	// A maximum below the default is a ceiling that silently lowers every
+	// ordinary request — the opposite of what it is for.
+	if c.Probe.PolicyStopMax > 0 && c.Probe.PolicyStop > 0 && c.Probe.PolicyStopMax < c.Probe.PolicyStop {
+		add("probe.policy_stop_max (%d) must not be below probe.policy_stop (%d)",
+			c.Probe.PolicyStopMax, c.Probe.PolicyStop)
 	}
 	if c.Probe.DeferralRetry <= 0 {
 		add("probe.deferral_retry must be positive")

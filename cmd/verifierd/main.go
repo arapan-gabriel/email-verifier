@@ -140,6 +140,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
 		CatchAllProbes:    cfg.Probe.CatchAllProbes,
 		PolicyStop:        cfg.Probe.PolicyStop,
+		PolicyStopMax:     cfg.Probe.PolicyStopMax,
 		DeferralRetry:     cfg.Probe.DeferralRetry,
 		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
 		Metrics:           reg,

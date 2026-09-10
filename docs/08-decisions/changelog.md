@@ -3,6 +3,47 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-10 — Plan 017: the caller carries its own ceiling, within a bound we keep
+
+Option 1, chosen and shipped. `POST /probe` takes an optional `policy_stop`, clamped to
+`probe.policy_stop_max` (10); Data Scout's finder passes `len(pairs)`, verification passes nothing
+and keeps the default. Proven against a live Microsoft tenant with six candidates: **5 of 6 asked at
+the default, 6 of 6 with the caller's ceiling, and a request asking for a thousand gets the
+configured maximum.**
+
+**Clamped, never refused** is the decision worth defending. An over-ambitious `policy_stop` is not a
+malformed request, and a `400` would arrive at the caller as a *transport failure* — which their
+client correctly maps to "we never reached a mail server", turning every address in the batch into a
+non-answer. Quietly using a lower ceiling costs one caller a shorter ladder; refusing costs the whole
+request. The bound is enforced here rather than taught to the caller.
+
+**Why the caller decides at all.** A finder's candidate ladder is a list of *guesses*, and every
+wrong guess at a Microsoft tenant answers `550 5.4.1 Access denied` — a reply about us, not about
+the address. This service cannot tell a ladder of guesses from a batch of real addresses; the caller
+knows exactly which it is sending. What it must not have is unlimited discretion, or one request
+could probe on through a server that has genuinely refused us — which is what `policy_stop` exists
+to prevent.
+
+**The arithmetic that should not have existed.** `find_max_candidates` is 6 and `policy_stop` is 5.
+The guard fired one candidate before the ladder ended, at every M365 tenant, every time — two
+settings in two repositories that met only at a customer-visible failure, and neither knew the other
+existed. They still do not: the finder now tells the verifier how long its ladder is, which is the
+relationship that was missing rather than a number that had to be kept in sync.
+
+**The session-limit half is descoped, deliberately.** The plan opened with `452 4.5.3 Too many
+recipients` on the second recipient, taken from Data Scout's `073`. It did not reproduce — two
+recipients answered `5.4.1`, six answered `5.4.1` five times and then policy-stop, and no `452`
+appeared at any point. Building a learnt per-MX recipient limit, a reconnect path, an `mxsim`
+profile and two metrics for a case that cannot be reproduced would be writing code against a
+description, which is the mistake this pair of repositories already made once with the wire contract
+and paid a fortnight for. **When it reappears it will be visible**: plan 018 logs every reply that is
+not `valid` or `invalid`, so a `452 4.5.3` from any host now lands in the journal with the host
+named. That is the trigger to reopen it, and the evidence to build from.
+
+Adding the parameter broke twelve tests on their side whose fakes carried the old signature. The
+fake now records the value and a new test asserts the finder passes it — worth more than the churn
+cost, because the thing most likely to rot here is the finder silently going back to the default.
+
 ## 2026-09-10 — Plan 019: envelope sender isolation
 
 `mail_from` is `verify@probe.datascoutmail.com`. Probing no longer spends the reputation of the

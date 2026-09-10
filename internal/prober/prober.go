@@ -134,6 +134,10 @@ type Options struct {
 	ReplyMaxChars int
 	// DeferralRetry is the retry hint given when the server offers none.
 	DeferralRetry time.Duration
+	// PolicyStopMax bounds what a single request may raise PolicyStop to. Zero
+	// means requests may lower the ceiling but never raise it.
+	PolicyStopMax int
+
 	// PolicyStop is how many *consecutive* ClassPolicy replies end a session.
 	// Zero disables it. A server that refuses the client refuses it for the
 	// whole session, so every remaining RCPT spends a token on a question whose
@@ -194,6 +198,41 @@ func (o Options) deferralRetry() time.Duration {
 
 func (o Options) policyStop() int { return o.PolicyStop }
 
+// policyStopMax is the ceiling a request may raise its own limit to. Zero means
+// the configured default is also the maximum, so a caller can lower but never
+// raise.
+func (o Options) policyStopMax() int { return o.PolicyStopMax }
+
+// policyStopFor resolves the ceiling for one request.
+//
+// **Clamped, never rejected.** An over-ambitious value is not a malformed
+// request, and answering it with a 400 would reach the caller as a transport
+// failure — every address in the batch a non-answer (their invariant: a failure
+// to reach a conclusion is never a verdict). Quietly using a slightly lower
+// ceiling is the failure that costs least, so the bound is enforced here rather
+// than taught to the caller.
+//
+// A value of 1 is raised to 2 for the same reason config refuses it: a single
+// 5.7.x can be a per-recipient policy, and stopping on it would throw away the
+// rest of the batch on one server's opinion of one address.
+func (o Options) policyStopFor(req Request) int {
+	want := req.PolicyStop
+	if want <= 0 {
+		return o.policyStop()
+	}
+	if want == 1 {
+		want = 2
+	}
+	ceiling := o.policyStopMax()
+	if ceiling <= 0 {
+		ceiling = o.policyStop()
+	}
+	if want > ceiling {
+		return ceiling
+	}
+	return want
+}
+
 func (o Options) catchAllProbes() int {
 	if o.CatchAllProbes > 0 {
 		return o.CatchAllProbes
@@ -232,6 +271,18 @@ type Request struct {
 	NeedCatchAll bool
 	Helo         string
 	MailFrom     string
+	// PolicyStop overrides the configured ceiling for this request only, and is
+	// clamped by the prober (plan 017).
+	//
+	// The caller knows what shape its question has and this service cannot. A
+	// finder's candidate ladder is a list of guesses, and every wrong guess at
+	// a Microsoft tenant answers `550 5.4.1 Access denied` — so the default
+	// ceiling of five ends the session one candidate before a six-rung ladder
+	// finishes, at every M365 tenant, every time. A verification batch of real
+	// addresses has no such shape and wants the default.
+	//
+	// Zero means "use the configured default".
+	PolicyStop int
 }
 
 // Result is what the session established about one address.
@@ -545,7 +596,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		} else {
 			policyRun = 0
 		}
-		if stop := p.opts.policyStop(); stop > 0 && policyRun >= stop {
+		if stop := p.opts.policyStopFor(req); stop > 0 && policyRun >= stop {
 			reason := fmt.Sprintf("not attempted: %d consecutive policy replies from this server", policyRun)
 			for _, rest := range addrs[i+1:] {
 				out[rest] = Result{
