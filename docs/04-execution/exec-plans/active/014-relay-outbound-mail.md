@@ -102,18 +102,19 @@ own ramp, not on day one.
 
 - [x] **Interface decided** — `POST /send` (2026-09-11). The envelope sender follows 015's return
       path, decided the same day: VERP at `bounces.datascoutmail.com`
-- [ ] `internal/relay`: message assembly + DKIM signing with `s1`
-- [ ] A durable queue (Redis, AOF) — accepted means it survives a restart
-- [ ] `POST /send` (authenticated) + draining through the existing pacer and central bucket
-- [ ] Suppression and IP health checked before each send, **both failing closed**, including a stale
-      list
-- [ ] Transient-failure retry with backoff
-- [ ] Data Scout: a provider beside `postmark`/`smtp`, wired to the existing outbox drain
-- [ ] Tests: a signed message assembles correctly; suppressed → never sent; unhealthy IP → never
-      sent; stale suppression → never sent; **the prober still never sends `DATA`**
-- [ ] A restart mid-queue loses nothing — tested
-- [ ] Update `api.md`, `service/mail-relay.md` (an 8-line stub today), `features/006-mail-relay.md`,
-      `SECURITY.md`, changelog in both repositories
+- [x] `internal/relay`: message assembly + DKIM signing with `s1`
+- [x] A durable queue (Redis, AOF) — accepted means it survives a restart
+- [x] `POST /send` (authenticated) + draining through the existing pacer and central bucket
+- [x] Suppression and IP health checked before each send, **both failing closed**, including a
+      stale list — and suppression re-checked at send time, not trusted from accept
+- [x] Transient-failure retry with backoff
+- [x] Data Scout: a provider beside `postmark`/`smtp`, wired to the existing outbox drain
+- [x] Tests: the RFC's own canonicalization example; a signature verified the way a receiver would
+      check it; suppressed / unhealthy / stale all refuse; dot-stuffing; STARTTLS attempted when
+      offered; permanent and transient told apart
+- [x] A restart mid-queue loses nothing — tested
+- [x] Update `api.md`, `service/mail-relay.md`, `features/006-mail-relay.md`, `SECURITY.md`,
+      changelog in both repositories
 
 ## Definition of Done
 

@@ -28,6 +28,7 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 | Method | Path | Plan |
 |---|---|---|
 | POST | `/probe` | 001 — **live** |
+| POST | `/send` | 014 — built, **route absent unless `relay.enabled`** |
 
 ```jsonc
 // request
@@ -139,6 +140,46 @@ stores it in `email_verifications.signals`.
 
 > There is no bulk endpoint and no job here. Orchestration — chunking, progress, quota, the result
 > artifact — belongs to Data Scout's Celery task (ADR-006).
+
+## POST /send
+
+Queue one transactional message for delivery from the isolated IP (plan 014). The route exists only
+when `relay.enabled` is set — a node that only verifies should not be one DKIM key away from being
+able to send.
+
+```jsonc
+// request
+{
+  "from":    "noreply@datascoutmail.com",   // must be at the domain the relay signs for
+  "to":      "someone@example.com",
+  "subject": "Reset your password",
+  "text":    "Hello.\n",
+  "html":    "<p>Hello.</p>",               // optional; both makes it multipart/alternative
+  "headers": [{"name": "X-Entity-Ref", "value": "abc"}]   // optional
+}
+```
+```jsonc
+// 202
+{"message_id": "Nr7k…@datascoutmail.com", "queued_at": "2026-09-11T12:00:00Z"}
+```
+
+**`202` means durable, not delivered.** The message is signed and on disk before this answers, so a
+caller may stop holding it. Whether a receiving server accepts it is not known yet and does not come
+back here — it arrives as a bounce (plan 015).
+
+| status | meaning |
+|---|---|
+| `202` | queued and durable |
+| `400` | a verdict about this message — a malformed address, a reserved header, a suppressed recipient. Retrying will not change it |
+| `503` | this node is not sending *at all* right now: the IP is listed, or the suppression list is stale or unreadable. Not this message's fault, and retryable |
+
+**Headers this service sets may not be supplied**: `From`, `To`, `Subject`, `Date`, `Message-ID`,
+`MIME-Version`, `Content-Type`, `Content-Transfer-Encoding`, `DKIM-Signature`, `Return-Path`,
+`Received`. A caller that could choose `From` could send as anyone this domain can sign for. A CR or
+LF anywhere in a header value is refused rather than escaped.
+
+The envelope sender is **not** `from`: it is a VERP address at `relay.return_path_domain`, so a
+bounce identifies its message without the body being parsed.
 
 ## Relay (phase C)
 

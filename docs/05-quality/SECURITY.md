@@ -19,6 +19,26 @@ highest-severity class here.
 - A stale or unreadable local copy is **loud, not fatal**, on the verify path: the authoritative
   check has already run. Phase C relay fails closed instead, because sending is irreversible and has
   no upstream check between the queue and the socket.
+- **Sending is a separate code path, and it fails closed where verification does not** (plan 014).
+  Verification never sends `DATA` (invariant 8); the relay only sends `DATA`. They share the pacer
+  and the limiter — the receiving server sees one IP — and nothing else, which is what makes that
+  statement checkable rather than a promise.
+
+  On the verify path a stale or unreadable suppression list is loud and survivable, because the
+  authoritative check already ran upstream. On the sending path it stops everything: there is
+  nothing between the queue and the socket, and a message cannot be taken back. The recipient is
+  checked again at send time and not trusted from accept, because a message can wait hours in the
+  queue and an erasure request that arrives meanwhile has to win.
+
+  A caller may not supply `From`, `Date`, `Message-ID` or any header the service sets: a caller that
+  could choose `From` could send as anyone this domain can sign for. A CR or LF in a header value is
+  refused rather than escaped. `STARTTLS` is used whenever offered but deliberately **not verified**
+  — almost no MX presents a certificate matching the name we looked up, so requiring validity would
+  send everything in the clear instead.
+
+  The relay is **off in the shipped config**, and enabling it without a signing key, a domain or a
+  return path refuses to boot. Each is a way to send mail that fails authentication silently, which
+  is worse than not sending at all.
 - No business data at rest; secrets via config only, never logged.
 
 ## As deployed (plan 013, `92.222.87.97`)

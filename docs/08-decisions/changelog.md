@@ -3,6 +3,39 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Plan 014: the relay is built, and deliberately switched off
+
+`internal/relay` assembles, signs, queues and sends. `POST /send` exists only when `relay.enabled`
+is set, and the shipped config leaves it unset: a node that only verifies should not be one DKIM key
+away from being able to send.
+
+**`202` means durable, not delivered.** A caller told `202` may stop holding the message, so the
+route does not answer until a restart could not lose it — the body is written to Redis before the id
+is queued, and Redis runs AOF on this host for exactly this class of state. What a receiving server
+eventually says comes back as a bounce, never as that response.
+
+**Suppression fails closed on this leg**, which is the difference from verification and why
+`SECURITY.md` writes it down: the verify path has an authoritative check upstream, and between this
+queue and the socket there is nothing. A hit, a stale list and an unreadable list all stop the
+message — and the check runs again at send time rather than being trusted from accept, because a
+message can wait hours and an erasure that arrives meanwhile has to win.
+
+**A listed IP stops sending and leaves verification running.** Asking questions does not make a
+listing worse; every message sent from a listed address does.
+
+Three things the tests caught before any of this could ship. The RFC's own canonicalization example
+found that I had applied the *header* whitespace rule to the *body* — which changes `bh=` for every
+indented line and no others, and is invisible from the sending side. Dot-stuffing: a body line
+starting with a dot ends the message early and the rest is read as commands. And the terminating dot
+was being sent twice, which a real socket's buffers would have hidden and a synchronous one turned
+into a deadlock.
+
+**It stays off.** The return path is plan 015's, and mail sent from an address whose bounces nobody
+reads is how a warmed IP is spent. Enabling the relay without a signing key, a domain or a return
+path refuses to boot, for the same reason: each is a way to fail authentication silently, which is
+worse than not sending, because the message arrives, lands in spam, and teaches the receiver that
+this IP sends unsigned mail.
+
 ## 2026-09-11 — Plan 015's arrow was drawn from the wrong end
 
 The return path was decided this morning — a Cloudflare Email Worker posting the raw bounce to
