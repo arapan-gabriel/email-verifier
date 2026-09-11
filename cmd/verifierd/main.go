@@ -27,8 +27,10 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/pacer"
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 	"github.com/arapan-gabriel/email-verifier/internal/redis"
+	"github.com/arapan-gabriel/email-verifier/internal/relay"
 	"github.com/arapan-gabriel/email-verifier/internal/resolver"
 	"github.com/arapan-gabriel/email-verifier/internal/suppress"
+	"time"
 )
 
 func main() {
@@ -181,6 +183,42 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		OnReply:       replyLogger(cfg.Log.Replies, logger),
 	})
 
+	// Outbound mail (plan 014). Nil unless configured, which leaves POST /send
+	// unregistered: a node that only verifies should not be one DKIM key away
+	// from being able to send.
+	var outbound *relay.Relay
+	if cfg.Relay.Enabled {
+		key, err := os.ReadFile(cfg.Relay.DKIMKeyFile)
+		if err != nil {
+			return fmt.Errorf("relay: reading the DKIM key: %w", err)
+		}
+		signer, err := relay.NewSigner(cfg.Relay.Domain, cfg.Relay.DKIMSelector, key)
+		if err != nil {
+			return err
+		}
+		outbound = relay.New(relay.Options{
+			Queue:    relay.NewQueue(store, cfg.Relay.MaxAttempts),
+			Signer:   signer,
+			Resolver: dns,
+			Dialer:   &net.Dialer{Timeout: cfg.Relay.SendTimeout},
+			Pacer:    pace,
+			Suppress: relaySuppressionOrNil(suppression),
+			Health:   health,
+			Metrics:  reg,
+			Helo:     cfg.Probe.Helo,
+			ReturnPath: func(id string) string {
+				return "bounces+" + id + "@" + cfg.Relay.ReturnPathDomain
+			},
+			Timeout:   cfg.Relay.SendTimeout,
+			RetryBase: cfg.Relay.RetryBase,
+			Network:   cfg.Probe.DialNetwork,
+		})
+		logger.Info("outbound relay enabled",
+			"domain", cfg.Relay.Domain, "selector", cfg.Relay.DKIMSelector,
+			"return_path", cfg.Relay.ReturnPathDomain)
+		go drain(ctx, outbound, cfg.Relay.DrainInterval, logger)
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTP.Addr,
 		Handler: api.NewRouter(api.Options{
@@ -196,6 +234,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			Suppression:          suppressionAdminOrNil(suppression),
 			MaxSuppressionHashes: cfg.Suppress.MaxHashesPerImport,
 			Bands:                bandsView{pace},
+			Relay:                relayOrNil(outbound),
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
@@ -289,6 +328,53 @@ func replyLogger(enabled bool, logger *slog.Logger) func(prober.ReplyEvent) {
 			"reply", ev.Reply,
 			"err", ev.Err)
 	}
+}
+
+// drain empties the outbound queue, one message at a time.
+//
+// One at a time on purpose: the pacer already decides how fast this IP may talk
+// to any given MX, and a pool of senders would race it rather than obey it. The
+// interval is how long to wait after finding nothing — a queue with work in it
+// loops without sleeping.
+func drain(ctx context.Context, r *relay.Relay, interval time.Duration, logger *slog.Logger) {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	for {
+		did, err := r.DeliverNext(ctx)
+		switch {
+		case errors.Is(err, relay.ErrNotSending):
+			// A listed IP, or a suppression list we cannot vouch for. Not an
+			// error to log every ten seconds — it is a state, and the metric
+			// and the health endpoint already say so.
+		case err != nil:
+			logger.Error("relay drain", "error", err)
+		}
+		if did && err == nil {
+			continue // there may be more, and the pacer sets the pace
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+// relayOrNil keeps a typed nil out of the router's interface field, where it
+// would read as "configured" and register a route that panics on first use.
+func relayOrNil(r *relay.Relay) api.Relay {
+	if r == nil {
+		return nil
+	}
+	return r
+}
+
+func relaySuppressionOrNil(l *suppress.List) relay.Suppression {
+	if l == nil {
+		return nil
+	}
+	return l
 }
 
 // clientAuthTLS builds the listener's TLS configuration. When a client CA is

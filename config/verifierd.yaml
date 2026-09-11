@@ -168,6 +168,26 @@ auth:
   enabled: true
   # api_key: set via VERIFIERD_AUTH_API_KEY, never in this file.
 
+# Outbound mail (plan 014, Phase C). Off by default: a node that only verifies
+# should not be one DKIM key away from being able to send. Enabling it without
+# a signing key, a domain or a return path refuses to boot — each of those is a
+# way to send mail that fails authentication silently, which is worse than not
+# sending at all.
+relay:
+  enabled: false
+  domain: "datascoutmail.com"
+  dkim_key_file: "/etc/verifierd/dkim/s1.private"
+  dkim_selector: "s1"
+  # VERP lives here, so a bounce identifies its message without the body being
+  # parsed. It needs an MX pointing somewhere the bounces are actually read —
+  # until plan 015 stands that up, enabling the relay would send mail whose
+  # failures nobody sees.
+  return_path_domain: "bounces.datascoutmail.com"
+  max_attempts: 5
+  retry_base: 5m
+  drain_interval: 10s
+  send_timeout: 60s
+
 log:
   level: info
   format: json

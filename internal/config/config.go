@@ -37,6 +37,7 @@ type Config struct {
 	Suppress Suppress `yaml:"suppress"`
 	Probe    Probe    `yaml:"probe"`
 	Auth     Auth     `yaml:"auth"`
+	Relay    Relay    `yaml:"relay"`
 	Log      Log      `yaml:"log"`
 }
 
@@ -214,6 +215,31 @@ type Auth struct {
 	APIKey  string `yaml:"api_key"`
 }
 
+// Relay is outbound mail from this IP (plan 014). Off by default: a node that
+// only verifies should not be one DKIM key away from being able to send.
+type Relay struct {
+	Enabled bool `yaml:"enabled"`
+	// DKIMKeyFile and DKIMSelector sign what goes out. The selector must be
+	// published at <selector>._domainkey.<domain> or every message fails DKIM.
+	DKIMKeyFile  string `yaml:"dkim_key_file"`
+	DKIMSelector string `yaml:"dkim_selector"`
+	// Domain is what the signature claims and what DMARC aligns against.
+	Domain string `yaml:"domain"`
+	// ReturnPathDomain carries the VERP envelope sender, so a bounce identifies
+	// its message without the body being parsed. It needs an MX pointing
+	// somewhere the bounces are actually read (plan 015).
+	ReturnPathDomain string `yaml:"return_path_domain"`
+	// MaxAttempts bounds retrying. A server that has refused five times will
+	// not take the sixth, and continuing to offer it spends the IP's standing
+	// on one address.
+	MaxAttempts int `yaml:"max_attempts"`
+	// RetryBase is the first backoff step; each attempt doubles it.
+	RetryBase time.Duration `yaml:"retry_base"`
+	// DrainInterval is how often the queue is looked at when it was empty.
+	DrainInterval time.Duration `yaml:"drain_interval"`
+	SendTimeout   time.Duration `yaml:"send_timeout"`
+}
+
 // Log configures the structured logger.
 type Log struct {
 	Level  string `yaml:"level"`  // debug | info | warn | error
@@ -272,6 +298,12 @@ func defaults() Config {
 		// is where the meaning is. Kept as a literal rather than imported from
 		// internal/prober: configuration should not depend on the engine it
 		// configures.
+		Relay: Relay{
+			MaxAttempts:   5,
+			RetryBase:     5 * time.Minute,
+			DrainInterval: 10 * time.Second,
+			SendTimeout:   60 * time.Second,
+		},
 		Log: Log{Level: "info", Format: "json", Replies: true, ReplyMaxChars: 200},
 	}
 }
@@ -523,6 +555,28 @@ func (c Config) Validate() error {
 	// and stopping a whole batch on it would throw away answers we could have.
 	if c.Probe.PolicyStop < 0 || c.Probe.PolicyStop == 1 {
 		add("probe.policy_stop must be 0 (disabled) or at least 2, got %d", c.Probe.PolicyStop)
+	}
+	if c.Relay.Enabled {
+		// Each of these is a way to send mail that fails authentication
+		// silently, which is worse than not sending: the message arrives,
+		// lands in spam, and teaches the receiver that this IP sends unsigned
+		// mail.
+		if c.Relay.Domain == "" {
+			add("relay.domain is required when relay.enabled is true")
+		}
+		if c.Relay.DKIMKeyFile == "" || c.Relay.DKIMSelector == "" {
+			add("relay.dkim_key_file and relay.dkim_selector are required when relay.enabled is true")
+		}
+		if c.Relay.ReturnPathDomain == "" {
+			add("relay.return_path_domain is required when relay.enabled is true — " +
+				"a message whose bounces nobody reads spends the IP's reputation blind")
+		}
+		if c.Relay.MaxAttempts <= 0 {
+			add("relay.max_attempts must be positive")
+		}
+		if c.Relay.RetryBase <= 0 {
+			add("relay.retry_base must be positive")
+		}
 	}
 	if c.Probe.PolicyStopMax < 0 {
 		add("probe.policy_stop_max must not be negative, got %d", c.Probe.PolicyStopMax)

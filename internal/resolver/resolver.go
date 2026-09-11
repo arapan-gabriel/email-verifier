@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,11 +21,17 @@ var ErrNoRoutableAddress = errors.New("no routable address")
 // satisfies it.
 type LookupFunc func(ctx context.Context, network, host string) ([]netip.Addr, error)
 
+// MXFunc looks up mail exchangers. Injected for the same reason as LookupFunc:
+// a test should not need DNS.
+type MXFunc func(ctx context.Context, domain string) ([]*net.MX, error)
+
 // Options configures a Resolver.
 type Options struct {
 	// Lookup overrides resolution entirely; tests use it. When nil, a resolver
 	// is built from Servers.
 	Lookup LookupFunc
+	// LookupMX overrides the MX lookup, for the same reason.
+	LookupMX MXFunc
 	// Servers are "host:port" DNS servers to query. Empty means the process
 	// resolver — whatever /etc/resolv.conf says, which on the deployed node is
 	// systemd-resolved. Setting it lets an operator move this service off a
@@ -47,6 +55,7 @@ type Options struct {
 // Resolver resolves a host and vets every answer.
 type Resolver struct {
 	lookup  LookupFunc
+	mx      MXFunc
 	network string
 	timeout time.Duration
 	cache   *cache
@@ -56,9 +65,13 @@ type Resolver struct {
 func New(opts Options) *Resolver {
 	r := &Resolver{
 		lookup:  opts.Lookup,
+		mx:      opts.LookupMX,
 		network: opts.Network,
 		timeout: opts.Timeout,
 		cache:   newCache(opts.CacheTTL, opts.NegativeTTL, opts.CacheSize),
+	}
+	if r.mx == nil {
+		r.mx = resolverFor(opts.Servers, opts.Timeout).LookupMX
 	}
 	if r.lookup == nil {
 		r.lookup = resolverFor(opts.Servers, opts.Timeout).LookupNetIP
@@ -163,3 +176,52 @@ func (r *Resolver) Resolve(ctx context.Context, host string) ([]netip.Addr, erro
 	r.cache.put(host, out, nil)
 	return out, nil
 }
+
+// MX returns the mail exchangers for a domain, in preference order.
+//
+// The relay needs this and the prober does not: a verification request names
+// the MX it wants asked about, because the caller has already grouped its
+// addresses by domain and knows it. A queued message is different — it can wait
+// hours before it goes out, and pinning the MX at accept time would send a
+// retry to a host the domain has since stopped using.
+//
+// Addresses are **not** vetted here. Resolve does that, and doing it twice
+// would put the SSRF guard in two places (invariant 2 is easier to keep true
+// when it lives in one). What comes back is a list of names to hand to Resolve.
+func (r *Resolver) MX(ctx context.Context, domain string) ([]string, error) {
+	if domain == "" {
+		return nil, errors.New("resolver: domain is empty")
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	records, err := r.mx(ctx, domain)
+	if err != nil {
+		return nil, fmt.Errorf("mx %s: %w", domain, err)
+	}
+	// Sorted by preference, lowest first. Equal preferences keep the order the
+	// resolver gave them, which is where its own randomisation lives.
+	sort.SliceStable(records, func(i, j int) bool { return records[i].Pref < records[j].Pref })
+
+	hosts := make([]string, 0, len(records))
+	for _, record := range records {
+		host := strings.TrimSuffix(record.Host, ".")
+		// RFC 7505: a single "." means the domain explicitly accepts no mail.
+		// It is not an empty answer to retry — it is an answer.
+		if host == "" {
+			return nil, fmt.Errorf("mx %s: %w", domain, ErrNullMX)
+		}
+		hosts = append(hosts, host)
+	}
+	if len(hosts) == 0 {
+		return nil, fmt.Errorf("mx %s: %w", domain, ErrNoMX)
+	}
+	return hosts, nil
+}
+
+// ErrNullMX is RFC 7505's "this domain accepts no mail" — a final answer, not a
+// lookup that failed.
+var ErrNullMX = errors.New("domain publishes a null MX")
+
+// ErrNoMX is a domain with no mail exchanger at all.
+var ErrNoMX = errors.New("domain has no MX record")

@@ -181,6 +181,16 @@ type Status struct {
 	Stale   bool      `json:"stale"`
 }
 
+// Stale reports whether the local copy is older than the configured window.
+//
+// Separate from Status because the relay asks this question on every send and
+// does not want the rest: on that leg a stale list is a refusal, since sending
+// cannot be taken back and there is no authoritative check between the queue
+// and the socket. On the verify path the same fact is loud and survivable.
+func (l *List) Stale(ctx context.Context) bool {
+	return l.Status(ctx).Stale
+}
+
 // Status reports the state of the local copy.
 func (l *List) Status(ctx context.Context) Status {
 	st := Status{Enabled: l.Enabled()}

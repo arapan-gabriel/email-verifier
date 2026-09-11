@@ -34,6 +34,9 @@ type Options struct {
 	// Suppression backs the push of the suppression list. Nil leaves those
 	// routes unregistered.
 	Suppression SuppressionAdmin
+	// Relay backs POST /send (plan 014). Nil leaves the route unregistered,
+	// which is what a node that only verifies looks like.
+	Relay Relay
 	// MaxSuppressionHashes bounds one import.
 	MaxSuppressionHashes int
 	// Bands backs the operator's view of learned rates and the promotion of a
@@ -76,6 +79,10 @@ func NewRouter(opts Options) http.Handler {
 		}
 		mux.Handle("GET /admin/suppress", opts.Authenticated(handleSuppressStatus(opts.Suppression)))
 		mux.Handle("POST /admin/suppress", opts.Authenticated(handleSuppressImport(opts.Suppression, limit)))
+	}
+
+	if opts.Relay != nil {
+		mux.Handle("POST /send", opts.Authenticated(handleSend(opts.Relay)))
 	}
 
 	if opts.Bands != nil {

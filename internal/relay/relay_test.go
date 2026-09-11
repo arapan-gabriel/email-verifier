@@ -50,7 +50,7 @@ func (f fakeSuppression) Stale(context.Context) bool { return f.stale }
 
 type fakeHealth struct{ burned bool }
 
-func (f fakeHealth) Burned() bool { return f.burned }
+func (f fakeHealth) Burned() (bool, string) { return f.burned, "zen.spamhaus.org" }
 
 type dialerFunc func(ctx context.Context, network, address string) (net.Conn, error)
 

@@ -39,10 +39,10 @@ type (
 		Enforcing() bool
 		Stale(ctx context.Context) bool
 	}
-	// Health reports whether the sending IP is listed. A listing stops sending
-	// and leaves verification alone — see DeliverNext.
+	// Health reports whether the sending IP is listed, and why. A listing stops
+	// sending and leaves verification alone — see DeliverNext.
 	Health interface {
-		Burned() bool
+		Burned() (bool, string)
 	}
 	// Recorder counts what happened. Nil means nobody is counting.
 	Recorder interface {
@@ -143,8 +143,10 @@ func (r *Relay) DeliverNext(ctx context.Context) (bool, error) {
 	// questions rather than delivering, and stopping it would not improve our
 	// standing — but every message sent from a listed address makes the listing
 	// harder to shake.
-	if r.opts.Health != nil && r.opts.Health.Burned() {
-		return false, ErrNotSending
+	if r.opts.Health != nil {
+		if burned, reason := r.opts.Health.Burned(); burned {
+			return false, fmt.Errorf("%w: the sending IP is listed: %s", ErrNotSending, reason)
+		}
 	}
 
 	item, ok, err := r.opts.Queue.Next(ctx)

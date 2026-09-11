@@ -52,6 +52,8 @@ type Registry struct {
 	blocked  map[string]uint64  // reason
 	pauses   map[string]uint64  // mx host
 	listed   map[[2]string]bool // {ip, list} -> listed
+	sent     map[string]uint64  // relay delivery outcome (plan 014)
+	qDepth   [3]int             // relay queue: ready, later, dead
 	counts   []uint64           // duration histogram, one per bucket plus +Inf
 	sum      float64
 	observed uint64
@@ -68,6 +70,7 @@ func New(pacer Pacer) *Registry {
 		blocked: map[string]uint64{},
 		pauses:  map[string]uint64{},
 		listed:  map[[2]string]bool{},
+		sent:    map[string]uint64{},
 		counts:  make([]uint64, len(buckets)+1),
 		pacer:   pacer,
 	}
@@ -124,6 +127,26 @@ func (r *Registry) IPListed(ip, list string, listed bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.listed[[2]string{ip, list}] = listed
+}
+
+// Sent records one delivery attempt by outcome (plan 014).
+//
+// The outcomes are bounded and mean different things to an operator: delivered
+// and rejected are answers from a server, deferred is normal, and suppressed,
+// no_budget and no_mx are this service declining to send rather than anyone
+// refusing us.
+func (r *Registry) Sent(outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent[outcome]++
+}
+
+// QueueDepth reports what is waiting. A gauge, not a counter: the question is
+// whether anything is stuck now, and `dead` above zero always wants a person.
+func (r *Registry) QueueDepth(ready, later, dead int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.qDepth = [3]int{ready, later, dead}
 }
 
 // Observe records one request's end-to-end duration in seconds.
@@ -204,6 +227,19 @@ func (r *Registry) Render() string {
 	// if it climbs without limit the eviction has stopped working.
 	writeGauge(&b, "verify_tracked_mx", "MX hosts the pacer is currently holding state for.")
 	fmt.Fprintf(&b, "verify_tracked_mx %d\n", tracked)
+
+	if len(r.sent) > 0 || r.qDepth != [3]int{} {
+		fmt.Fprint(&b, "# HELP relay_sent_total Outbound delivery attempts by outcome.\n")
+		fmt.Fprint(&b, "# TYPE relay_sent_total counter\n")
+		for _, k := range slices.Sorted(maps.Keys(r.sent)) {
+			fmt.Fprintf(&b, "relay_sent_total{outcome=%q} %d\n", k, r.sent[k])
+		}
+		fmt.Fprint(&b, "# HELP relay_queue_depth Messages waiting, by state.\n")
+		fmt.Fprint(&b, "# TYPE relay_queue_depth gauge\n")
+		for i, state := range [3]string{"ready", "later", "dead"} {
+			fmt.Fprintf(&b, "relay_queue_depth{state=%q} %d\n", state, r.qDepth[i])
+		}
+	}
 
 	fmt.Fprint(&b, "# HELP verify_request_duration_seconds End-to-end POST /probe latency.\n")
 	fmt.Fprint(&b, "# TYPE verify_request_duration_seconds histogram\n")
