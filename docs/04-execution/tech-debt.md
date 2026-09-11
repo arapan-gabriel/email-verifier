@@ -5,6 +5,20 @@ later plan closes it.
 
 ## Open
 
+- **`TestConcurrentSessionsAreIsolated` is timing-flaky under load.** Seen once on 2026-09-11 during
+  a full `-race` run of all 15 packages — `connections leaked: 1 still active` — and not reproduced
+  in five isolated runs or three subsequent full ones. `internal/mxsim/smtp/server_test.go`, present
+  since the scaffold and untouched since.
+
+  The assertion reads an active-connection count immediately after closing, so a server goroutine
+  that has not yet finished decrementing looks like a leak. It is the test that is racy, not the
+  simulator.
+
+  **Worth fixing rather than tolerating:** a gate that fails for no reason is a gate people learn to
+  re-run instead of read, and this repository's whole argument for its checklists is that a red
+  result means something. The fix is to wait for the count to settle with a deadline rather than
+  sampling it once.
+
 - ~~**Invariant 7 has no counterpart in the code.**~~ **Resolved 2026-09-11, by rewording rather
   than by adding a class.** The invariant said a `250` on a catch-all *is* `risky`; the classifier
   has no `ClassRisky` and never had, and four documents named `risky` as a value this service
