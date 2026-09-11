@@ -47,9 +47,19 @@ func handleIPHealthResume(h HealthOverride) http.HandlerFunc {
 // The count is what pauses *sending* while verification continues: complaints
 // are about messages, and stopping the probe would not improve anything while
 // costing every customer their answers.
-func handleComplaint(h HealthOverride) http.HandlerFunc {
+func handleComplaint(h HealthOverride, m ComplaintRecorder) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		h.ObserveComplaint()
+		if m != nil {
+			m.Complaint()
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "recorded"})
 	}
+}
+
+// ComplaintRecorder counts complaints for the scrape. Nil means nobody is
+// counting; the pause still works, because what decides it lives in iphealth
+// where the timestamps are.
+type ComplaintRecorder interface {
+	Complaint()
 }

@@ -14,6 +14,9 @@ it directly — as this repository already does for RESP and for SMTP.
 |---|---|---|---|
 | `verify_results_total` | counter | `class` | one per address answered, by classification |
 | `verify_smtp_replies_total` | counter | `code`, `class` | one per reply actually read. **No `mx_host` label, deliberately** — it is the obvious next thought and it is wrong: the label would be unbounded by request input, which is the cardinality this file's per-MX gauges are carefully bounded against. The per-host record is the `smtp_reply` log line (plan 018) |
+| `relay_complaints_total` | counter | — | spam complaints reported by the caller (plan 015). A counter, not a gauge: the *rate* is what matters and a scraper computes that. What pauses sending is the count within a window, which lives where the timestamps are |
+| `relay_sent_total` | counter | `outcome` | delivery attempts: `delivered`, `rejected`, `deferred`, and this service's own refusals — `suppressed`, `no_budget`, `no_mx` |
+| `relay_queue_depth` | gauge | `state` | `ready`, `later`, `dead`. A gauge because the question is whether anything is stuck *now*, and `dead` above zero always wants a person |
 | `verify_probe_blocked_total` | counter | `reason` | probes declined: `guarded`, `no_budget`, `paused`, `policy_stop` |
 | `verify_pause_events_total` | counter | `mx_host` | the pacer standing an MX down at the floor of its band |
 | `verify_rate_per_sec` | gauge | `mx_host` | rate the AIMD loop has settled on |

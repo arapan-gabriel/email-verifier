@@ -47,16 +47,17 @@ type Pacer interface {
 type Registry struct {
 	mu sync.Mutex
 
-	results  map[string]uint64 // class
-	replies  map[[2]string]uint64
-	blocked  map[string]uint64  // reason
-	pauses   map[string]uint64  // mx host
-	listed   map[[2]string]bool // {ip, list} -> listed
-	sent     map[string]uint64  // relay delivery outcome (plan 014)
-	qDepth   [3]int             // relay queue: ready, later, dead
-	counts   []uint64           // duration histogram, one per bucket plus +Inf
-	sum      float64
-	observed uint64
+	results    map[string]uint64 // class
+	replies    map[[2]string]uint64
+	blocked    map[string]uint64  // reason
+	pauses     map[string]uint64  // mx host
+	listed     map[[2]string]bool // {ip, list} -> listed
+	sent       map[string]uint64  // relay delivery outcome (plan 014)
+	qDepth     [3]int             // relay queue: ready, later, dead
+	complaints uint64             // spam complaints reported by the caller (plan 015)
+	counts     []uint64           // duration histogram, one per bucket plus +Inf
+	sum        float64
+	observed   uint64
 
 	pacer Pacer
 }
@@ -139,6 +140,18 @@ func (r *Registry) Sent(outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sent[outcome]++
+}
+
+// Complaint records one spam complaint, reported by the caller — this service
+// never receives a feedback loop itself.
+//
+// A counter and not a gauge on purpose: the *rate* is what matters, and a rate
+// is something a scraper computes from a counter. What pauses sending is the
+// count within a window, which lives in iphealth where the timestamps are.
+func (r *Registry) Complaint() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.complaints++
 }
 
 // QueueDepth reports what is waiting. A gauge, not a counter: the question is
@@ -227,6 +240,12 @@ func (r *Registry) Render() string {
 	// if it climbs without limit the eviction has stopped working.
 	writeGauge(&b, "verify_tracked_mx", "MX hosts the pacer is currently holding state for.")
 	fmt.Fprintf(&b, "verify_tracked_mx %d\n", tracked)
+
+	if r.complaints > 0 {
+		fmt.Fprint(&b, "# HELP relay_complaints_total Spam complaints reported by the caller.\n")
+		fmt.Fprint(&b, "# TYPE relay_complaints_total counter\n")
+		fmt.Fprintf(&b, "relay_complaints_total %d\n", r.complaints)
+	}
 
 	if len(r.sent) > 0 || r.qDepth != [3]int{} {
 		fmt.Fprint(&b, "# HELP relay_sent_total Outbound delivery attempts by outcome.\n")

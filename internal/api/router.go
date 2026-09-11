@@ -70,7 +70,7 @@ func NewRouter(opts Options) http.Handler {
 	if opts.Health != nil {
 		mux.Handle("GET /admin/ip-health", opts.Authenticated(handleIPHealth(opts.Health)))
 		mux.Handle("POST /admin/ip-health/resume", opts.Authenticated(handleIPHealthResume(opts.Health)))
-		mux.Handle("POST /admin/ip-health/complaint", opts.Authenticated(handleComplaint(opts.Health)))
+		mux.Handle("POST /admin/ip-health/complaint", opts.Authenticated(handleComplaint(opts.Health, complaintRecorderOrNil(opts.Metrics))))
 	}
 
 	if opts.Suppression != nil {
@@ -110,4 +110,12 @@ func NewRouter(opts Options) http.Handler {
 		return mux
 	}
 	return withRequestID(opts.Logger, mux)
+}
+
+// complaintRecorderOrNil keeps a typed nil out of the handler's interface.
+func complaintRecorderOrNil(m Metrics) ComplaintRecorder {
+	if r, ok := m.(ComplaintRecorder); ok {
+		return r
+	}
+	return nil
 }

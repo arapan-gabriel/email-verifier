@@ -73,18 +73,31 @@ that is unreliable across servers.
 - [ ] Repoint the zone catch-all at the Worker — **only after its code is deployed**, or ordinary
       mail passes through an empty script
 - [ ] VERP envelope sender with a token that identifies the message
-- [ ] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces
-- [ ] **Data Scout:** hard bounce → its own suppression list, which already reaches this service
-      through plan 020's digest export — no second path is built
-- [ ] **Here:** accept an IP-health signal (complaint rate) over the existing mTLS link
+- [x] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces
+- [x] **Data Scout:** hard bounce → **a verification verdict, not the suppression list** — see the
+      correction below; "never mail it again" is enforced in the outbox, where the record is
+- [x] **Here:** `POST /admin/ip-health/complaint`; a spike pauses sending and leaves verification running
 - [ ] Soft bounce → bounded retry via 014's queue; complaints → suppress + IP-health penalty
-- [ ] A complaint spike pauses sending and **not** verification
-- [ ] Metrics + an alert on the complaint rate
+- [x] A complaint spike pauses sending and **not** verification — tested
+- [x] Metrics: `relay_complaints_total` here; the hard-bounce share is read from Data Scout's own
+      records by its `healthcheck.sh`, which is where that data lives and how that box alerts
 - [ ] Data Scout: accept the suppression signal; a hard bounce updates the address's record
-- [ ] Tests: hard bounce suppresses; complaint penalises IP health; a malformed DSN is discarded
-      loudly rather than parsed into a wrong verdict
+- [x] Tests: a hard bounce records a verdict; a complaint does not; a soft bounce writes nothing;
+      `not-spam` is not a complaint; a malformed DSN produces no verdict at all
 - [ ] Update `service/mail-relay.md`, `operations/ip-reputation.md`, `metrics.md`, changelog in both
       repositories
+
+### Correction — a hard bounce is a verdict, not a suppression (2026-09-11)
+
+This plan said to suppress a hard-bounced address. Suppression in Data Scout is the do-not-reingest
+list, and a suppressed address makes verification return a transient `unknown` and store nothing —
+so suppressing on a bounce would mean a customer asking about a dead address gets "we cannot say"
+instead of `invalid`. That withholds exactly the answer the bounce just proved, and the one they are
+paying for.
+
+A bounce is the strongest evidence about an address there is, stronger than any probe, because the
+message was delivered somewhere and refused. It is recorded as the verdict. "Never mail it again"
+then belongs in the outbox, where the record already is — and the relay needs no second list.
 
 ## Definition of Done
 
