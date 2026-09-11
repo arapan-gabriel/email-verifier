@@ -3,6 +3,58 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Phase C replanned, and a gap in how two plans were signed off
+
+Asked what it would take to finish 014 and 015. The answer was not a task list: **both were written
+against a world that no longer exists, and one of them assumed a piece of infrastructure that cannot
+simply be created.** Rewritten, plus a new plan for the prerequisite neither had noticed.
+
+**Plan 020 — turn on what is already built.** `ip_health` has never queried a blocklist and
+`suppress` has never refused an address. Both are in `completed/`, both show ✅ in the ROADMAP, and
+both are switched off in production: `ip_health.resolvers` is empty, `suppress.enabled` is false,
+and Redis holds two test hashes labelled `export-2026-08-28`. Neither design is wrong — they were
+deliberately opt-in, because a blocklist check through a resolver that cannot answer reports "clean"
+forever and a suppression list without its salt misses silently. Opt-in was right; **nobody opted
+in**, and the sign-offs did not ask.
+
+That is worth naming as a defect in how plans are closed, not just as two switches. A plan whose
+feature ships disabled should not be signed off until it is enabled, or until its DoD says in a task
+somebody trips over that it is deliberately dark and who turns it on. Both of these said so in prose
+and neither said it where it would be noticed. 014 and 015 will both have switches; their DoDs now
+carry that item.
+
+Turning `ip_health` on is not one line: the major zones **refuse queries from public resolvers**,
+which `preflight.sh` reports at every start — `zen.spamhaus.org: query refused (open/public
+resolver)` through `1.1.1.1`. So the node needs a local recursive resolver; `127.0.0.1:53` is free,
+`systemd-resolved` holding only `.53` and `.54`. The existing `SelfTest` is what makes this safe: it
+queries each zone's documented test point and refuses to enable unless it comes back *listed*.
+
+**Plan 014, rewritten.** Three facts it was written without. Data Scout already has a durable
+`email_outbox`, a drain and a provider seam — and production sends password resets from a **personal
+Gmail address** today, which is a better argument for this plan than anything the original text had.
+Its two safety checks (suppression, IP health) are the switches 020 turns on, so 020 is now a hard
+dependency rather than a footnote. And the interface is a real decision: `POST /send` against an
+authenticated SMTP submitter on `:587`. **Recommended `POST /send`** — the second looks cheaper and
+is not, because it means an inbound mail listener on a host whose operations doc says nothing may
+listen for mail, and duplicates an mTLS boundary and firewall rule that already exist.
+
+**Plan 015, rewritten, and this is the one that was unbuildable.** It said "a return-path/VERP
+mailbox or webhook the relay controls" as though such a thing existed. It does not: this host must
+not receive mail, and `datascoutmail.com` is *forwarded* by Cloudflare Email Routing rather than
+stored anywhere readable. Three options are now weighed — an Email Worker posting to `POST /bounce`
+(recommended), a polled IMAP mailbox, or an inbound MTA on a different host — with VERP so a bounce
+identifies its message without parsing the body.
+
+**The dependency arrow between 014 and 015 points both ways**, which is why the original pair could
+not be built in their stated order. 015 needs 014 to send; 014 needs 015's decision to know what
+address to send *from*, and the envelope sender cannot be changed cleanly afterwards — mail already
+in flight bounces to an address nobody reads. The resolution is written into both: **decide the
+return path first, build 014, then build 015.**
+
+Nothing is built yet. `internal/relay` does not exist, and `service/mail-relay.md` is an eight-line
+stub. What changed today is that the next person to open these plans will not discover halfway
+through that the mailbox they were told to use cannot exist.
+
 ## 2026-09-10 — Plan 017: the caller carries its own ceiling, within a bound we keep
 
 Option 1, chosen and shipped. `POST /probe` takes an optional `policy_stop`, clamped to
