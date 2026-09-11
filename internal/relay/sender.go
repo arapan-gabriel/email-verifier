@@ -224,4 +224,3 @@ func readFullReply(r *bufio.Reader) (int, string, error) {
 		return code, strings.Join(all, "\n"), nil
 	}
 }
-
