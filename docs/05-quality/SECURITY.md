@@ -56,13 +56,15 @@ highest-severity class here.
   `EnvironmentFile` — never in the unit, never in the repo (invariant 10).
 - **Two protections are switched off on the node, by configuration, and that is visible in the
   startup log rather than hidden:**
-  - *Blocklist self-monitoring* (invariant-adjacent, plan 010) is off because no DNSBL-capable
-    resolver is configured. The host's stub cannot answer DNSBL queries and the major zones refuse
-    public resolvers, so turning it on needs a local recursive resolver. Until then the node will
-    not notice its own listing.
-  - *The local suppression copy* (invariant 9) is off, so Data Scout's list is the only one. That
-    matches the design — this was always the second line, and the authoritative check runs three
-    times upstream — but the second line is not currently there.
+  - *Blocklist self-monitoring* (plan 010) — **live since 2026-09-11** (plan 020), through `unbound`
+    on `127.0.0.1:53`. It had to be local: the major zones refuse public resolvers, and one pointed
+    at `1.1.1.1` answers `127.255.255.254`, the "query refused" sentinel, where a local recursive
+    resolver answers `127.0.0.10` for the same test point. A checker on a public resolver would have
+    reported *not listed* forever — including about an address that was listed.
+  - *The local suppression copy* (invariant 9) — **live since 2026-09-11**. Data Scout exports
+    digests hourly and directly on an erasure request; a match refuses the probe before a socket
+    opens, with `accepted: null` rather than `false`, because a suppressed address is one we are
+    forbidden to ask about and not one that failed.
 - **What a deploy credential can and cannot reach** (plan 016). `deploy` is key-only, has no
   password, and `sudo -l` shows exactly one permitted command: a root-owned, argument-less script.
   It **cannot** read `/etc/verifierd/tls/ca.key`, **cannot** read or write `/etc/verifierd/env`, and

@@ -88,7 +88,12 @@ ip_health:
 # A stale or unreadable copy is loud, not fatal, on the verify path. Phase C
 # relay fails closed instead: sending is irreversible and has no upstream check.
 suppress:
-  enabled: false
+  # Turns a match into a refusal. The list is built and importable whenever a
+  # salt is set, regardless of this flag — those are different questions, and
+  # tying them together once made the first export impossible: the import
+  # endpoint exists only when the list object does, and the object existed only
+  # when enforcement was already on, against a list nobody had pushed yet.
+  enabled: true
   # salt: set via VERIFIERD_SUPPRESS_SALT, never in this file. Both sides must
   # use the same value; an empty one would silently make every lookup miss,
   # which is why enabling without it refuses to boot.

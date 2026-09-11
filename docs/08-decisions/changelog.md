@@ -3,6 +3,46 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Plan 020: both protections are live, and enabling one proved it could not be
+
+`ip_health` had never queried a blocklist and `suppress` had never refused an address. Both now do.
+
+**010.** `unbound` on `127.0.0.1:53`, localhost-only; `systemd-resolved` keeps `.53`/`.54` and the
+host's own resolution never moved. The measurement that justifies the exercise, same query, two
+resolvers: `zen.spamhaus.org`'s documented test point answers `127.255.255.254` through `1.1.1.1` —
+the "query refused, open resolver" sentinel — and `127.0.0.10` through a local recursive resolver. A
+service pointed at a public one would have answered *not listed* to every question forever,
+including about an address that was listed. This node is clean on all three zones as of today.
+
+**011, and the part worth writing down.** The first real export came back **404**.
+`POST /admin/suppress` is registered only when the list object exists, and the list object was built
+only when `suppress.enabled` was true — so a list could not be loaded without first switching on
+enforcement, **against a list nobody had pushed**, which is exactly what plan 011 warned not to do.
+Neither side showed that by reading; it took trying to use it.
+
+One method was answering two questions. `Enabled()` meant "salt and store are configured" to
+`Import` and `Status`, and "refuse probes" to the prober. Now `Enabled()` is *configured*,
+`Enforcing()` is *configured and switched on*, the list is built whenever a salt is set, and the
+node can be in the state it previously could not express: `suppression list loadable but not
+enforced`. That state is not a nicety — it is the whole interval between an endpoint existing and a
+real list having been checked, and the design had no room for it.
+
+Then, in order: the first export landed as `export-2026-09-11T12:06:19Z` with 0 entries and **the
+two August test hashes gone** — `mode: replace` doing the job it exists for; enforcement on; a live
+address probed and answered `550`; its digest imported; the same address answered
+**`class=suppressed`, `connected=false`, `accepted=null`, no socket opened**; the authoritative list
+re-pushed, the test digest evicted, the address probing normally again.
+
+`accepted: null` rather than `false` is the part to keep. A suppressed address is one we are
+forbidden to ask about, not one that failed — conflating them would let an erasure request turn into
+a deliverability verdict.
+
+**The lesson this plan was written about, restated because it recurred inside the plan itself.** 010
+and 011 shipped disabled and their sign-offs did not ask whether anyone would enable them. Enabling
+011 then found a defect that only existed in the disabled-to-enabled transition — the path nobody
+had walked because nobody had been asked to. A feature that ships off is not finished; it is
+untested in the one state that matters most, the first time somebody turns it on.
+
 ## 2026-09-11 — Phase C replanned, and a gap in how two plans were signed off
 
 Asked what it would take to finish 014 and 015. The answer was not a task list: **both were written

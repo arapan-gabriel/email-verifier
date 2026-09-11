@@ -240,3 +240,39 @@ func TestDisabledWithoutSaltOrStore(t *testing.T) {
 		})
 	}
 }
+
+// A list must be loadable before it refuses anything. Tying the two together is
+// what made the first export impossible: `POST /admin/suppress` exists only when
+// the list object does, the object existed only when enforcement was on, and
+// enforcement against a list nobody had pushed is what plan 011 warned against.
+func TestALoadableListDoesNotYetRefuse(t *testing.T) {
+	store := newStore()
+	l := New(Options{Salt: "pepper", Store: store}) // Enforce not set
+
+	if !l.Enabled() {
+		t.Fatal("a salted list with a store must be configured, so it can be imported into")
+	}
+	if l.Enforcing() {
+		t.Fatal("it must not refuse anything until an operator turns enforcement on")
+	}
+
+	if err := l.Import(t.Context(), "v1", []string{Hash("pepper", "someone@example.com")}, true); err != nil {
+		t.Fatalf("Import into a loadable list: %v", err)
+	}
+	if st := l.Status(t.Context()); st.Version != "v1" || st.Size != 1 {
+		t.Fatalf("Status = %+v, want the imported list to be visible", st)
+	}
+}
+
+func TestEnforcingNeedsBothConfigurationAndTheSwitch(t *testing.T) {
+	store := newStore()
+	if New(Options{Store: store, Enforce: true}).Enforcing() {
+		t.Error("no salt: every lookup would miss in silence, so it must not enforce")
+	}
+	if New(Options{Salt: "pepper", Enforce: true}).Enforcing() {
+		t.Error("no store: nothing to check against")
+	}
+	if !New(Options{Salt: "pepper", Store: store, Enforce: true}).Enforcing() {
+		t.Error("salt, store and the switch: this is the enforcing state")
+	}
+}

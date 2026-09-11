@@ -117,13 +117,28 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			"answer DNSBL queries (the host's stub cannot)")
 	}
 
+	// Built whenever a salt is configured, not only when enforcement is on.
+	// Those are different questions, and tying the list's existence to
+	// enforcement made it impossible to load: `POST /admin/suppress` is
+	// registered only when this is non-nil, so the first export had nowhere to
+	// go until enforcement was already running — against a list nobody had
+	// pushed, which is precisely what plan 011 warned against.
 	var suppression *suppress.List
-	if cfg.Suppress.Enabled {
+	if cfg.Suppress.Salt != "" {
 		suppression = suppress.New(suppress.Options{
-			Salt: cfg.Suppress.Salt, Stale: cfg.Suppress.Stale, Store: store,
+			Salt:    cfg.Suppress.Salt,
+			Stale:   cfg.Suppress.Stale,
+			Store:   store,
+			Enforce: cfg.Suppress.Enabled,
 		})
 		st := suppression.Status(ctx)
-		logger.Info("suppression check enabled", "entries", st.Size, "version", st.Version, "stale", st.Stale)
+		if cfg.Suppress.Enabled {
+			logger.Info("suppression check enforced",
+				"entries", st.Size, "version", st.Version, "stale", st.Stale)
+		} else {
+			logger.Info("suppression list loadable but not enforced — set suppress.enabled once a real export has landed",
+				"entries", st.Size, "version", st.Version)
+		}
 	} else {
 		logger.Info("local suppression check is off — Data Scout's is the only one")
 	}

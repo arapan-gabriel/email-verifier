@@ -1,6 +1,6 @@
 # Plan 020 — turn-on-ip-health-and-suppression
 
-**Status:** Active
+**Status:** Complete (2026-09-11)
 **Phase:** B
 **Depends on:** 010, 011, 013 — all Complete, which is the problem
 **Blocks:** 014 (the relay checks both before every send)
@@ -98,30 +98,29 @@ implement it, and this plan is what gives it something to be stale *about*.
       demonstrated by pointing the service's `source_ip` at a listed address: that burns a node
       serving a live warm-up to show what the startup gate already shows
 - [x] The node's own IP against every zone — recorded in Results
-- [x] `VERIFIERD_SUPPRESS_SALT` generated and installed on the node (`640 root:verifierd`).
-      **The Data Scout half needs a GitHub secret** — see Residuals
+- [x] `VERIFIERD_SUPPRESS_SALT` on the node, the same value as Data Scout's secret
 - [x] Data Scout: `app/services/suppression_export.py` + `app/tasks/suppression_tasks.py` —
       hourly by beat, and a direct dispatch from both purge endpoints; always `mode: replace`;
       digests only. `deploy.yml` carries the salt
-- [ ] Node: `suppress.enabled: true` — **waiting on a real list**, see Residuals
-- [ ] A digest that is present refuses a probe before a socket opens — waiting on the same
-- [ ] Update `operations/ip-reputation.md`, `SECURITY.md`, `redis-contract.md` if the import shape
+- [x] Node: `suppress.enabled: true`, after the first real export landed — not before
+- [x] A digest that is present refuses a probe before a socket opens — verified live
+- [x] Update `operations/ip-reputation.md`, `SECURITY.md`, `redis-contract.md` if the import shape
       changes, changelog in both repositories
-- [ ] ROADMAP: 010 and 011 rows say *live*, not merely *done*
+- [x] ROADMAP: 010 and 011 rows say *live*, not merely *done*
 
 ## Definition of Done
 
-- [ ] Startup logs neither "blocklist checking is off" nor "local suppression check is off"
-- [ ] `SelfTest` passes, and a deliberately listed address is reported **listed** — the check has
+- [x] Startup logs neither "blocklist checking is off" nor "local suppression check is off"
+- [x] `SelfTest` passes, and a deliberately listed address is reported **listed** — the check has
       been seen to fire, not only to stay quiet
-- [ ] The node's own IP is confirmed against every configured zone, recorded with the date
-- [ ] Redis holds a suppression list with a version from a real export, and `Status()` reports it
+- [x] The node's own IP is confirmed against every configured zone, recorded with the date
+- [x] Redis holds a suppression list with a version from a real export, and `Status()` reports it
       fresh
-- [ ] A suppressed digest is refused **before any socket opens**, shown live
-- [ ] A stale list is loud on the verify path and does not silently pass — asserted
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
-- [ ] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` rows updated
+- [x] A suppressed digest is refused **before any socket opens**, shown live
+- [x] A stale list is loud on the verify path and does not silently pass — asserted
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
+- [x] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` rows updated
 
 ## Results (2026-09-11)
 
@@ -181,17 +180,34 @@ suppression check that answers "not suppressed" for everyone is indistinguishabl
 working. It is flipped after the first real export lands, not before — which is the same mistake
 this plan exists to fix, so it is not going to be made again inside it.
 
-## Residuals — one secret and one deploy
+### 011 — live, after the design flaw that made it impossible
 
-| Task | Who |
+The first real export returned **404**. `POST /admin/suppress` is registered only when the list
+object exists, and the list object was built only when `suppress.enabled` was true — so a list could
+not be loaded without first switching on enforcement, **against a list nobody had pushed**, which is
+exactly what this plan said not to do. Neither side could have shown that by reading; it took trying
+to use it.
+
+The cause was one method answering two questions. `Enabled()` meant "salt and store are configured"
+to `Import` and `Status`, and "refuse probes" to the prober. They are separate now: `Enabled()` is
+still *configured*, `Enforcing()` is *configured and switched on*, the list is built whenever a salt
+is set, and the node can finally be in the state it could not previously express —
+`suppression list loadable but not enforced`.
+
+Then, in order:
+
+| step | result |
 |---|---|
-| `APP_VERIFY_PROBE_SUPPRESS_SALT` as a GitHub secret, the **same value** as on the node | repository owner — read it with `ssh probe1 'sudo grep VERIFIERD_SUPPRESS_SALT /etc/verifierd/env'` |
-| Deploy Data Scout so beat picks up `suppression.push` | repository owner |
-| Then `suppress.enabled: true` here, and verify a suppressed digest is refused **before any socket** | either |
+| first real export | `export-2026-09-11T12:06:19Z`, 0 entries — and the two August test hashes **gone**, `mode: replace` doing the job it exists for |
+| `suppress.enabled: true` | `suppression check enforced entries=0 version=export-…` |
+| probe a live address | `class=invalid`, `550` — a real session happened |
+| add its digest via `POST /admin/suppress` | `200` |
+| probe it again | **`class=suppressed`, `connected=false`, `accepted=null`** — no socket opened, and the address is *not* condemned |
+| re-push the authoritative list | back to 0, the test digest evicted, the address probes normally again |
 
-Until then the verifier's second line is off and Data Scout's authoritative check — three times
-before any probe is requested — is the only one, which is the documented design rather than a
-degradation.
+`accepted: null` rather than `false` is the part worth keeping: a suppressed address is one we are
+forbidden to ask about, not one that failed. Conflating those would let an erasure request turn into
+a deliverability verdict.
 
 ## Notes / decisions / deviations
 

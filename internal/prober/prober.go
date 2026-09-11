@@ -43,7 +43,10 @@ type Health interface {
 // because Data Scout has already checked the authoritative copy.
 type Suppression interface {
 	Suppressed(ctx context.Context, email string) (bool, string, error)
-	Enabled() bool
+	// Enforcing, not Enabled: a list can be configured and loaded without yet
+	// refusing anything, which is the state a node is in until its first real
+	// export has been checked.
+	Enforcing() bool
 }
 
 // Recorder counts what happened. Nil means nobody is counting; the prober
@@ -348,7 +351,7 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 	// Refuse the forgotten before anything else — before the guard, before the
 	// budget, before a socket could exist (invariant 9).
 	emails := req.Emails
-	if p.opts.Suppress != nil && p.opts.Suppress.Enabled() {
+	if p.opts.Suppress != nil && p.opts.Suppress.Enforcing() {
 		var allowed []string
 		for _, addr := range emails {
 			hit, reason, err := p.opts.Suppress.Suppressed(ctx, addr)

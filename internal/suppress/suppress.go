@@ -41,6 +41,11 @@ const (
 
 // Options configures a List.
 type Options struct {
+	// Enforce turns a match into a refusal. Without it the list is maintained
+	// and visible but stops nothing — the state a node is in between "the
+	// endpoint exists" and "the first real export has been checked".
+	Enforce bool
+
 	// Salt makes the digests specific to this deployment, so a stored hash
 	// cannot be matched against a rainbow table of common addresses. Both sides
 	// must use the same one.
@@ -64,9 +69,24 @@ func New(opts Options) *List {
 	return &List{opts: opts}
 }
 
-// Enabled reports whether checking will happen at all.
+// Enabled reports whether the list is **configured** — a salt and a store — and
+// therefore whether it can be imported into and reported on.
+//
+// It deliberately does not mean "probes are being refused". Those are two
+// questions and conflating them made the list impossible to load: the import
+// endpoint existed only once enforcement was on, and enforcement against a list
+// nobody had pushed yet is exactly what plan 011 warned not to do. A check that
+// answers "not suppressed" for everyone is indistinguishable from one that
+// works.
 func (l *List) Enabled() bool {
 	return l != nil && l.opts.Salt != "" && l.opts.Store != nil
+}
+
+// Enforcing reports whether a match should stop a probe. Configured *and*
+// switched on by the operator, so a list can be loaded, inspected and verified
+// before it starts refusing anything.
+func (l *List) Enforcing() bool {
+	return l.Enabled() && l.opts.Enforce
 }
 
 // Hash is the digest both sides compute. Exported because Data Scout has to

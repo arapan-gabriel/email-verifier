@@ -851,7 +851,7 @@ type fakeSuppression struct {
 	on   bool
 }
 
-func (f *fakeSuppression) Enabled() bool { return f.on }
+func (f *fakeSuppression) Enforcing() bool { return f.on }
 func (f *fakeSuppression) Suppressed(_ context.Context, email string) (bool, string, error) {
 	if f.err != nil {
 		return false, "", f.err
