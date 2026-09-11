@@ -113,6 +113,11 @@ Both sides deployed and exercised against production, not a fixture.
 
 The test address was removed afterwards; nothing of it is left in the verdict table.
 
+**And the risk the catch-all switch actually carried was checked**: mail to `postmaster@` still
+arrives. That address is where DMARC `rua` reports land, and it now passes through a script that
+sits in front of the whole domain's mail — which is why the Worker forwards by default and forwards
+on every internal error. Confirmed working after the switch.
+
 **What this does not yet prove** is the half that needs a real message: a bounce produced by
 actually sending to a dead address, arriving through Cloudflare's Worker rather than through `curl`.
 That is the manual gate, and it waits on the warm-up ladder like 014's does.
