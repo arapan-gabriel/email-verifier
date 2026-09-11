@@ -69,11 +69,11 @@ that is unreliable across servers.
 
 - [x] **Return path decided** — Cloudflare Email Worker, ingest at **Data Scout** (2026-09-11)
 - [x] MX and SPF for `bounces.datascoutmail.com` — done 2026-09-11
-- [ ] The Worker: `bounces+…` to `POST /bounce`, **everything else forwarded**, forward on error too
-- [ ] Repoint the zone catch-all at the Worker — **only after its code is deployed**, or ordinary
-      mail passes through an empty script
+- [x] The Worker: `bounces+…` to `POST /bounce`, **everything else forwarded**, forward on error too
+- [x] Zone catch-all repointed at the Worker, after its code was deployed
 - [ ] VERP envelope sender with a token that identifies the message
-- [x] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces
+- [x] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces —
+      **live and proven in production 2026-09-11**, see Results
 - [x] **Data Scout:** hard bounce → **a verification verdict, not the suppression list** — see the
       correction below; "never mail it again" is enforced in the outbox, where the record is
 - [x] **Here:** `POST /admin/ip-health/complaint`; a spike pauses sending and leaves verification running
@@ -98,6 +98,24 @@ paying for.
 A bounce is the strongest evidence about an address there is, stronger than any probe, because the
 message was delivered somewhere and refused. It is recorded as the verdict. "Never mail it again"
 then belongs in the outbox, where the record already is — and the relay needs no second list.
+
+## Results (2026-09-11) — the path is live end to end
+
+Both sides deployed and exercised against production, not a fixture.
+
+| check | result |
+|---|---|
+| `POST /bounce` with no token | `401` |
+| with a wrong token | `401` |
+| with the right token, unreadable report | `204` — accepted and logged, because the Worker's only alternative is mail in a human inbox |
+| with a **real DSN** | `204`, and the row appeared: `invalid / bounce / score 0 / 5.1.1 / bounced=true / "smtp; 550 5.1.1 User unknown"` |
+| verifier `POST /admin/ip-health/complaint` | `200`, and `relay_complaints_total 1` in the scrape |
+
+The test address was removed afterwards; nothing of it is left in the verdict table.
+
+**What this does not yet prove** is the half that needs a real message: a bounce produced by
+actually sending to a dead address, arriving through Cloudflare's Worker rather than through `curl`.
+That is the manual gate, and it waits on the warm-up ladder like 014's does.
 
 ## Definition of Done
 
