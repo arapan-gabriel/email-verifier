@@ -3,6 +3,32 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — The node survives a reboot, and one unit was failing quietly
+
+It had run two weeks without one. Everything was `enabled` and nothing had been *seen* to come back
+— which is not the same claim, and the difference is usually discovered at the worst moment. So it
+was rebooted deliberately, while the box was idle and the ladder between batches, rather than during
+day five.
+
+Everything returned: `unbound`, `verifierd`, the `nftables` ruleset with the caller's rule, the
+Redis socket with its permissions, and the suppression list with its version — AOF did its job.
+Blocklist checking re-enabled itself, which means `SelfTest` queried Spamhaus's test point through
+the local resolver again after the boot and got a listing. A live probe answered `550 5.1.1` from
+Gmail and `:8443` was reachable from the caller.
+
+**One unit was failing, and finding it was the point.** `unbound-resolvconf.service` ships enabled
+with the package and tries to make `unbound` the *system* resolver — precisely what this host must
+not do, since `systemd-resolved` owns that and `unbound` exists to answer one process on
+`127.0.0.1`. It failed harmlessly and left DNS alone, but a permanently-failed unit is noise, and
+noise is how a box teaches people to stop reading `systemctl --failed`. Masked; zero failed units
+now.
+
+Also fixed today, in the other repository: the health check that watches the Pi runs from a
+directory a deploy does not update, so it had been executing a script from 20 August. The two checks
+added this morning — the probe IP's standing and the inconclusive rate — existed only in git and had
+never run. That is the same shape as the two protections plan 020 found switched off: something
+written, committed, and never confirmed to be doing anything.
+
 ## 2026-09-11 — Plan 014: the relay is built, and deliberately switched off
 
 `internal/relay` assembles, signs, queues and sends. `POST /send` exists only when `relay.enabled`

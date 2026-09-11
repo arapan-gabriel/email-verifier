@@ -122,6 +122,30 @@ who may reach it is not yet settled: the caller is a Pi on the consumer line who
 so its address is probably dynamic, and an allow-rule pinned to it would fail silently the day it
 rotates.
 
+## It survives a reboot — checked, not assumed (2026-09-11)
+
+The node ran two weeks without one, so everything on it was `enabled` and nothing had been *seen*
+to come back. Rebooted deliberately while the box was idle, rather than discovering it mid-ladder:
+
+| | after |
+|---|---|
+| `unbound` on `127.0.0.1:53`, `verifierd` on `:8443` | both back |
+| `nftables` — `policy drop`, the caller's rule | intact, and persisted from `/etc/nftables.conf` |
+| Redis socket `660 redis:redis`, AOF | back, and the suppression list survived with its version |
+| blocklist checking | **re-enabled**, meaning `SelfTest` passed again through the local resolver |
+| a live probe, and reachability from the caller | `550 5.1.1` from Gmail; `:8443` open from the Pi |
+
+The rule count in `nft list ruleset` drops after a boot, which is not a loss: the empty legacy
+`ip`/`ip6` compatibility tables are not recreated until something touches `iptables`. The `inet
+filter` chain that does the work is identical.
+
+**One thing did fail, and it was the right thing to find.** `unbound-resolvconf.service` came
+enabled with the package and tries to register `unbound` as the *system* resolver — exactly what
+this host must not do, since `systemd-resolved` owns that and `unbound` answers only us on
+`127.0.0.1`. It failed harmlessly (`Link lo is loopback device`) and left DNS untouched, but a
+permanently-failed unit is noise that teaches people to ignore failed units. Now masked; the box
+reports zero failed units.
+
 ## Traps found doing this for real, all silent
 
 - **A proxied `mail.` record breaks FCrDNS.** Cloudflare defaults new A records to proxied, which
