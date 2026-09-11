@@ -1,6 +1,6 @@
 # Plan 015 — relay-bounce-handling
 
-**Status:** Planned — **rewritten 2026-09-11**; the return path is an open decision, see below
+**Status:** Active — **rewritten 2026-09-11**; the return path is decided and the ingest is built
 **Phase:** C
 **Depends on:** 014, **020** (010 and 011 are Complete but dark)
 **Blocks 014's first production message:** 014 sends *from* the address this plan must be able to
