@@ -14,6 +14,10 @@ import (
 type HealthOverride interface {
 	Burned() (bool, string)
 	Resume(ctx context.Context)
+	// ObserveComplaint records that a recipient marked our mail as spam.
+	// Reported by Data Scout, which receives the feedback loop (its plan 015) —
+	// this service never sees a complaint itself.
+	ObserveComplaint()
 }
 
 type ipHealthResponse struct {
@@ -35,5 +39,17 @@ func handleIPHealthResume(h HealthOverride) http.HandlerFunc {
 		h.Resume(r.Context())
 		burned, reason := h.Burned()
 		writeJSON(w, http.StatusOK, ipHealthResponse{Burned: burned, Reason: reason})
+	}
+}
+
+// handleComplaint records one spam complaint.
+//
+// The count is what pauses *sending* while verification continues: complaints
+// are about messages, and stopping the probe would not improve anything while
+// costing every customer their answers.
+func handleComplaint(h HealthOverride) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		h.ObserveComplaint()
+		writeJSON(w, http.StatusOK, map[string]string{"status": "recorded"})
 	}
 }

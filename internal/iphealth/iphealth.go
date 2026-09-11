@@ -67,6 +67,12 @@ type Options struct {
 	Interval time.Duration
 	Store    Store
 	Metrics  Recorder
+	// ComplaintWindow and ComplaintThreshold decide when spam complaints pause
+	// *sending* (plan 015). A zero threshold disables the pause: a node with no
+	// relay has no complaints to count, and a threshold nobody chose should not
+	// stop mail on its own.
+	ComplaintWindow    time.Duration
+	ComplaintThreshold int
 }
 
 // Health tracks the sending IP's standing. Safe for concurrent use.
@@ -81,6 +87,10 @@ type Health struct {
 	// policyHosts are the distinct MX hosts that have refused our client
 	// recently. One is that host's opinion; several is a signal about the IP.
 	policyHosts map[string]time.Time
+	// complaints are when someone marked our mail as spam (plan 015). Kept as
+	// timestamps rather than a count so the rate can be read over a window: a
+	// complaint from last month says nothing about today.
+	complaints []time.Time
 }
 
 // New returns a Health. It performs no I/O.
@@ -136,6 +146,60 @@ func (h *Health) ObservePolicy(mxHost string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.policyHosts[mxHost] = time.Now()
+}
+
+// ObserveComplaint records that a recipient marked our mail as spam.
+//
+// A complaint is worth far more attention than a bounce. A bounce says an
+// address is wrong; a complaint says a person who could receive our mail did
+// not want it, and complaint rate is the number that gets a sending IP blocked
+// — usually before anything else shows it.
+func (h *Health) ObserveComplaint() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.complaints = append(h.complaints, time.Now())
+}
+
+// Complaints reports how many arrived within the window.
+func (h *Health) Complaints(window time.Duration) int {
+	if h == nil {
+		return 0
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cutoff := time.Now().Add(-window)
+	kept := h.complaints[:0]
+	for _, at := range h.complaints {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	h.complaints = kept
+	return len(kept)
+}
+
+// SendingPaused reports whether outbound mail should stop while verification
+// continues.
+//
+// The two legs are deliberately not the same switch. A blocklist entry stops
+// both — it is about the address itself. A complaint spike stops only sending:
+// the complaints are about *messages*, and pausing verification would not
+// improve anything while costing every customer their answers.
+func (h *Health) SendingPaused() (bool, string) {
+	if h == nil || h.opts.ComplaintThreshold <= 0 {
+		return false, ""
+	}
+	window := h.opts.ComplaintWindow
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	if n := h.Complaints(window); n >= h.opts.ComplaintThreshold {
+		return true, fmt.Sprintf("%d spam complaints in the last %s", n, window)
+	}
+	return false, ""
 }
 
 // PolicyHosts reports how many distinct MX hosts have refused our client within

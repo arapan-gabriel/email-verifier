@@ -29,6 +29,7 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 |---|---|---|
 | POST | `/probe` | 001 — **live** |
 | POST | `/send` | 014 — built, **route absent unless `relay.enabled`** |
+| POST | `/admin/ip-health/complaint` | 015 — one spam complaint, reported by the caller |
 
 ```jsonc
 // request

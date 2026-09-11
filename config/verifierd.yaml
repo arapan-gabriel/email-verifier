@@ -78,6 +78,12 @@ ip_health:
   zones: []          # empty = the defaults above
   interval: 15m
   timeout: 5s
+  # When spam complaints pause *sending* while verification keeps running
+  # (plan 015). Complaints are about messages: stopping the probe would not
+  # improve anything and would cost every customer their answers. Zero disables
+  # it, which is right for a node with no relay — and the shipped node has none.
+  complaint_window: 24h
+  complaint_threshold: 0
 
 # Data Scout owns the suppression list and checks it three times before calling
 # here, so this is a second line rather than the control. It stores **no

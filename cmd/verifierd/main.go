@@ -90,12 +90,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	reg.SetPacer(pace)
 
 	health := iphealth.New(iphealth.Options{
-		IP:       cfg.Probe.SourceIP,
-		Zones:    cfg.IPHealth.Zones,
-		Lookup:   dnsblLookup(cfg.IPHealth),
-		Interval: cfg.IPHealth.Interval,
-		Store:    store,
-		Metrics:  reg,
+		IP:                 cfg.Probe.SourceIP,
+		Zones:              cfg.IPHealth.Zones,
+		Lookup:             dnsblLookup(cfg.IPHealth),
+		Interval:           cfg.IPHealth.Interval,
+		Store:              store,
+		Metrics:            reg,
+		ComplaintWindow:    cfg.IPHealth.ComplaintWindow,
+		ComplaintThreshold: cfg.IPHealth.ComplaintThreshold,
 	})
 	if health.Enabled() {
 		if err := health.SelfTest(ctx); err != nil {

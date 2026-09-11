@@ -39,10 +39,15 @@ type (
 		Enforcing() bool
 		Stale(ctx context.Context) bool
 	}
-	// Health reports whether the sending IP is listed, and why. A listing stops
-	// sending and leaves verification alone — see DeliverNext.
+	// Health reports whether this IP may send at all, and why not.
+	//
+	// Two different questions behind one interface. A blocklist entry stops
+	// both legs — it is about the address itself. A complaint spike stops only
+	// sending: complaints are about *messages*, and pausing verification would
+	// not improve anything while costing every customer their answers.
 	Health interface {
 		Burned() (bool, string)
+		SendingPaused() (bool, string)
 	}
 	// Recorder counts what happened. Nil means nobody is counting.
 	Recorder interface {
@@ -146,6 +151,9 @@ func (r *Relay) DeliverNext(ctx context.Context) (bool, error) {
 	if r.opts.Health != nil {
 		if burned, reason := r.opts.Health.Burned(); burned {
 			return false, fmt.Errorf("%w: the sending IP is listed: %s", ErrNotSending, reason)
+		}
+		if paused, reason := r.opts.Health.SendingPaused(); paused {
+			return false, fmt.Errorf("%w: %s", ErrNotSending, reason)
 		}
 	}
 

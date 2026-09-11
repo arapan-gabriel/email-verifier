@@ -70,6 +70,7 @@ func NewRouter(opts Options) http.Handler {
 	if opts.Health != nil {
 		mux.Handle("GET /admin/ip-health", opts.Authenticated(handleIPHealth(opts.Health)))
 		mux.Handle("POST /admin/ip-health/resume", opts.Authenticated(handleIPHealthResume(opts.Health)))
+		mux.Handle("POST /admin/ip-health/complaint", opts.Authenticated(handleComplaint(opts.Health)))
 	}
 
 	if opts.Suppression != nil {

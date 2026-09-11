@@ -48,9 +48,15 @@ func (f fakeSuppression) Suppressed(context.Context, string) (bool, string, erro
 func (f fakeSuppression) Enforcing() bool            { return f.enforcing }
 func (f fakeSuppression) Stale(context.Context) bool { return f.stale }
 
-type fakeHealth struct{ burned bool }
+type fakeHealth struct {
+	burned bool
+	paused bool
+}
 
 func (f fakeHealth) Burned() (bool, string) { return f.burned, "zen.spamhaus.org" }
+func (f fakeHealth) SendingPaused() (bool, string) {
+	return f.paused, "7 spam complaints in the last 24h"
+}
 
 type dialerFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
@@ -237,5 +243,22 @@ func TestNoBudgetDefersRatherThanSends(t *testing.T) {
 	}
 	if dialled {
 		t.Fatal("a socket was opened without a budget")
+	}
+}
+
+// A complaint spike stops sending and leaves verification running. Complaints
+// are about messages; pausing the probe would not improve anything and would
+// cost every customer their answers.
+func TestAComplaintSpikePausesSendingOnly(t *testing.T) {
+	r, _ := testRelay(t, Options{Health: fakeHealth{paused: true}})
+	if _, err := r.Accept(t.Context(), aMessage()); err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	_, err := r.DeliverNext(t.Context())
+	if !errors.Is(err, ErrNotSending) {
+		t.Fatalf("DeliverNext = %v, want ErrNotSending", err)
+	}
+	if !strings.Contains(err.Error(), "complaints") {
+		t.Errorf("the reason does not say why: %v", err)
 	}
 }

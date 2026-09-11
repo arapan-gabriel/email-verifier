@@ -109,6 +109,11 @@ type IPHealth struct {
 	Zones    []string      `yaml:"zones"`
 	Interval time.Duration `yaml:"interval"`
 	Timeout  time.Duration `yaml:"timeout"`
+	// ComplaintWindow and ComplaintThreshold decide when spam complaints pause
+	// *sending* while verification continues (plan 015). Zero disables it: a
+	// node with no relay has no complaints to count.
+	ComplaintWindow    time.Duration `yaml:"complaint_window"`
+	ComplaintThreshold int           `yaml:"complaint_threshold"`
 }
 
 // Enabled reports whether DNSBL checking will run.
