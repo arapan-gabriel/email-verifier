@@ -3,6 +3,29 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Plan 019 signed off: the sender rejection that started it is gone
+
+The manual gate ran against `gammait.net`, the receiver whose reply opened this thread back in plan
+001. Then:
+
+```
+554 5.1.8 <verify@probe.datascoutmail.com>: Sender address rejected
+```
+
+Now, with the sub-domain's MX in place and `mail_from` moved back to it:
+
+```
+450 4.1.1 <zz-envelope-gate-3391@gammait.net>: Recipient address ...   class=deferred
+```
+
+The difference is the entire plan. The session gets past `MAIL FROM` to `RCPT`, and what comes back
+is about **the recipient** — temporary, about a mailbox — rather than about **us**. A control probe
+at `datascoutmail.com` on the same run answered `250 2.1.0 Ok`.
+
+Probing reputation now accrues to `probe.datascoutmail.com`, off the domain that will send real mail
+in Phase C, which was the point of splitting them. `active/` is empty; only 014 and 015 remain, and
+both are blocked on standing up a bounce mailbox rather than on anything in this repository.
+
 ## 2026-09-11 — Six open decisions settled, and one of my own recommendations overturned
 
 **Invariant 7 reworded rather than implemented.** It said a `250` on a catch-all *is* `risky`, and

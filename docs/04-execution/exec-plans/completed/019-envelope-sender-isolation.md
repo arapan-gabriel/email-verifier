@@ -1,6 +1,6 @@
 # Plan 019 — envelope sender isolation
 
-**Status:** Active
+**Status:** Complete (2026-09-11)
 **Phase:** B
 **Depends on:** 013
 
@@ -63,7 +63,7 @@ against the *connecting* IP during the probe, so it must name the node and nothi
       the original measurement stays as written
 - [x] `docs/08-decisions/changelog.md` — entry
 - [x] Data Scout `exec-plans/active/073-ops-smtp-egress-relay.md` — close its open item
-- [ ] Deploy and run the manual-test gate below
+- [x] Deploy and run the manual-test gate below
 
 - [x] `cmd/verifierd/main.go` — log `mail_from` at startup (see deviation below)
 
@@ -72,14 +72,28 @@ it is host identity, not behaviour.
 
 ## Definition of Done
 
-- [ ] **Manual-test gate:** from the node, a live probe with the new envelope sender against a
-      receiver that verifies the sender domain returns a verdict about the *recipient* — never
-      `554 5.1.8`, and never `unknown` on account of us. Recorded here with the reply.
+- [x] **Manual-test gate — passed 2026-09-11**, against `gammait.net`, the receiver whose reply
+      started this whole thread in plan 001. Then:
+
+      ```
+      554 5.1.8 <verify@probe.datascoutmail.com>: Sender address rejected
+      ```
+
+      Now, with `mail_from: verify@probe.datascoutmail.com` and the sub-domain's MX in place:
+
+      ```
+      450 4.1.1 <zz-envelope-gate-3391@gammait.net>: Recipient address ...   class=deferred
+      ```
+
+      The distinction is the whole plan. The session now gets past `MAIL FROM` to `RCPT`, and the
+      reply that comes back is about **the recipient** — a `4.1.1`, temporary and about a mailbox
+      — rather than about **us**. Control probe at `datascoutmail.com` on the same run:
+      `250 2.1.0 Ok`, `class=valid`.
 - [x] `go test -race -count=1 ./...` green
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` confirmed
+- [x] `docs/05-quality/checklists/pr-checklist.md` confirmed
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status Complete, moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status Complete, moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
 
