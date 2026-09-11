@@ -28,7 +28,7 @@ its first production message** — because a bounce for an already-sent message 
 envelope sender whether or not anyone is listening, and changing the sender afterwards leaves a
 window of mail whose bounces are lost.
 
-## The return path — decision required
+## The return path — **decided 2026-09-11: Cloudflare Email Worker → `POST /bounce`**
 
 | | How it works | Cost |
 |---|---|---|
@@ -36,7 +36,7 @@ window of mail whose bounces are lost.
 | **B. An IMAP mailbox the service polls** | `bounces.` MX at any mailbox provider; the relay polls and parses | Conceptually simplest, but adds a credential, a poll loop, and a second place mail lives |
 | **C. An inbound MTA on a *different* host** | A small receiver elsewhere, forwarding parsed DSNs | Most control, most to run, and a second machine to keep clean |
 
-**Recommended: A.** Cloudflare already holds the zone and already routes the domain's mail, the
+**Chosen: A.** Cloudflare already holds the zone and already routes the domain's mail, the
 Worker is a few lines, and the delivery lands on the authenticated HTTP edge this service already
 has. **B** is the fallback if Worker size limits prove awkward for large DSNs. **C** is only worth
 it if bounce volume ever justifies its own host — which, for transactional mail from one product, it
@@ -67,7 +67,9 @@ that is unreliable across servers.
 
 ## Tasks
 
-- [ ] **Decide the return path** (A, B or C) and stand it up — before 014's first production send
+- [x] **Return path decided** — Cloudflare Email Worker posting to `POST /bounce` (2026-09-11)
+- [ ] Stand it up: MX for `bounces.datascoutmail.com`, the Worker, the route — **before 014's first
+      production send**, because the envelope sender cannot be changed cleanly afterwards
 - [ ] VERP envelope sender with a token that identifies the message
 - [ ] `POST /bounce` + DSN parsing; complaints distinguished from bounces
 - [ ] Hard bounce → local suppression + push to Data Scout
@@ -104,6 +106,12 @@ its design avoiding.
 the original pair unbuildable in order. 015 needs 014 to send; 014 needs 015's decision to know what
 address to send *from*. The resolution: **decide the return path first, build 014, then build 015** —
 the decision is cheap, the sender is impossible to change cleanly afterwards.
+
+**DMARC stays at `p=none` until this plan is running** (decided 2026-09-11). Tightening to
+`quarantine` before there is a bounce and complaint feed is how legitimate mail disappears silently:
+the policy would start rejecting on alignment failures nobody can see yet. The trigger to move is
+this plan's own signal — once `relay_bounces_total` and the complaint rate exist and have been quiet
+through a warm-up, `p=quarantine`, then `p=reject`.
 
 This is the last plan of Phase C. After it the IP is a self-policing sender: it stops itself when
 listed, stops itself when complained about, and never mails an address twice that has already said

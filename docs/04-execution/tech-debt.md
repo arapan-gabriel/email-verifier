@@ -5,29 +5,22 @@ later plan closes it.
 
 ## Open
 
-- **Invariant 7 has no counterpart in the code, and four documents describe one that does not
-  exist.** Found 2026-09-04 by a live probe of `datascoutmail.com`, which returned
-  `{"accepted": true, "catch_all": true, "class": "valid"}`. The invariant says a `250` on a
-  catch-all *is* `risky`; `smtp-classification.md:19`, `ARCHITECTURE.md:86`,
-  `ENGINEERING-STANDARDS.md:84` and `storage-contract.md:7` all name `risky` as a value this
-  service produces. `internal/prober/classify.go` has no `ClassRisky`, and never has.
+- ~~**Invariant 7 has no counterpart in the code.**~~ **Resolved 2026-09-11, by rewording rather
+  than by adding a class.** The invariant said a `250` on a catch-all *is* `risky`; the classifier
+  has no `ClassRisky` and never had, and four documents named `risky` as a value this service
+  produces.
 
-  Nothing is currently wrong end to end: this service reports `catch_all` as a separate field and
-  Data Scout's `scoring.py` scores a catch-all as one (its plan `073`, decision 5). The exposure is
-  a consumer that reads `class` and ignores `catch_all` — which is exactly what invariant 7 exists
-  to prevent, and it is a *hard* invariant, so the gap is not cosmetic.
+  **Option 2 was taken.** `class` now officially classifies the *reply*, and `risky` is documented
+  as the caller's scoring of `class` together with `catch_all`. Adding the class would have been
+  truthful to the old wording and would have cost a second cross-repo contract reconciliation — for
+  a distinction the caller already reads correctly — on a contract that had just been reconciled,
+  exercised over the wire and put into production carrying live verdicts.
 
-  Two ways to close it, and the choice is a product decision, not a cleanup:
-  1. **Add `ClassRisky`** and emit it for a `250` from a catch-all or randomising MX. Truthful to
-     the invariant; changes the wire contract.
-  2. **Reword the invariant and the four docs** to say `class` is a classification of the *reply*
-     and that `risky` is the caller's scoring of `class` + `catch_all` together. Truthful to the
-     design as built; costs the invariant its teeth unless the mapping is made mandatory.
-
-  **Deliberately not decided during plan 013** — a deployment plan is the wrong place to change a
-  published contract, and plan 008 is about to reconcile Data Scout against exactly this shape.
-  Settle it before 008 enables the tier, so the reconciliation happens once.
-
+  **The invariant keeps its teeth in the place a consumer actually looks.** `06-generated/api.md`
+  now states that reading `class` without `catch_all` is a contract violation, with the consequence
+  spelled out: a consumer that maps `class` alone marks every address at every catch-all domain
+  deliverable. `CLAUDE.md` invariant 7, `smtp-classification.md`, `ARCHITECTURE.md`,
+  `ENGINEERING-STANDARDS.md` and `storage-contract.md` all say the same thing now.
 
 - **Bounces to `verify@probe.datascoutmail.com` are discarded** (plan 019). Cloudflare Email
   Routing answers `250` for the sub-domain with no route behind it, which is what makes sender

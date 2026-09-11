@@ -3,6 +3,51 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Six open decisions settled, and one of my own recommendations overturned
+
+**Invariant 7 reworded rather than implemented.** It said a `250` on a catch-all *is* `risky`, and
+four documents named `risky` as a value this service emits. The classifier has no `ClassRisky` and
+never had. Adding one would have been truthful to the old wording and would have cost a *second*
+cross-repo contract reconciliation — on a contract reconciled eight days ago, exercised over the
+wire, and now carrying live production verdicts — for a distinction the caller already reads
+correctly.
+
+So `class` officially classifies the *reply*, and `risky` is documented as the caller's scoring of
+`class` together with `catch_all`. **The invariant keeps its teeth where a consumer actually looks:**
+`api.md` now states that reading `class` without `catch_all` is a contract violation, with the
+consequence spelled out — a consumer that maps `class` alone marks every address at every catch-all
+domain deliverable.
+
+**Plan 014's interface: `POST /send`.** SMTP submission on `:587` looked cheaper and was not — an
+inbound mail listener on a host whose operations doc says nothing may listen for mail, duplicating
+an mTLS boundary and firewall rule that already exist.
+
+**Plan 015's return path: a Cloudflare Email Worker posting to `POST /bounce`.** Cloudflare already
+holds the zone and routes the domain's mail. This also fixes the recorded debt about bounces to
+`verify@probe.` being discarded, and it fixes 014's envelope sender, which cannot be changed cleanly
+after the first message leaves.
+
+**DMARC stays at `p=none` until 015 runs.** Tightening before there is a bounce and complaint feed
+is how legitimate mail disappears silently. The trigger is written into 015: once
+`relay_bounces_total` and the complaint rate exist and have been quiet through a warm-up,
+`p=quarantine`.
+
+**The `nftables` rule stays pinned to the caller's address** — and the reason is the next entry
+rather than the rule itself. The danger was never the rule; it was that its failure would be silent.
+
+**My own monitoring recommendation was wrong and got replaced.** I proposed Prometheus on the Pi.
+Reading their plan 061 first would have shown that their observability is deliberately a shell
+script on a systemd timer with an email behind it — *nothing exotic* — and that a Prometheus stack
+would have fought the house style for signals that do not need it. Two checks went into their
+existing `healthcheck.sh` instead: the sending IP's standing (scraped from our `/metrics`) and the
+inconclusive rate (which lives in their database, not in our metrics at all — another thing the
+first recommendation had wrong).
+
+That one is worth keeping as a pattern, not just a correction: I recommended a mechanism before
+checking what the other side already had, which is the same failure as reading one's own document
+instead of the other side's — the mistake that cost this pair of repositories a fortnight on the
+wire contract.
+
 ## 2026-09-11 — Plan 020: both protections are live, and enabling one proved it could not be
 
 `ip_health` had never queried a blocklist and `suppress` had never refused an address. Both now do.

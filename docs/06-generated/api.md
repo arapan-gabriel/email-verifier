@@ -106,6 +106,13 @@ this endpoint owes it is a deferral it can schedule against. See
 work at all. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
 own words and `err` the transport error, both for the audit trail.
 
+> **Reading `class` without `catch_all` is a contract violation, not a style preference**
+> (invariant 7). `class` classifies the *reply*; `catch_all` says whether that reply could mean
+> anything. A `250` from a domain that accepts everything is `class: "valid"` **and** worth nothing,
+> and this service will never say `risky` — that word is the caller's scoring of the two fields
+> together, and it belongs there because the caller owns the verdict table. A consumer that maps
+> `class` alone will mark every address at every catch-all domain deliverable.
+
 **`catch_all` and `randomiser` answer different questions.** `catch_all` is about the *domain*: it
 takes anything, so no `250` from it means a thing. `randomiser` is about the *server*: it answers
 inconsistently, so no `250` from it means a thing **for any domain it hosts**, including ones nobody

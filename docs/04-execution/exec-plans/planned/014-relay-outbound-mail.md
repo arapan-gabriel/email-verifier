@@ -39,7 +39,7 @@ restart, and a code path that sends `DATA` — the one thing verification must n
 
 ## Design
 
-### The interface — decision required
+### The interface — **decided 2026-09-11: `POST /send`**
 
 **Option A: `POST /send` (the original design).** Data Scout gains a third provider beside
 `postmark` and `smtp`, its outbox drains into it. The boundary, mTLS, the API key and the firewall
@@ -48,7 +48,7 @@ rule are already built and proven for HTTP; nothing new is exposed.
 **Option B: SMTP submission on `:587`, authenticated.** Data Scout changes `smtp_host` and nothing
 else — its `smtp` provider already works and is deployed. Cheapest possible integration.
 
-**Recommended: A.** B looks cheaper and is not: it means an inbound listener on a host whose
+**Chosen: A.** B looks cheaper and is not: it means an inbound listener on a host whose
 operations doc says in as many words that nothing may listen for mail, and it would duplicate the
 authentication, the firewall rule and the mTLS boundary that already exist for HTTP. The rule "this
 host accepts no mail" is worth more as a rule with no exceptions than the days B would save. A costs
@@ -100,7 +100,8 @@ own ramp, not on day one.
 
 ## Tasks
 
-- [ ] **Decide the interface** (A or B above) and the envelope sender with 015
+- [x] **Interface decided** — `POST /send` (2026-09-11). The envelope sender follows 015's return
+      path, decided the same day: VERP at `bounces.datascoutmail.com`
 - [ ] `internal/relay`: message assembly + DKIM signing with `s1`
 - [ ] A durable queue (Redis, AOF) — accepted means it survives a restart
 - [ ] `POST /send` (authenticated) + draining through the existing pacer and central bucket

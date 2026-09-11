@@ -83,7 +83,7 @@ scripts/preflight.sh         cold-IP go/no-go check                             
 
 | Question | File |
 |---|---|
-| Decides `valid`/`invalid`/`risky`/`unknown` from a reply | `internal/prober` (classifier) |
+| Classifies a reply (`valid`/`invalid`/`deferred`/`policy`/…) and reports `catch_all` beside it | `internal/prober` (classifier) |
 | Decides "whose fault is this 5xx" (RFC 3463 subject) | `internal/prober` (classify) |
 | Paces requests to one MX, backs off, resumes | `internal/pacer` over `internal/limiter` |
 | Stops N nodes double-spending a server's budget | `internal/limiter` (central Redis bucket) |

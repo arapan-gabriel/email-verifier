@@ -16,7 +16,7 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
 
 | Reply | Verdict | About |
 |---|---|---|
-| `250` | valid *(risky on catch-all/randomiser)* | mailbox accepts |
+| `250` | `valid` — **and meaningless unless `catch_all` is false** (invariant 7) | mailbox accepts |
 | `550 5.1.1` NoSuchUser | invalid | recipient |
 | `550 5.2.2` mailbox full | valid | mailbox exists |
 | `452 4.2.2` over quota | unknown (retry) | recipient's box — **not our rate** |

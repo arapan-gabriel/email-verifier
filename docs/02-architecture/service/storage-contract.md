@@ -4,7 +4,7 @@ This service holds **no business data** (ARCHITECTURE §"State ownership"). The 
 
 - Response includes `source_ip` — a verdict is only as good as the IP that produced it; Data Scout
   stores it in `email_verifications.signals`.
-- `status ∈ {valid, invalid, risky, unknown}`; the reconciliation to Data Scout's status vocabulary
+- `status ∈ {valid, invalid, risky, unknown}` is **Data Scout's** vocabulary, not this service's: `risky` is produced there by scoring `class` together with `catch_all` (invariant 7). The reconciliation to Data Scout's status vocabulary
   is defined in plan 005.
 - Data Scout's `app/core/providers/email_verify.py` wraps calls with a timeout and its existing
   per-domain cache (Data Scout invariant 10). Integration lands in plan 008.

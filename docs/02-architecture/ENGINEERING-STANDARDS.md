@@ -81,7 +81,7 @@ how failures are typed.
 - Wrap with `%w` and add context at each layer; never both log and return the same error.
 - The mapping from an SMTP reply to a verdict lives in exactly one place (`internal/prober`
   classifier) and follows `docs/03-engineering/patterns/smtp-classification.md`.
-- A verdict is one of `valid | invalid | risky | unknown`. **When in doubt, `unknown`** (invariant 1).
+- A *reply classification* is one of `valid | invalid | deferred | policy | …`; `risky` is not among them — it is the caller's scoring of a classification together with `catch_all` (invariant 7). **When in doubt, `unknown`** (invariant 1).
 - HTTP errors use one JSON shape: `{error: {code, message}}`. Transport errors (auth, bad request)
   are never confused with verification verdicts — a malformed request is a `400`, not an `unknown`.
 
