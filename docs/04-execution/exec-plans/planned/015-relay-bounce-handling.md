@@ -67,12 +67,16 @@ that is unreliable across servers.
 
 ## Tasks
 
-- [x] **Return path decided** — Cloudflare Email Worker posting to `POST /bounce` (2026-09-11)
-- [ ] Stand it up: MX for `bounces.datascoutmail.com`, the Worker, the route — **before 014's first
-      production send**, because the envelope sender cannot be changed cleanly afterwards
+- [x] **Return path decided** — Cloudflare Email Worker, ingest at **Data Scout** (2026-09-11)
+- [x] MX and SPF for `bounces.datascoutmail.com` — done 2026-09-11
+- [ ] The Worker: `bounces+…` to `POST /bounce`, **everything else forwarded**, forward on error too
+- [ ] Repoint the zone catch-all at the Worker — **only after its code is deployed**, or ordinary
+      mail passes through an empty script
 - [ ] VERP envelope sender with a token that identifies the message
-- [ ] `POST /bounce` + DSN parsing; complaints distinguished from bounces
-- [ ] Hard bounce → local suppression + push to Data Scout
+- [ ] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces
+- [ ] **Data Scout:** hard bounce → its own suppression list, which already reaches this service
+      through plan 020's digest export — no second path is built
+- [ ] **Here:** accept an IP-health signal (complaint rate) over the existing mTLS link
 - [ ] Soft bounce → bounded retry via 014's queue; complaints → suppress + IP-health penalty
 - [ ] A complaint spike pauses sending and **not** verification
 - [ ] Metrics + an alert on the complaint rate

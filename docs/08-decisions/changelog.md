@@ -3,6 +3,38 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-11 — Plan 015's arrow was drawn from the wrong end
+
+The return path was decided this morning — a Cloudflare Email Worker posting the raw bounce to
+`POST /bounce` on this service — and corrected this afternoon, before anything was built, by asking
+whether the Worker could actually reach us. It cannot, for two measured reasons:
+
+- The node's `nftables` rule admits `178.18.32.148` and nothing else at `policy drop`. Cloudflare
+  Workers egress from addresses that change; no rule can name them without naming most of Cloudflare.
+- Every non-health route requires a client certificate, and a Worker has no practical way to present
+  one.
+
+Narrowing that firewall was deliberate and is not worth undoing to let a bounce in.
+
+**So the ingest moves to Data Scout, and that is the right direction rather than a workaround.** Data
+Scout *owns* the suppression list; a hard bounce is a fact about an address and belongs in the
+authoritative record, not in a service that holds no business data by design. Plan 020's digest
+export already carries suppression from there to here, hourly and immediately on an erasure — so a
+hard bounce reaches this service through a path that exists and is tested instead of a second one
+built backwards. What this service actually wants from a bounce is the complaint rate, one signal,
+pushed over the mTLS link that already runs in that direction.
+
+The original arrow pointed against the firewall, against the certificates, and against which side
+owns the data. All three agreeing is usually the sign that an arrow was drawn from the wrong end.
+
+**Also settled by looking at the Cloudflare console rather than guessing at it:** routing rules are
+per-zone, there is one catch-all, and it currently forwards to a personal mailbox — which is how
+DMARC `rua` reports arrive, so it cannot simply be repointed. The Worker takes the catch-all's place
+and **forwards by default**, keeping today's behaviour for every address that is not a bounce;
+forwarding is also what it does on any internal error, so a bug in DSN parsing loses no ordinary
+mail. The `bounces.` sub-domain keeps its MX and SPF and remains the VERP domain — the Worker
+distinguishes by address, which it must do anyway to read the token.
+
 ## 2026-09-11 — Plan 019 signed off: the sender rejection that started it is gone
 
 The manual gate ran against `gammait.net`, the receiver whose reply opened this thread back in plan
