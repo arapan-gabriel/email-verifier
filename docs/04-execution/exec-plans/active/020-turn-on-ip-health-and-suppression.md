@@ -1,6 +1,6 @@
 # Plan 020 — turn-on-ip-health-and-suppression
 
-**Status:** Planned
+**Status:** Active
 **Phase:** B
 **Depends on:** 010, 011, 013 — all Complete, which is the problem
 **Blocks:** 014 (the relay checks both before every send)
@@ -88,19 +88,23 @@ implement it, and this plan is what gives it something to be stale *about*.
 
 ## Tasks
 
-- [ ] Node: install and configure a local recursive resolver on `127.0.0.1:53`; confirm
-      `systemd-resolved` is undisturbed and the host's own name resolution still works
-- [ ] Node: `ip_health.resolvers: ["127.0.0.1:53"]`; confirm `SelfTest` passes at startup and the
-      `blocklist checking is off` warning is gone
-- [ ] **Verify the checker can see a listing, not only a clean answer** — query a zone's documented
-      listed test point through the service and assert it reports listed. A checker that has only
-      ever returned "clean" is untested
-- [ ] Confirm the node's own IP against every configured zone, and record the answer here
-- [ ] Decide and set `VERIFIERD_SUPPRESS_SALT`; the same value on the Data Scout side
-- [ ] Data Scout: a scheduled export of digests to `POST /admin/suppress` (`mode: replace`,
-      versioned), plus a direct push on an erasure request; **never an address**
-- [ ] Node: `suppress.enabled: true` once a real list is present, not before
-- [ ] A digest that is present refuses a probe before a socket opens (invariant 9) — verified live
+- [x] Node: `unbound` on `127.0.0.1:53`, localhost-only, IPv6 off; `systemd-resolved` keeps
+      `.53`/`.54` and `/etc/resolv.conf` is unchanged — verified before and after
+- [x] Node: `ip_health.resolvers: ["127.0.0.1:53"]`; the startup warning is gone and the log now
+      reads `blocklist checking enabled`
+- [x] **The checker has been seen to report a listing.** `blocklist checking enabled` is printed
+      *only* when `SelfTest` returns nil, and `SelfTest` requires every zone to report its own
+      documented test point as **listed** — so the enable path is that assertion. Deliberately not
+      demonstrated by pointing the service's `source_ip` at a listed address: that burns a node
+      serving a live warm-up to show what the startup gate already shows
+- [x] The node's own IP against every zone — recorded in Results
+- [x] `VERIFIERD_SUPPRESS_SALT` generated and installed on the node (`640 root:verifierd`).
+      **The Data Scout half needs a GitHub secret** — see Residuals
+- [x] Data Scout: `app/services/suppression_export.py` + `app/tasks/suppression_tasks.py` —
+      hourly by beat, and a direct dispatch from both purge endpoints; always `mode: replace`;
+      digests only. `deploy.yml` carries the salt
+- [ ] Node: `suppress.enabled: true` — **waiting on a real list**, see Residuals
+- [ ] A digest that is present refuses a probe before a socket opens — waiting on the same
 - [ ] Update `operations/ip-reputation.md`, `SECURITY.md`, `redis-contract.md` if the import shape
       changes, changelog in both repositories
 - [ ] ROADMAP: 010 and 011 rows say *live*, not merely *done*
@@ -118,6 +122,76 @@ implement it, and this plan is what gives it something to be stale *about*.
 - [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
 - [ ] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` rows updated
+
+## Results (2026-09-11)
+
+### 010 — live
+
+`unbound` on `127.0.0.1:53`, localhost-only. Two packages the `--no-install-recommends` install had
+stripped were needed first: without `unbound-anchor` and `dns-root-data` the service failed at
+startup on an empty DNSSEC root key, loudly and harmlessly — the host's own resolution never moved.
+
+**The measurement that justifies the whole exercise**, same query, two resolvers:
+
+| query | via `1.1.1.1` | via `127.0.0.1` |
+|---|---|---|
+| `2.0.0.127.zen.spamhaus.org` (documented **test point**) | `127.255.255.254` | `127.0.0.10` |
+| `2.0.0.127.bl.spamcop.net` | `127.0.0.2` | `127.0.0.2` |
+| `1.0.0.127.zen.spamhaus.org` (documented **clean** point) | — | *(empty)* |
+
+`127.255.255.254` is Spamhaus's "query refused, open resolver" sentinel, not a listing. So a service
+pointed at a public resolver would have answered *not listed* to every question forever, including
+about an address that was listed. `iphealth.query` already excludes that sentinel, and `SelfTest`
+catches the resolver anyway — a refused resolver returns it for the clean point too, so the test
+point never comes back listed and checking stays off.
+
+**This node, 2026-09-11: clean on `zen.spamhaus.org`, `bl.spamcop.net` and
+`b.barracudacentral.org`.** `/metrics` now carries real values —
+`ip_health_listed{ip="92.222.87.97",list="zen.spamhaus.org"} 0` — and `/admin/ip-health` reports
+`{"burned":false}`.
+
+One small fix on the way: the enable log printed `zones=[]`, the *configured* list, where empty
+means "the defaults". A line that says nothing about what is being checked is worse than no line;
+it now logs the effective zones.
+
+### 011 — built, and switched on only as far as it honestly can be
+
+The export is written and tested on the Data Scout side: digests only, always `mode: replace` —
+because an incremental push can add and can never take away, so an address suppressed in error would
+stay suppressed on the far side forever. Hourly by beat, **and dispatched directly from both purge
+endpoints**, because the window between someone asking to be forgotten and the far side honouring it
+is the only time-sensitive part, and an hour of it is a probe that should not have happened. The
+dispatch can never fail an erasure: the erasure is the legal obligation and the far copy is a
+redundancy.
+
+**The digest formula was checked against the other implementation rather than against its
+documentation** — the mistake this pair of repositories made once already, and paid a fortnight for:
+
+```
+Python  ef4655f5465cbb97ebefb7543cb4950f8818c467978fe654a90db21744e3df0f
+Go      ef4655f5465cbb97ebefb7543cb4950f8818c467978fe654a90db21744e3df0f
+```
+
+for `Hash("pepper", "  SomeOne@Example.COM  ")`, which also pins the normalisation — trimmed and
+lowercased on both sides — as part of the contract rather than an accident.
+
+**`suppress.enabled` stays `false`, deliberately.** Redis holds two hashes from a plan-011 test,
+computed with a different salt. Enabling against that list would be worse than leaving it off: a
+suppression check that answers "not suppressed" for everyone is indistinguishable from one that is
+working. It is flipped after the first real export lands, not before — which is the same mistake
+this plan exists to fix, so it is not going to be made again inside it.
+
+## Residuals — one secret and one deploy
+
+| Task | Who |
+|---|---|
+| `APP_VERIFY_PROBE_SUPPRESS_SALT` as a GitHub secret, the **same value** as on the node | repository owner — read it with `ssh probe1 'sudo grep VERIFIERD_SUPPRESS_SALT /etc/verifierd/env'` |
+| Deploy Data Scout so beat picks up `suppression.push` | repository owner |
+| Then `suppress.enabled: true` here, and verify a suppressed digest is refused **before any socket** | either |
+
+Until then the verifier's second line is off and Data Scout's authoritative check — three times
+before any probe is requested — is the only one, which is the documented design rather than a
+degradation.
 
 ## Notes / decisions / deviations
 

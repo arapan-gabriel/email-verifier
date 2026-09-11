@@ -102,7 +102,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			// on that is an outage caused by a resolver misconfiguration.
 			logger.Error("blocklist checking disabled — resolver failed its self-test", "error", err)
 		} else {
-			logger.Info("blocklist checking enabled", "zones", cfg.IPHealth.Zones, "ip", cfg.Probe.SourceIP)
+			// The *effective* zones, not the configured ones: empty means "the
+			// defaults", and a line reading zones=[] tells the reader nothing
+			// about what is actually being checked.
+			zones := cfg.IPHealth.Zones
+			if len(zones) == 0 {
+				zones = iphealth.DefaultZones
+			}
+			logger.Info("blocklist checking enabled", "zones", zones, "ip", cfg.Probe.SourceIP)
 			go health.Run(ctx)
 		}
 	} else {

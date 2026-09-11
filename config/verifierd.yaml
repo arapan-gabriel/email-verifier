@@ -61,7 +61,20 @@ pacer:
 # among them: it lists a whole ASN — measured on this very address, while
 # Spamhaus was clean and both Gmail and Microsoft accepted the session.
 ip_health:
-  resolvers: []      # e.g. ["1.1.1.1:53"] — but verify it can answer DNSBL first
+  # A resolver that can actually answer a DNSBL query, which a public one cannot:
+  # the major zones refuse them. Measured on this host, side by side, for
+  # zen.spamhaus.org's own documented test point — through 1.1.1.1 it answers
+  # 127.255.255.254, the "query refused, open resolver" sentinel, and through a
+  # local recursive resolver it answers 127.0.0.10, a real listing. A checker
+  # pointed at a public resolver would report "not listed" forever, which is the
+  # worst possible answer from a blocklist check.
+  #
+  # So every deployment of this service runs its own recursive resolver bound to
+  # loopback (plan 020: unbound on 127.0.0.1:53; systemd-resolved keeps .53/.54
+  # and stays the system resolver). SelfTest refuses to enable checking unless
+  # each zone lists its own test point, so a misconfigured resolver fails loudly
+  # at startup instead of reporting a clean IP.
+  resolvers: ["127.0.0.1:53"]
   zones: []          # empty = the defaults above
   interval: 15m
   timeout: 5s
