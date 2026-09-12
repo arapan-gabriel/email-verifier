@@ -100,20 +100,24 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		ComplaintThreshold: cfg.IPHealth.ComplaintThreshold,
 	})
 	if health.Enabled() {
-		if err := health.SelfTest(ctx); err != nil {
+		dropped, err := health.SelfTest(ctx)
+		// Logged whether or not the check survives: a zone we were asked to
+		// watch and cannot is the gap that lets the node report good standing
+		// while listed somewhere it never looked (2026-09-12).
+		for _, d := range dropped {
+			logger.Error("blocklist zone dropped — it failed its self-test", "zone", d.Zone, "error", d.Reason)
+		}
+		if err != nil {
 			// A resolver we cannot trust disables the check. It must never
 			// trigger one: a stub answers "listed" to every zone, and pausing
 			// on that is an outage caused by a resolver misconfiguration.
-			logger.Error("blocklist checking disabled — resolver failed its self-test", "error", err)
+			logger.Error("blocklist checking disabled — no zone passed its self-test", "error", err)
 		} else {
-			// The *effective* zones, not the configured ones: empty means "the
-			// defaults", and a line reading zones=[] tells the reader nothing
-			// about what is actually being checked.
-			zones := cfg.IPHealth.Zones
-			if len(zones) == 0 {
-				zones = iphealth.DefaultZones
-			}
-			logger.Info("blocklist checking enabled", "zones", zones, "ip", cfg.Probe.SourceIP)
+			// The zones actually being checked — not the configured list, which
+			// may be empty (meaning the defaults) and may name a zone that just
+			// dropped out. A reader needs to know what is covered, not what was
+			// requested.
+			logger.Info("blocklist checking enabled", "zones", health.Zones(), "ip", cfg.Probe.SourceIP)
 			go health.Run(ctx)
 		}
 	} else {

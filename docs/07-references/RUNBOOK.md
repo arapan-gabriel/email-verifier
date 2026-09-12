@@ -71,8 +71,28 @@ IPs — you do not need a domain per sending node).
 
 ## Phase 2 — Get off the blocklists
 
-9. Check the IP: `https://check.spamhaus.org/results?query=<your IP>` and
-   `mxtoolbox.com/blacklists`.
+9. Check the IP: `https://check.spamhaus.org/results?query=<your IP>`,
+   `https://lookup.abusix.com/search?q=<your IP>` and `mxtoolbox.com/blacklists`.
+
+   **Check Abusix explicitly, and configure the node to watch it.** On 2026-09-12 our IP was listed
+   there — Guardian Mail, `ip:new:smtp` + `spam:spam-source` — while Spamhaus and SpamCop were
+   clean and `verifierd` reported `burned: false`, because `ip_health` watches those two by default
+   and nothing else. The refusal reached us as a receiving server's reply text
+   (`550 5.7.1 ... blocked using mail.abusix.zone`), which is the wrong direction for a node that
+   is supposed to know its own standing first.
+
+   Abusix registration is free and the same account files delisting requests. The key goes in the
+   query name, so it rides in the zone string and belongs in the node's env file, not the tracked
+   YAML:
+
+   ```
+   VERIFIERD_IP_HEALTH_ZONES=zen.spamhaus.org,bl.spamcop.net,<APIKEY>.combined.mail.abusix.zone
+   ```
+
+   Since plan 021 the self-test is per zone, so adding this cannot cost the coverage already there:
+   a zone that stops answering is dropped and logged, and checking stops only when none survive.
+   Confirm after a restart — the `blocklist checking enabled` line names the zones actually in
+   force, and `ip_health_listed` carries one series per zone.
 10. If listed, **finish Phase 1 first**, then request delisting (state you control
     the IP, it is a mail server, rDNS is set, the issue is resolved).
 11. Enrol in postmaster programs (for real sending, but worth having): Google

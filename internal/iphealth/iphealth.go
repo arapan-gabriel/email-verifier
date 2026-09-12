@@ -33,6 +33,13 @@ import (
 // UCEPROTECT L1/L2 were clean and both Gmail and Microsoft accepted the
 // session. Nothing we can do clears it, so acting on it would be a permanent
 // pause for a condition no provider we tested enforces.
+//
+// Abusix Mail Intelligence is absent for a different reason: it belongs here on
+// the merits — it refused our IP on 2026-09-12 while both zones below were
+// clean — but its query name carries a subscription key
+// (<reversed-ip>.<APIKEY>.combined.mail.abusix.zone), so a keyless default
+// would fail its self-test everywhere. It is configured per deployment instead;
+// see config/verifierd.yaml.
 var DefaultZones = []string{"zen.spamhaus.org", "bl.spamcop.net"}
 
 // LookupFunc resolves a DNSBL query name to addresses. Declared here, in the
@@ -223,36 +230,89 @@ func (h *Health) PolicyHosts(window time.Duration) int {
 	return n
 }
 
-// SelfTest establishes whether the resolver can answer DNSBL queries at all.
+// DroppedZone is a zone that failed its self-test, and why.
+type DroppedZone struct {
+	Zone   string
+	Reason error
+}
+
+// SelfTest establishes whether the resolver can answer DNSBL queries, one zone
+// at a time.
 //
 // A stub resolver answers 127.255.255.254 to every zone, which reads as "listed
 // everywhere". A checker that trusted that would pause the node for a resolver
 // misconfiguration. So before any real query: the zone's documented test point
 // must come back listed, and its documented clean point must not.
-func (h *Health) SelfTest(ctx context.Context) error {
+//
+// **Per zone, not all-or-nothing.** This used to return on the first failing
+// zone, and the caller disabled blocklist checking entirely on any error — so
+// adding a third zone that could not answer (an expired subscription key, a
+// rate-limited reply, a rename) switched off the two that worked. Coverage
+// could then only be bought by risking the coverage already there, which is the
+// wrong trade for a package whose whole point is that the node knows its own
+// standing. Zones that pass are kept, zones that fail are returned for the
+// caller to log, and an error comes back only when **none** passed — the
+// original "this resolver cannot do DNSBL at all" case.
+//
+// h.zones is narrowed to the survivors, so Check never queries a zone known to
+// be unanswerable and ip_health_listed carries a series only for zones actually
+// checked. A zone missing from that metric therefore means "not covered", which
+// is a different fact from "covered and clean" and the one worth being able to
+// read: on 2026-09-12 the node reported burned: false while listed on a zone it
+// was not watching.
+func (h *Health) SelfTest(ctx context.Context) ([]DroppedZone, error) {
 	if !h.Enabled() {
-		return fmt.Errorf("iphealth: no resolver configured for DNSBL queries")
+		return nil, fmt.Errorf("iphealth: no resolver configured for DNSBL queries")
 	}
+	var kept []string
+	var dropped []DroppedZone
 	for _, zone := range h.zones {
-		listed, err := h.query(ctx, "2.0.0.127", zone)
-		if err != nil {
-			return fmt.Errorf("iphealth: %s test point unreachable: %w", zone, err)
+		if err := h.selfTestZone(ctx, zone); err != nil {
+			dropped = append(dropped, DroppedZone{Zone: zone, Reason: err})
+			continue
 		}
-		if !listed {
-			return fmt.Errorf("iphealth: %s did not list its own test point; the resolver cannot query it", zone)
-		}
-		clean, err := h.query(ctx, "1.0.0.127", zone)
-		if err != nil {
-			return fmt.Errorf("iphealth: %s clean point unreachable: %w", zone, err)
-		}
-		if clean {
-			return fmt.Errorf("iphealth: %s listed its own clean point; the resolver answers everything (a stub)", zone)
-		}
+		kept = append(kept, zone)
+	}
+	if len(kept) == 0 {
+		// Every zone failed. Report the first reason rather than a bare count:
+		// with one configured zone this is the old message verbatim, and with
+		// several the first is as good a witness as any to a broken resolver.
+		return dropped, fmt.Errorf("iphealth: no zone passed its self-test: %w", dropped[0].Reason)
 	}
 	h.mu.Lock()
+	h.zones = kept
 	h.trusted, h.tested = true, true
 	h.mu.Unlock()
+	return dropped, nil
+}
+
+// selfTestZone probes one zone's documented test and clean points.
+func (h *Health) selfTestZone(ctx context.Context, zone string) error {
+	listed, err := h.query(ctx, "2.0.0.127", zone)
+	if err != nil {
+		return fmt.Errorf("%s test point unreachable: %w", zone, err)
+	}
+	if !listed {
+		return fmt.Errorf("%s did not list its own test point; the resolver cannot query it", zone)
+	}
+	clean, err := h.query(ctx, "1.0.0.127", zone)
+	if err != nil {
+		return fmt.Errorf("%s clean point unreachable: %w", zone, err)
+	}
+	if clean {
+		return fmt.Errorf("%s listed its own clean point; the resolver answers everything (a stub)", zone)
+	}
 	return nil
+}
+
+// Zones reports the zones actually being checked — after SelfTest, the
+// survivors. The caller logs these rather than the configured list, because
+// "what we watch" and "what we were asked to watch" stopped being the same
+// thing the moment one zone could drop out.
+func (h *Health) Zones() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.zones...)
 }
 
 // Report is the outcome of one round.
@@ -277,7 +337,7 @@ func (h *Health) Check(ctx context.Context) (Report, error) {
 
 	rep := Report{Listed: map[string]bool{}}
 	var on []string
-	for _, zone := range h.zones {
+	for _, zone := range h.Zones() {
 		listed, err := h.query(ctx, reverse(h.opts.IP), zone)
 		if err != nil {
 			// A failed query is not a listing. Treating it as one is the

@@ -67,7 +67,7 @@ func TestSelfTestAcceptsAWorkingResolver(t *testing.T) {
 	h := healthy(answers(map[string][]string{
 		"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"}, // the documented test point
 	}), newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatalf("SelfTest: %v", err)
 	}
 }
@@ -78,7 +78,7 @@ func TestSelfTestRejectsBrokenResolvers(t *testing.T) {
 	t.Run("refuses every query", func(t *testing.T) {
 		// 127.255.255.254 is the "your query was refused" sentinel. The test
 		// point therefore comes back unlisted, which is itself the giveaway.
-		err := healthy(stubResolverAnsweringEverything(), newStore()).SelfTest(t.Context())
+		_, err := healthy(stubResolverAnsweringEverything(), newStore()).SelfTest(t.Context())
 		if err == nil {
 			t.Fatal("a resolver refusing every query passed the self-test")
 		}
@@ -93,7 +93,7 @@ func TestSelfTestRejectsBrokenResolvers(t *testing.T) {
 		lookup := func(context.Context, string) ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("127.0.0.2")}, nil
 		}
-		err := healthy(lookup, newStore()).SelfTest(t.Context())
+		_, err := healthy(lookup, newStore()).SelfTest(t.Context())
 		if err == nil {
 			t.Fatal("a resolver listing every query passed the self-test")
 		}
@@ -106,7 +106,7 @@ func TestSelfTestRejectsBrokenResolvers(t *testing.T) {
 func TestSelfTestRejectsAResolverThatCannotQueryTheZone(t *testing.T) {
 	// Everything NXDOMAINs, including the test point: the zone is unreachable.
 	h := healthy(answers(nil), newStore())
-	if err := h.SelfTest(t.Context()); err == nil {
+	if _, err := h.SelfTest(t.Context()); err == nil {
 		t.Fatal("a resolver that cannot query the zone passed the self-test")
 	}
 }
@@ -131,7 +131,7 @@ func TestListingBurnsTheNode(t *testing.T) {
 		"2.0.0.127.zen.spamhaus.org":    {"127.0.0.2"},
 		"97.87.222.92.zen.spamhaus.org": {"127.0.0.4"},
 	}), store)
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := h.Check(t.Context())
@@ -154,7 +154,7 @@ func TestCleanIPIsNotBurned(t *testing.T) {
 	h := healthy(answers(map[string][]string{
 		"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"},
 	}), newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	rep, _ := h.Check(t.Context())
@@ -178,7 +178,7 @@ func TestQueryFailureIsNotAListing(t *testing.T) {
 		return nil, errors.New("SERVFAIL")
 	}
 	h := healthy(lookup, newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := h.Check(t.Context())
@@ -196,7 +196,7 @@ func TestPolicyObservationsNeverBurn(t *testing.T) {
 	h := healthy(answers(map[string][]string{
 		"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"},
 	}), newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	for _, host := range []string{"a.test", "b.test", "c.test", "d.test", "e.test"} {
@@ -224,7 +224,7 @@ func TestResumeClearsThePause(t *testing.T) {
 		"2.0.0.127.zen.spamhaus.org":    {"127.0.0.2"},
 		"97.87.222.92.zen.spamhaus.org": {"127.0.0.4"},
 	}), store)
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.Check(t.Context()); err != nil {
@@ -296,7 +296,7 @@ func TestNXDOMAINIsNotListedRatherThanAFailure(t *testing.T) {
 		return nil, nx // everything else: not listed
 	}
 	h := healthy(lookup, newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatalf("SelfTest rejected a working resolver because clean answers are NXDOMAIN: %v", err)
 	}
 	rep, err := h.Check(t.Context())
@@ -324,7 +324,7 @@ func TestServfailIsStillAFailure(t *testing.T) {
 		return nil, boom
 	}
 	h := healthy(lookup, newStore())
-	if err := h.SelfTest(t.Context()); err != nil {
+	if _, err := h.SelfTest(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := h.Check(t.Context())
@@ -336,5 +336,109 @@ func TestServfailIsStillAFailure(t *testing.T) {
 	}
 	if _, ok := rep.Listed["zen.spamhaus.org"]; ok {
 		t.Error("a failed query was recorded as a verdict")
+	}
+}
+
+// The reason plan 021 exists: coverage must be addable without risking the
+// coverage already there. A third zone that cannot answer used to disable the
+// two that could, so the only safe number of zones was the number already
+// configured.
+func TestSelfTestDropsOneZoneAndKeepsTheRest(t *testing.T) {
+	const abusix = "KEY.combined.mail.abusix.zone"
+	h := New(Options{
+		IP:    "92.222.87.97",
+		Zones: []string{"zen.spamhaus.org", "bl.spamcop.net", abusix},
+		// Spamhaus and SpamCop answer their test points; Abusix answers
+		// nothing, which is what a wrong or expired subscription key looks
+		// like from here.
+		Lookup: answers(map[string][]string{
+			"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"},
+			"2.0.0.127.bl.spamcop.net":   {"127.0.0.2"},
+		}),
+		Store: newStore(),
+	})
+
+	dropped, err := h.SelfTest(t.Context())
+	if err != nil {
+		t.Fatalf("one unanswerable zone disabled the whole check: %v", err)
+	}
+	if len(dropped) != 1 || dropped[0].Zone != abusix {
+		t.Fatalf("dropped = %+v, want exactly %s", dropped, abusix)
+	}
+	if !strings.Contains(dropped[0].Reason.Error(), "test point") {
+		t.Errorf("reason = %v, want it to name the test point", dropped[0].Reason)
+	}
+
+	// The survivors are what gets queried from here on, so a zone absent from
+	// Zones() — and therefore from ip_health_listed — means "not covered"
+	// rather than "covered and clean".
+	got := h.Zones()
+	want := []string{"zen.spamhaus.org", "bl.spamcop.net"}
+	if len(got) != len(want) {
+		t.Fatalf("Zones() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Zones() = %v, want %v", got, want)
+		}
+	}
+}
+
+// The old all-or-nothing behaviour is still correct for the case it was written
+// for: a resolver that cannot do DNSBL at all.
+func TestSelfTestStillDisablesWhenNoZonePasses(t *testing.T) {
+	h := New(Options{
+		IP:     "92.222.87.97",
+		Zones:  []string{"zen.spamhaus.org", "bl.spamcop.net"},
+		Lookup: answers(map[string][]string{}),
+		Store:  newStore(),
+	})
+
+	dropped, err := h.SelfTest(t.Context())
+	if err == nil {
+		t.Fatal("a resolver that answers no zone passed the self-test")
+	}
+	if len(dropped) != 2 {
+		t.Errorf("dropped = %+v, want both zones reported", dropped)
+	}
+	// Check must still refuse: not trusted means not acted upon.
+	if _, err := h.Check(t.Context()); err == nil {
+		t.Error("Check ran against a resolver that failed every zone")
+	}
+}
+
+// A stub answering everything is rejected per zone, not only in aggregate —
+// otherwise one wildcard zone would survive alongside real ones and pause the
+// node on its say-so.
+func TestSelfTestDropsAWildcardZoneIndividually(t *testing.T) {
+	const wildcard = "wildcard.example"
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		if strings.HasSuffix(host, wildcard) {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.2")}, nil // lists anything
+		}
+		if host == "2.0.0.127.zen.spamhaus.org" {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.2")}, nil
+		}
+		return nil, nil
+	}
+	h := New(Options{
+		IP:     "92.222.87.97",
+		Zones:  []string{"zen.spamhaus.org", wildcard},
+		Lookup: lookup,
+		Store:  newStore(),
+	})
+
+	dropped, err := h.SelfTest(t.Context())
+	if err != nil {
+		t.Fatalf("SelfTest: %v", err)
+	}
+	if len(dropped) != 1 || dropped[0].Zone != wildcard {
+		t.Fatalf("dropped = %+v, want exactly %s", dropped, wildcard)
+	}
+	if !strings.Contains(dropped[0].Reason.Error(), "clean point") {
+		t.Errorf("reason = %v, want it to name the clean point", dropped[0].Reason)
+	}
+	if zones := h.Zones(); len(zones) != 1 || zones[0] != "zen.spamhaus.org" {
+		t.Fatalf("Zones() = %v, want only zen.spamhaus.org", zones)
 	}
 }

@@ -28,9 +28,19 @@ it directly — as this repository already does for RESP and for SMTP.
 
 | `ip_health_listed` | gauge | `ip`, `list` | 1 if this sending address is on the named blocklist |
 
-`ip_health_listed` appears only once a check has run. Absent means checking is off — which is the
-default, and deliberately so: without a resolver that can answer DNSBL queries, checking stays
-disabled rather than trusting the host's stub.
+`ip_health_listed` appears only once a check has run. Absent *altogether* means checking is off —
+which is the default, and deliberately so: without a resolver that can answer DNSBL queries,
+checking stays disabled rather than trusting the host's stub.
+
+**A single zone missing from the series is a different fact, and since plan 021 it is a readable
+one: that zone is not covered.** The self-test runs per zone and keeps only the zones that pass, so
+a configured zone that cannot answer — a lapsed subscription key, a rename — drops out and is logged
+at startup (`blocklist zone dropped`) rather than disabling the rest. Read the label set as *what is
+actually being watched*: on 2026-09-12 the node reported `burned: false` with two clean series while
+a receiving server was refusing it by name on a third zone nobody was querying.
+
+So `ip_health_listed == 0` on the zones present never means "this IP is in good standing", only
+"clean on these". Compare the series present against the configured `ip_health.zones`.
 
 ## Cardinality
 

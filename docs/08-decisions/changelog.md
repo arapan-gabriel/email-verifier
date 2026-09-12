@@ -3,6 +3,53 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-12 — Plan 021: a self-test that fails one zone at a time, so Abusix can be added
+
+`SelfTest` now tests each zone independently, keeps the survivors, and returns the dropped ones with
+their reasons. It errors only when **none** passed — the original "this resolver cannot do DNSBL at
+all" case, which keeps its old behaviour and its old message. `main.go` logs covered and dropped
+zones separately and disables checking only on that total failure.
+
+**Why this had to come first.** The loop used to return on the first failing zone and the caller
+treated any error as "disable blocklist checking", so a third zone that could not answer — an
+expired subscription key, a rate-limited reply, a rename — switched off the two that worked.
+Coverage could only be bought by risking the coverage already there. For a package whose own
+doc-comment says a false positive is a self-inflicted outage, that is the wrong trade, and it made
+"just add the zone" unsafe rather than trivial.
+
+**What prompted it.** Warm-up ladder day 4: `glowfish.de` answered `550 5.7.1 Service unavailable;
+client [92.222.87.97] blocked using mail.abusix.zone`, confirmed at Abusix's lookup as a Guardian
+Mail listing tagged `ip:new:smtp` and `spam:spam-source`. `GET /admin/ip-health` said
+`{"burned": false}` at the same moment, truthfully and uselessly: `zones` is empty, which means the
+default pair, and the list that refused us was not in it. The first real reputation refusal of the
+ladder arrived through a third party's reply text rather than through the check built to see it.
+
+**Abusix is configured, not defaulted, and needs no query code.** Its name carries a subscription
+key (`<reversed-ip>.<APIKEY>.combined.mail.abusix.zone`), which the existing `prefix + "." + zone`
+construction already produces — so the key rides in the zone string and nothing in the package knows
+it exists. A keyless default would fail its self-test on every deployment without an account, hence
+per-deployment config through `VERIFIERD_IP_HEALTH_ZONES`, beside `VERIFIERD_SUPPRESS_SALT`, and not
+in the tracked YAML. `combined` over `black` because it aggregates the black, exploit and policy IP
+lists in one query and is what refused us; its test point `127.0.0.2` and clean point `127.0.0.1`
+mean SelfTest needed no special case.
+
+**`h.zones` is narrowed to the survivors**, so `Check` never queries a zone known to be unanswerable
+and `ip_health_listed` carries a series only for zones actually checked. That turns a missing series
+into a readable fact — *not covered*, as distinct from *covered and clean* — which is exactly the
+distinction this incident turned on. `metrics.md` now says so, and `Check` reads the zone list
+through a mutex-guarded `Zones()` since `SelfTest` may rewrite it.
+
+**Deliberately not done: feeding a `550` back into health.** A receiving server naming our IP and a
+zone is the strongest signal available and it currently dies in the caller's `signals` column. Data
+Scout already parses that text (its plan 018). It is the right next step and a different change: it
+crosses the repo boundary and needs a rule for how far one server's opinion may move our own state,
+which invariant 6 constrains on purpose.
+
+**Residual: the manual gate needs an Abusix account**, which is a human step — the same free
+registration that files the delisting request this incident also needs. Until the key exists the
+node runs its two zones exactly as before; what shipped is the part that makes a third safe to add.
+Plan 021 stays Active for that reason, with everything else ticked.
+
 ## 2026-09-11 — The node survives a reboot, and one unit was failing quietly
 
 It had run two weeks without one. Everything was `enabled` and nothing had been *seen* to come back

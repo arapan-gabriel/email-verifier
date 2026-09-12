@@ -71,11 +71,34 @@ ip_health:
   #
   # So every deployment of this service runs its own recursive resolver bound to
   # loopback (plan 020: unbound on 127.0.0.1:53; systemd-resolved keeps .53/.54
-  # and stays the system resolver). SelfTest refuses to enable checking unless
-  # each zone lists its own test point, so a misconfigured resolver fails loudly
-  # at startup instead of reporting a clean IP.
+  # and stays the system resolver). SelfTest refuses to enable a zone unless that
+  # zone lists its own test point, so a misconfigured resolver fails loudly at
+  # startup instead of reporting a clean IP.
+  #
+  # Since plan 021 that test is **per zone**: a zone that cannot answer is
+  # dropped and logged, and checking stops only when none survive. So a zone
+  # whose subscription lapses costs its own coverage and not the rest.
   resolvers: ["127.0.0.1:53"]
-  zones: []          # empty = the defaults above
+  # Empty = the defaults (zen.spamhaus.org, bl.spamcop.net).
+  #
+  # Abusix Mail Intelligence is the zone worth adding and it is deliberately not
+  # a default: it needs a subscription key *inside the query name*, so a keyless
+  # default would fail its self-test on every deployment without an account. The
+  # query is built as <reversed-ip>.<zone>, so the key rides in the zone string
+  # and no code knows about it:
+  #
+  #   zones: ["zen.spamhaus.org", "bl.spamcop.net", "<APIKEY>.combined.mail.abusix.zone"]
+  #
+  # The key is a credential, so set it through the node's env file beside
+  # VERIFIERD_SUPPRESS_SALT rather than here, and leave this file key-free:
+  #
+  #   VERIFIERD_IP_HEALTH_ZONES=zen.spamhaus.org,bl.spamcop.net,<APIKEY>.combined.mail.abusix.zone
+  #
+  # `combined` rather than `black`: it aggregates the black, exploit and policy
+  # IP lists into one query, which is what Abusix recommends and what refused us
+  # on 2026-09-12. Its documented test point is 127.0.0.2 and its clean point
+  # 127.0.0.1, so SelfTest needs no special case.
+  zones: []
   interval: 15m
   timeout: 5s
   # When spam complaints pause *sending* while verification keeps running
