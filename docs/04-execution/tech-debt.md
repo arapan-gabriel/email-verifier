@@ -67,6 +67,34 @@ later plan closes it.
   If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
   in writing here, and the item can be closed as accepted instead of fixed.
 
+- **`ip_health` watches two blocklists, and the one that refused us was not among them.**
+  Measured in production 2026-09-12, warm-up ladder day 4: `glowfish.de` answered
+  `550 5.7.1 Service unavailable; client [92.222.87.97] blocked using mail.abusix.zone`. At that
+  same moment `GET /admin/ip-health` reported `{"burned": false}` and `ip_health_listed` carried
+  exactly two series, `zen.spamhaus.org` and `bl.spamcop.net`, both `0`.
+
+  Nothing here malfunctioned. `ip_health.zones` is empty in `verifierd.yaml`, which means the
+  built-in default, and the default is those two. But the *meaning* of `burned: false` is
+  "the two zones we happen to check are clean", while every caller — and the warm-up ladder's
+  stop rule — reads it as "this IP is in good standing". Those differ exactly when it matters:
+  the day the IP is listed somewhere else.
+
+  **The first real reputation refusal of the whole ladder arrived through a third party's reply
+  text rather than through our own check**, which inverts the design. `SelfTest` exists so the node
+  knows its own standing before it spends it; instead the node believed itself healthy while a
+  receiving server was reading our IP out of a list by name.
+
+  **Fix, smallest first.** Add `mail.abusix.zone` to the default zone set — it is a major
+  operator-grade list and its absence is what this cost. Then the larger point: the ladder's
+  stop rule cannot be built on a two-zone sample, so `burned` should distinguish *checked and
+  clean* from *not checked*, and a `550` naming our own IP should feed back into health rather
+  than dying in a caller's `signals` column. Data Scout already parses that reply text since its
+  plan 018 — the code that reads `client [<ip>] blocked using <zone>` is the natural trigger.
+
+  Note Abusix requires a subscription key for DNS queries (`<key>.mail.abusix.zone`), so adding it
+  is a credential change as well as a config one, and an unkeyed query answers for everything the
+  same way a public resolver does — which the RUNBOOK already warns about for DNSBLs generally.
+
 - **Bounces to `verify@probe.datascoutmail.com` are discarded** (plan 019). Cloudflare Email
   Routing answers `250` for the sub-domain with no route behind it, which is what makes sender
   callouts pass; anything delivered there is dropped. Harmless while verification is the only
