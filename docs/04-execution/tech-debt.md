@@ -36,6 +36,37 @@ later plan closes it.
   deliverable. `CLAUDE.md` invariant 7, `smtp-classification.md`, `ARCHITECTURE.md`,
   `ENGINEERING-STANDARDS.md` and `storage-contract.md` all say the same thing now.
 
+- **The prober cannot do STARTTLS, so an MX that requires it is permanently unanswerable.**
+  Measured in production on 2026-09-11, warm-up ladder day 3: `gw.art-trier.de` answered
+  `530 5.7.0 STARTTLS is mandatory`, which `Classify` correctly calls `policy` — a rejection of
+  *us*, invariant 1 — and the caller therefore stores `block: true` with a verdict derived from DNS
+  alone. The address is not merely unverified today; it is unverifiable, on this path, for ever.
+
+  `Probe` runs `connect → EHLO → MAIL FROM → RCPT × N → RSET → QUIT` (`prober.go:338`) and has no
+  STARTTLS step. The relay does — `sender.go:99-123`, offered-only and deliberately unverified,
+  because almost no MX presents a certificate matching the name we dialled (`SECURITY.md`,
+  `mail-relay.md`). The same reasoning applies unchanged to the prober; it simply never got the
+  code.
+
+  **The fix is two parts, and the first is the one that is easy to miss.** `readReply`
+  (`classify.go:299`) walks every continuation line but keeps only the last (`last = line`,
+  overwritten each turn), so the EHLO capability list is read off the socket and thrown away — the
+  prober cannot see `250-STARTTLS` even when it is announced. That is the exact hazard the relay
+  records at `sender.go:202`. So: have the reply reader surface the full text (or the capability
+  set), then add the STARTTLS step and the mandatory second EHLO after the upgrade, which the relay
+  already does.
+
+  **Why it is worth more than its raw share.** One address in 100 on the day it was found — small.
+  But the warm-up ladder's stop rule is *any movement in* `block`, and every such MX contributes a
+  permanent, non-reputational `block` to every day's count. It degrades the signal the ladder
+  advances on, which is the one number this service exists to keep honest. It is also silent: the
+  row looks like every other policy block until someone reads the reply text, which only became
+  possible with plan 018.
+
+  **Nothing records a decision to omit it,** so this is read as an omission rather than a trade-off.
+  If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
+  in writing here, and the item can be closed as accepted instead of fixed.
+
 - **Bounces to `verify@probe.datascoutmail.com` are discarded** (plan 019). Cloudflare Email
   Routing answers `250` for the sub-domain with no route behind it, which is what makes sender
   callouts pass; anything delivered there is dropped. Harmless while verification is the only
