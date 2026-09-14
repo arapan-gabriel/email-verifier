@@ -1030,3 +1030,41 @@ func TestARequestCannotRaiseThePolicyCeilingWithoutLimit(t *testing.T) {
 		t.Fatalf("got %d results, want 30 — every address must still be accounted for", len(resp.Results))
 	}
 }
+
+// TestVerificationNeverSendsDATA is the invariant the whole two-service split
+// rests on: verification asks whether a mailbox exists and never delivers a
+// message. A probe that reached DATA would be sending unsolicited mail from the
+// warmed IP under the name of a check — the single fastest way to lose the
+// reputation plan 014 depends on. Asserted against the wire, not the code, so a
+// refactor that reintroduces it fails here rather than at a receiving server.
+func TestVerificationNeverSendsDATA(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	record := func(cmd string) string {
+		mu.Lock()
+		seen = append(seen, cmd)
+		mu.Unlock()
+		return happyPath("ghost@")(cmd)
+	}
+
+	resp := probeWith(t, scriptedMX("220 mx.test ESMTP", record), Request{
+		MXHost: "mx.test", Domain: "example.com",
+		Emails:       []string{"real@example.com", "ghost@example.com"},
+		NeedCatchAll: true,
+	})
+	if len(resp.Results) != 2 {
+		t.Fatalf("Results = %d, want 2", len(resp.Results))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("the scripted MX saw no commands at all — the test proves nothing")
+	}
+	for _, cmd := range seen {
+		if strings.HasPrefix(strings.ToUpper(cmd), "DATA") ||
+			strings.HasPrefix(strings.ToUpper(cmd), "BDAT") {
+			t.Fatalf("verification sent %q; it must never deliver a message:\n%v", cmd, seen)
+		}
+	}
+}

@@ -208,9 +208,10 @@ relay:
   dkim_key_file: "/etc/verifierd/dkim/s1.private"
   dkim_selector: "s1"
   # VERP lives here, so a bounce identifies its message without the body being
-  # parsed. It needs an MX pointing somewhere the bounces are actually read —
-  # until plan 015 stands that up, enabling the relay would send mail whose
-  # failures nobody sees.
+  # parsed. The MX points at Cloudflare Email Routing, whose Worker posts every
+  # bounce to Data Scout — live since 2026-09-11, and since 2026-09-14 the token
+  # resolves to the message that earned it. What still keeps `enabled: false` is
+  # the warm-up ladder, not the return path.
   return_path_domain: "bounces.datascoutmail.com"
   max_attempts: 5
   retry_base: 5m

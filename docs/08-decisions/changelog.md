@@ -33,6 +33,19 @@ for three days; it now draws the loop end to end, and `features/006-mail-relay.m
 the relay cannot read its own bounces. What still gates switching it on is the warm-up ladder — a
 calendar, not a code gap.
 
+**And the invariant the whole two-service split rests on was never asserted.** Verification must
+never send `DATA` — a probe that did would be sending unsolicited mail from the warmed IP under the
+name of a check, the fastest way to lose the reputation plan 014 depends on. It was stated in a
+doc-comment and in three plans and tested nowhere. `TestVerificationNeverSendsDATA` now records
+every command a probe puts on the wire, catch-all probes included, and fails on `DATA` or `BDAT` —
+asserted against the socket rather than the code, so a refactor fails here rather than at a
+receiving server.
+
+Plan 014's Definition of Done is ticked wherever it can be proven without sending a real message,
+each item naming the test that proves it, and its last item now names **who** turns the relay on,
+in what order, and under which three conditions — the gap that let plans 010 and 011 sit dark for
+a fortnight.
+
 ## 2026-09-12 — Plan 021: a self-test that fails one zone at a time, so Abusix can be added
 
 `SelfTest` now tests each zone independently, keeps the survivors, and returns the dropped ones with

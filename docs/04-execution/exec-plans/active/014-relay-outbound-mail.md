@@ -1,6 +1,11 @@
 # Plan 014 — relay-outbound-mail
 
-**Status:** Active — **rewritten 2026-09-11** against what the two repositories actually are now
+**Status:** Active — **rewritten 2026-09-11** against what the two repositories actually are now.
+**Code complete and shipped disabled**; as of 2026-09-14 every Definition-of-Done item that can be
+proven without sending a real message is ticked with its evidence, and the switch-on condition and
+order are written into the DoD's last item. What remains is the live gate: a signed message at
+mail-tester and the bounce it provokes — both waiting on the warm-up ladder and on the Abusix
+listing from ladder day 4 expiring (~2026-09-17)
 **Phase:** C
 **Depends on:** 003, 013, **020** (010 and 011 are Complete but dark — 020 is what makes them real)
 
@@ -120,19 +125,57 @@ own ramp, not on day one.
 
 - [ ] A signed test message is delivered and passes SPF + DKIM + DMARC at mail-tester — recorded
       here with the score
-- [ ] Verification and send are separate code paths; **verify still never sends `DATA`** — asserted
-- [ ] A suppressed address is never sent to; an unhealthy IP stops sending; a stale suppression copy
-      stops sending — each tested
-- [ ] A message accepted by `POST /send` survives a service restart and is delivered after it
-- [ ] Sending and verification share one pacer: a busy MX slows both — shown
-- [ ] The envelope sender is one 015 can receive bounces at, and that has been demonstrated before
-      the first production message
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed
-- [ ] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
+- [x] Verification and send are separate code paths; **verify still never sends `DATA`** —
+      asserted 2026-09-14 against the wire, not the code: `TestVerificationNeverSendsDATA` records
+      every command a probe puts on the socket (including the catch-all probes) and fails on
+      `DATA`/`BDAT`. It was the one invariant the whole two-service split rests on that nothing
+      checked; a refactor now fails here instead of at a receiving server
+- [x] A suppressed address is never sent to; an unhealthy IP stops sending; a stale suppression
+      copy stops sending — each tested: `SuppressionFailsClosedForSending`,
+      `ABurnedIPStopsSendingEntirely`, `SuppressionIsRecheckedAtSendTime` (accept-time agreement is
+      not trusted at send time), plus `NoBudgetDefersRatherThanSends`
+- [x] A message accepted by `POST /send` survives a service restart — `AQueuedMessageSurvivesTheProcess`
+      (the queue is read back from Redis by a second instance). *Delivered* after it is part of the
+      live gate below, since nothing has sent a real message yet
+- [~] Sending and verification share one pacer — **one `pace` instance is passed to both**
+      `prober.New` and the relay in `cmd/verifierd/main.go`, and `DeliveryOutcomesDriveTheQueueAndThePacer`
+      shows the relay's outcomes feeding it. A cross-leg demonstration (a busy MX visibly slowing
+      the *other* leg) needs both legs live and belongs with the mail-tester gate
+- [x] The envelope sender is one 015 can receive bounces at — `bounces+<id>@bounces.datascoutmail.com`,
+      routed at Cloudflare to an Email Worker that posts to Data Scout's `POST /bounce` (live
+      2026-09-11), and since 2026-09-14 the `<id>` resolves: Data Scout stores the `message_id`
+      this service answers with and matches a recipient-less DSN through it. The remaining
+      demonstration is a real bounce from a real send, which is the gate below
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean —
+      re-run 2026-09-14, 0 issues
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed for the 2026-09-14 change
+      (one test, one config comment, plan bookkeeping — no new surface, no new dependency)
+- [~] Docs updated per `CLAUDE.md` Phase 5 — `service/mail-relay.md`, `features/006-mail-relay.md`
+      and both changelogs are current as of 2026-09-14. `api.md`'s `POST /send` row and
+      `SECURITY.md` were written with the feature and still describe it. The last doc edit this
+      plan owes is the score from the mail-tester gate, which does not exist yet
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
-- [ ] **If the relay ships disabled, this DoD says so and names who turns it on** — the gap that let
-      010 and 011 sit dark for a fortnight (see 020)
+- [x] **The relay ships disabled, and here is who turns it on and when** — written down rather
+      than left to be rediscovered, which is the gap that let 010 and 011 sit dark for a fortnight
+      (see 020).
+
+      **State:** `relay.enabled: false` in `config/verifierd.yaml` on the node, and Data Scout's
+      `EMAIL_PROVIDER` is not `relay` — so both ends are off, and either one alone would do
+      nothing.
+
+      **Condition to turn it on** (all three, checked on the day, not assumed):
+      1. The warm-up ladder has reached its sustained ceiling and held it — the ladder is in
+         `docs/03-engineering/operations/ip-reputation.md`.
+      2. `GET /admin/ip-health` reports the sending IP clean on every configured zone. As of
+         2026-09-12 it was not: an Abusix `black` listing from the ladder's day 4, which expires
+         ~2026-09-17 and is what plan 021 made visible.
+      3. A test message to mail-tester scores well and passes SPF + DKIM + DMARC (the gate above),
+         and its bounce — deliberately provoked to a dead address — arrives through the Worker.
+
+      **Who:** the operator, in this order, because the reverse order sends mail nobody reads:
+      `relay.enabled: true` + restart `verifierd` → confirm `POST /send` answers `202` → set
+      `EMAIL_PROVIDER=relay` in Data Scout's `.env` through CD → send one real password reset to a
+      mailbox you own and read the headers before letting customer mail follow.
 
 ## Notes / decisions / deviations
 
