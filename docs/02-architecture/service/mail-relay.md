@@ -76,9 +76,28 @@ from `relay.retry_base`, bounded by `relay.max_attempts`, then buried. A server 
 five times will not take the sixth, and continuing to offer it spends the IP's standing on one
 address.
 
-## What is not here
+## The return path — closed end to end (plan 015)
 
-The **return path**. VERP puts a token in the envelope sender so a bounce identifies its message
-without the body being parsed, and `relay.return_path_domain` carries it — but nothing reads that
-mailbox until plan 015. Until it does, enabling the relay would send mail whose failures nobody
-sees, which is how a warmed IP is spent.
+Every message goes out under a VERP envelope sender, `bounces+<id>@<relay.return_path_domain>`,
+where `<id>` is the queue id `POST /send` answered with. That token is the reliable half of a
+bounce: receiving servers disagree about how (and whether) they name the failed recipient in the
+`message/delivery-status` part, but the envelope comes back exactly as it left.
+
+What reads it is **not on this node** — nothing may listen on `:25` here, and a stray listener
+there is an open-relay risk that burns the IP faster than any probing mistake. Instead:
+
+```
+receiving MTA ──DSN──▶ bounces.datascoutmail.com (Cloudflare Email Routing)
+                          └── Email Worker ──POST /bounce──▶ Data Scout
+                                                               ├── 5.x.x → an `invalid` verdict
+                                                               ├── ARF   → a complaint
+                                                               └── POST /admin/ip-health/complaint ──▶ here
+```
+
+Data Scout stores the `message_id` from `POST /send` on the outbox row it sent
+(`email_outbox.provider_message_id`), so a DSN that names nobody is still resolved to an address
+through the token. A complaint comes back to this node as an IP-health penalty, which pauses
+**sending** and leaves verification running: the two share an IP, but a complaint is about mail.
+
+Live and proven 2026-09-11 (the path), 2026-09-14 (the token's round trip). What still gates the
+relay being switched on is the warm-up ladder, not the return path.

@@ -3,6 +3,36 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-14 — Plan 015: the VERP token was only half a loop
+
+The relay has addressed every message's envelope as `bounces+<id>@bounces.datascoutmail.com` since
+plan 014, and the Cloudflare Worker has been posting bounces to Data Scout since 2026-09-11. The
+half nobody had connected: Data Scout **discarded the `message_id`** that `POST /send` answers
+with, so a bounce arrived carrying a token this service had minted and there was nothing on the
+other side to match it against. VERP's entire purpose is that the envelope survives when the DSN's
+body does not, and the body is the unreliable part — receiving servers disagree about whether they
+name the failed recipient in `message/delivery-status` at all. A recipient-less DSN was being
+dropped with a `bounce.hard_without_recipient` warning while the answer sat in the envelope.
+
+Closed on the Data Scout side (`email_outbox.provider_message_id`, migration `0035`): the outbox
+stores the reference, the ingest resolves a recipient through it, and the DSN's own recipient still
+wins when it has one — the report is the evidence, our bookkeeping is only how the evidence is
+found. Nothing changed here; what changed is that this service's token now means something at the
+other end.
+
+**Soft bounces stay un-retried, and that is a decision.** The plan asked for a bounded retry through
+014's queue. This node already retries a transient failure *in session* with backoff, which is the
+case where retrying helps. An asynchronous `4.x.x` DSN arrives after the receiving server exhausted
+its own retry window — days — and every message this relay carries is time-boxed: a reset link, an
+invite. Re-sending a days-expired password reset earns a second bounce and teaches a customer that
+our mail is noise. Recorded, not re-queued. Re-open it if the relay ever carries mail whose value
+survives a week.
+
+`service/mail-relay.md`'s "What is not here" section was describing a return path that has existed
+for three days; it now draws the loop end to end, and `features/006-mail-relay.md` no longer says
+the relay cannot read its own bounces. What still gates switching it on is the warm-up ladder — a
+calendar, not a code gap.
+
 ## 2026-09-12 — Plan 021: a self-test that fails one zone at a time, so Abusix can be added
 
 `SelfTest` now tests each zone independently, keeps the survivors, and returns the dropped ones with

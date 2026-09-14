@@ -1,6 +1,8 @@
 # Plan 015 — relay-bounce-handling
 
-**Status:** Active — **rewritten 2026-09-11**; the return path is decided and the ingest is built
+**Status:** Active — the return path is decided, built and closed end to end (2026-09-14: the VERP
+token now round-trips, so a bounce that names no recipient is still resolved). **Open: only what
+014 owns** — soft-bounce retry through its queue, which is 014's queue and 014's to switch on
 **Phase:** C
 **Depends on:** 014, **020** (010 and 011 are Complete but dark)
 **Blocks 014's first production message:** 014 sends *from* the address this plan must be able to
@@ -71,21 +73,40 @@ that is unreliable across servers.
 - [x] MX and SPF for `bounces.datascoutmail.com` — done 2026-09-11
 - [x] The Worker: `bounces+…` to `POST /bounce`, **everything else forwarded**, forward on error too
 - [x] Zone catch-all repointed at the Worker, after its code was deployed
-- [ ] VERP envelope sender with a token that identifies the message
+- [x] **VERP envelope sender with a token that identifies the message** — closed 2026-09-14.
+      The relay has sent under `bounces+<id>@…` since 014; what was missing was the other end:
+      Data Scout discarded the `message_id` that `POST /send` answers with, so a bounce arrived
+      carrying a perfectly good token and had nothing to match it against. The outbox now stores
+      it (`email_outbox.provider_message_id`, migration `0035`) and the ingest resolves a
+      recipient through it — which is the whole point of VERP, since a DSN that names nobody was
+      previously dropped. The DSN's own recipient still wins when it has one
 - [x] **Data Scout:** `POST /bounce` + DSN parsing; complaints distinguished from bounces —
       **live and proven in production 2026-09-11**, see Results
 - [x] **Data Scout:** hard bounce → **a verification verdict, not the suppression list** — see the
       correction below; "never mail it again" is enforced in the outbox, where the record is
 - [x] **Here:** `POST /admin/ip-health/complaint`; a spike pauses sending and leaves verification running
-- [ ] Soft bounce → bounded retry via 014's queue; complaints → suppress + IP-health penalty
+- [~] Soft bounce → bounded retry via 014's queue; complaints → IP-health penalty (**not**
+      suppression — see the correction). The complaint half is done. The soft-bounce half is
+      **deliberately not built**, and the reasoning is below rather than in a commit nobody reads:
+      the relay already retries a transient failure *in session* with backoff (014), which is the
+      case where retrying helps. An asynchronous `4.x.x` DSN is different — it arrives after the
+      *receiving* server has exhausted its own retry window, typically days later, and every
+      message this relay carries is time-boxed (a reset link, an invite). Re-sending a
+      days-expired password reset earns a second bounce and teaches the customer that our mail is
+      noise. So a soft bounce is recorded and nothing is re-queued. Re-open this if the relay ever
+      carries mail whose value survives a week
 - [x] A complaint spike pauses sending and **not** verification — tested
 - [x] Metrics: `relay_complaints_total` here; the hard-bounce share is read from Data Scout's own
       records by its `healthcheck.sh`, which is where that data lives and how that box alerts
-- [ ] Data Scout: accept the suppression signal; a hard bounce updates the address's record
+- [x] Data Scout: a hard bounce updates the address's record — **and deliberately not the
+      suppression list**, see the correction below. Closed 2026-09-14 with the token lookup, which
+      is what makes it hold for the DSNs that name no recipient
 - [x] Tests: a hard bounce records a verdict; a complaint does not; a soft bounce writes nothing;
       `not-spam` is not a complaint; a malformed DSN produces no verdict at all
-- [ ] Update `service/mail-relay.md`, `operations/ip-reputation.md`, `metrics.md`, changelog in both
-      repositories
+- [x] Update `service/mail-relay.md` (the return path is no longer "what is not here" — it is
+      drawn end to end), `features/006-mail-relay.md`, and the changelog in both repositories.
+      `ip-reputation.md` and `metrics.md` already describe the complaint path that landed
+      2026-09-11 and needed no change
 
 ### Correction — a hard bounce is a verdict, not a suppression (2026-09-11)
 
@@ -126,13 +147,22 @@ That is the manual gate, and it waits on the warm-up ladder like 014's does.
 
 - [ ] A real bounce, produced by sending to a known-dead address, arrives and is parsed — recorded
       here with the DSN
-- [ ] It marks the address and updates suppression on **both** sides
-- [ ] A complaint penalises IP health; a spike pauses sending while verification continues — tested
-- [ ] An unparseable DSN never produces a verdict
-- [ ] `relay_bounces_total` has bounded cardinality
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed
-- [ ] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
+- [x] It marks the address — **and deliberately does not touch suppression**, per the correction
+      below: suppression here is the GDPR do-not-reingest list, and suppressing on a bounce would
+      answer a paying customer `unknown` about an address the bounce just proved dead. "Never mail
+      it again" is enforced in the outbox instead (`email_service._known_undeliverable`), tested
+- [x] A complaint penalises IP health; a spike pauses sending while verification continues —
+      `internal/iphealth/complaint_test.go`: a spike must not read as a blocklist entry (which
+      would stop probing too), and a complaint from last month does not count against today
+- [x] An unparseable DSN never produces a verdict — tested both sides of the boundary: the parser returns `Unparseable`, the ingest still answers `204` (so the Worker does not forward it to a human), and `bounce_service` writes nothing
+- [x] Bounded cardinality — the counter shipped as `relay_complaints_total`, a bare counter with **no label at all** (`internal/metrics/metrics.go`), so cardinality is 1 by construction; the per-class breakdown lives in Data Scout's logs, where the address it would be derived from already is
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean — re-run 2026-09-14, 0 issues
+- [x] `docs/05-quality/checklists/pr-checklist.md` walked for the 2026-09-14 change (both
+      repositories): no new surface here, one additive nullable column and index there, no
+      cross-org read (the outbox is a system table, looked up by a token we minted), no secret in
+      a log line — the token is ours, not the recipient's, and the recipient is logged as a domain
+- [x] Docs updated per `CLAUDE.md` Phase 5; changelog entries in both repositories
+      (2026-09-14)
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
