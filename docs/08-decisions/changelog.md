@@ -3,6 +3,30 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-14 — A subscription key is a credential wearing a hostname
+
+Abusix and Spamhaus DQS put the subscription key *inside the query name*
+(`<key>.combined.mail.abusix.zone`). This package hands zone strings to three readers that are not
+the resolver: the startup log, the `ip_health_listed` metric label, and the `reason` on
+`GET /admin/ip-health` — and that last one is read by Data Scout's health check, which **emails**
+its findings. So the first keyed zone anyone configured would have put a credential into a journal,
+a metrics scrape and an email, all at once.
+
+`iphealth.RedactZone` rewrites the first label to `<key>` wherever a zone is reported; the query
+still goes out whole. The rule is the label count rather than a list of zone names — both families
+are four labels bare and five with a key — so a family that adds a zone tomorrow is covered and
+nothing needs maintaining. An unkeyed zone is never rewritten: a `<key>` where there is none would
+only hide the zone a reader is trying to identify.
+
+Found before it happened rather than after: the operator was mid-way through adding the Abusix zone
+when the log line's content was checked. The key they had turned out to be a portal REST secret
+(`sk_…`) rather than a Mail Intelligence query key, which the node's own resolver settled in one
+`dig` — a keyed test point answering `SERVFAIL` exactly like a bogus key, while Spamhaus answered
+normally through the same resolver. **A keyless query to a keyed zone answers `SERVFAIL` for a
+listed address exactly as for a clean one**, which is also why the 2026-09-12 Abusix listing was
+invisible here for its whole life, and is now written into `ip-reputation.md` beside the other two
+ways to get a false answer out of a blocklist.
+
 ## 2026-09-14 — Plan 015: the VERP token was only half a loop
 
 The relay has addressed every message's envelope as `bounces+<id>@bounces.datascoutmail.com` since

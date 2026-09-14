@@ -12,6 +12,14 @@ keeps the verdict in `ip:health:<ip>`. A confirmed listing stands the node down:
 redeploy. The next scheduled check re-evaluates, so resuming overrides a wrong verdict rather than
 turning the checking off.
 
+**A keyed zone is reported redacted** (2026-09-14). Abusix and Spamhaus DQS carry the subscription
+key as the zone's first label — a credential wearing a hostname — and this package hands zone
+strings to three readers that are not the resolver: the startup log, the `ip_health_listed` metric
+label, and the `reason` on `GET /admin/ip-health`, which Data Scout's health check puts in an
+**email**. `iphealth.RedactZone` turns those into `<key>.combined.mail.abusix.zone`; the query
+itself still goes out whole. An unkeyed zone is never rewritten — a `<key>` where there is none
+would only hide the zone a reader is trying to identify.
+
 ## Why it is off by default
 
 Standing the node down automatically is the point, and it is also the danger: **a false positive
@@ -23,6 +31,11 @@ here is a self-inflicted outage.** Three ways to get one, all measured rather th
   each zone's documented test points (`2.0.0.127` must come back listed, `1.0.0.127` must not)
   before a single real answer is acted on. A resolver that fails disables checking and logs an
   error; it never pauses anything.
+- **A keyless query to a keyed zone answers like a clean one.** Abusix's zones require a
+  subscription key *inside the query name*, so without one every lookup returns `SERVFAIL` — for a
+  listed address exactly as for a clean one. Measured 2026-09-14, and the reason the 2026-09-12
+  listing was invisible here for its whole life: a zone we cannot query must be *configured and
+  dropped by the self-test*, where it is logged, rather than quietly queried and read as clean.
 - **UCEPROTECT L3 lists a whole ASN.** Measured 2026-08-28: our address is on it because AS16276 is,
   while Spamhaus ZEN, SpamCop and UCEPROTECT L1/L2 were clean and both Gmail and Microsoft accepted
   the session. No delisting clears it. It is **not** in the default zones and should not be added.

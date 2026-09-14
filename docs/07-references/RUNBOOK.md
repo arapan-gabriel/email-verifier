@@ -92,7 +92,25 @@ IPs — you do not need a domain per sending node).
    Since plan 021 the self-test is per zone, so adding this cannot cost the coverage already there:
    a zone that stops answering is dropped and logged, and checking stops only when none survive.
    Confirm after a restart — the `blocklist checking enabled` line names the zones actually in
-   force, and `ip_health_listed` carries one series per zone.
+   force, and `ip_health_listed` carries one series per zone. **Both print the zone as
+   `<key>.combined.mail.abusix.zone`**: the key is redacted wherever a zone is *reported*
+   (2026-09-14) and sent in full only on the query itself, because the same string also reaches
+   `GET /admin/ip-health`'s `reason`, which Data Scout's health check puts in an email.
+
+   **Test the key before writing it anywhere**, from the node, through its own resolver — a wrong
+   or not-yet-active key answers `SERVFAIL`, and a *keyless* query answers `SERVFAIL` too, so
+   "nothing came back" never means "not listed":
+
+   ```bash
+   read -rs K     # paste; nothing echoes, nothing reaches .bash_history
+   dig +short @127.0.0.1 "2.0.0.127.$K.combined.mail.abusix.zone" A   # → 127.0.0.x (their test point)
+   dig +short @127.0.0.1 "1.0.0.127.$K.combined.mail.abusix.zone" A   # → empty
+   dig +short @127.0.0.1 "2.0.0.127.zen.spamhaus.org" A               # control: the resolver works
+   ```
+
+   The DNS key is the **Mail Intelligence query key** from the subscription page, not a portal REST
+   secret — a `sk_…`-shaped token is the latter and answers `SERVFAIL` exactly like a bogus one
+   (checked 2026-09-14).
 10. If listed, **finish Phase 1 first**, then request delisting (state you control
     the IP, it is a mail server, rDNS is set, the issue is resolved).
 11. Enrol in postmaster programs (for real sending, but worth having): Google

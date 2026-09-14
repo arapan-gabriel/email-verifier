@@ -105,7 +105,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		// watch and cannot is the gap that lets the node report good standing
 		// while listed somewhere it never looked (2026-09-12).
 		for _, d := range dropped {
-			logger.Error("blocklist zone dropped — it failed its self-test", "zone", d.Zone, "error", d.Reason)
+			logger.Error("blocklist zone dropped — it failed its self-test",
+				"zone", iphealth.RedactZone(d.Zone), "error", d.Reason)
 		}
 		if err != nil {
 			// A resolver we cannot trust disables the check. It must never
@@ -117,7 +118,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			// may be empty (meaning the defaults) and may name a zone that just
 			// dropped out. A reader needs to know what is covered, not what was
 			// requested.
-			logger.Info("blocklist checking enabled", "zones", health.Zones(), "ip", cfg.Probe.SourceIP)
+			// Redacted: a keyed zone (Abusix, Spamhaus DQS) carries a
+			// subscription key as its first label, and a journal is a place
+			// people copy out of.
+			logger.Info("blocklist checking enabled",
+				"zones", iphealth.RedactedZones(health.Zones()), "ip", cfg.Probe.SourceIP)
 			go health.Run(ctx)
 		}
 	} else {

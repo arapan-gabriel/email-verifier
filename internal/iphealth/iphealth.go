@@ -344,12 +344,16 @@ func (h *Health) Check(ctx context.Context) (Report, error) {
 			// false positive this package exists to avoid.
 			continue
 		}
-		rep.Listed[zone] = listed
+		// Reported redacted, queried raw: a keyed zone carries a subscription
+		// key in its own name, and all three of these are read by a person —
+		// the metric, the report, and the `reason` that reaches an email.
+		reported := RedactZone(zone)
+		rep.Listed[reported] = listed
 		if h.opts.Metrics != nil {
-			h.opts.Metrics.IPListed(h.opts.IP, zone, listed)
+			h.opts.Metrics.IPListed(h.opts.IP, reported, listed)
 		}
 		if listed {
-			on = append(on, zone)
+			on = append(on, reported)
 		}
 	}
 
