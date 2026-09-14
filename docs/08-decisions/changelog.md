@@ -3,6 +3,47 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-14 — Plan 021: the node watches Abusix, on a binary that predates the plan
+
+A Guardian Mail **Free** key was issued and tested from the node through its own unbound before it
+was written anywhere — keyed test point `127.0.0.2`, `92.222.87.97` empty — then appended to
+`/etc/verifierd/env`. One restart: `blocklist checking enabled` names Spamhaus, SpamCop and Abusix,
+three `ip_health_listed` series at `0`, `burned: false`. The free tier is **5,000 queries a week**,
+not a day; the 15-minute interval spends about 670, so `interval` should not be shortened without
+reading that number again.
+
+**The gate cannot close yet, and the reason was found only by checking what is installed.** The
+binary is the 2026-09-12 04:45 UTC deploy — older than plan 021's per-zone `SelfTest` and the key
+redaction below. Three zones passing under the old all-or-nothing test looks identical in the log;
+the difference arrives the first time Abusix stops answering (quota, revoked key) and a restart
+takes the other two down with it. Meanwhile the startup log and the metric label carry the key in
+full. `deploy` is manual on purpose, and the ladder was paused, so it was dispatched at once.
+
+**Deployed 10:39 UTC** (run `34834239761`, "deployed and healthy"). The log line now names
+`<key>.combined.mail.abusix.zone`, the metric label is redacted the same way, and the raw key
+appears zero times in the journal and the metrics since the deploy; the lines logged before it still
+carry the key, which a journal cannot selectively forget. The wrong-key half of the gate is left for
+the operator: two restarts, each a live Gmail handshake from the sending IP.
+
+**Gate closed at 10:50 UTC, and the plan with it.** With 32 zeros in place of the key the node
+dropped the Abusix zone with its reason and kept checking Spamhaus and SpamCop — exactly the case
+the old all-or-nothing `SelfTest` would have turned into no checking at all. The good env came back
+through an `EXIT` trap, byte-identical, and the next start named three zones. The test had to wait
+seven minutes first: `StartLimitBurst=3` in 600 s, and the deploy had just spent one start.
+
+It found a hole in this morning's redaction. `main.go` redacts the dropped zone's `zone` field and
+then logs `error` as `d.Reason`, whose text is `fmt.Errorf("%s test point unreachable: %w", zone,
+…)` — the full zone, key included. Zeros leaked nothing; a real key that stops answering (the
+weekly quota, a revocation) would write itself into the journal on the next start. Recorded in
+`tech-debt.md` rather than fixed here, together with a cosmetic one: the DNS error says
+`on 127.0.0.53:53` because Go names the `resolv.conf` server, while the custom `Dial` in
+`main.go` sent the query to unbound on `127.0.0.1`.
+
+One trap on the way, recorded because it will recur: `gh workflow run` answered
+`403 Must have admin rights` under the machine's active `gh` account, which is not the repository
+owner. The owner's token (`gh auth token --user arapan-gabriel`, passed as `GH_TOKEN` for the one
+command) dispatched it without switching the active account.
+
 ## 2026-09-14 — A subscription key is a credential wearing a hostname
 
 Abusix and Spamhaus DQS put the subscription key *inside the query name*

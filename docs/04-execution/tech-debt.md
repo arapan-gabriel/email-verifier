@@ -84,6 +84,11 @@ later plan closes it.
   knows its own standing before it spends it; instead the node believed itself healthy while a
   receiving server was reading our IP out of a list by name.
 
+  **Coverage half closed 2026-09-14** (plan 021): the Abusix zone is configured on the node through
+  `VERIFIERD_IP_HEALTH_ZONES` and checked alongside the default pair — configured rather than
+  defaulted, since it needs a key. **Still open:** a `550` naming our IP feeding back into health,
+  and `burned` distinguishing *not checked* from *clean*.
+
   **Fix, smallest first.** Add `mail.abusix.zone` to the default zone set — it is a major
   operator-grade list and its absence is what this cost. Then the larger point: the ladder's
   stop rule cannot be built on a two-zone sample, so `burned` should distinguish *checked and
@@ -94,6 +99,26 @@ later plan closes it.
   Note Abusix requires a subscription key for DNS queries (`<key>.mail.abusix.zone`), so adding it
   is a credential change as well as a config one, and an unkeyed query answers for everything the
   same way a public resolver does — which the RUNBOOK already warns about for DNSBLs generally.
+
+- **A dropped keyed zone logs its key in the `error` field.** Measured 2026-09-14 during plan 021's
+  wrong-key gate: `blocklist zone dropped` printed `"zone":"<key>.combined.mail.abusix.zone"` and,
+  in the same line, `"error":"00000000….combined.mail.abusix.zone test point unreachable: lookup
+  2.0.0.127.00000000….combined.mail.abusix.zone …"`. `RedactZone` is applied to `d.Zone` in
+  `main.go` but `d.Reason` is logged as-is, and `selfTestZone` builds it with the zone (twice: its
+  own `%s` and the wrapped `*net.DNSError`'s name). The "no zone passed" error wraps the same text.
+
+  **Why it matters more than a log-hygiene nit:** the case that writes it is exactly a real key
+  failing — the free tier's 5,000 queries a *week* running out, or a revoked key — so the key reaches
+  the journal on the one restart where someone is reading the journal to find out why.
+  **Fix:** build the reasons from `RedactZone(zone)` and redact the wrapped DNS error's `Name`
+  (or replace the key label in the final string) before it leaves `iphealth`; test it with a keyed
+  zone whose resolver fails.
+
+  Cosmetic, same line: the error says `on 127.0.0.53:53`. The query did go to unbound on
+  `127.0.0.1:53` — the resolver's `Dial` in `main.go` ignores the address it is handed — but
+  `net.DNSError.Server` reports the `resolv.conf` server, so the log names the resolver this host
+  must *not* use for DNSBL. Worth a note in the log text, or wrapping with the configured resolver,
+  before it sends someone chasing a misconfiguration that is not there.
 
 - **Bounces to `verify@probe.datascoutmail.com` are discarded** (plan 019). Cloudflare Email
   Routing answers `250` for the sub-domain with no route behind it, which is what makes sender
