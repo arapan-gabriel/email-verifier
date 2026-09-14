@@ -100,7 +100,16 @@ later plan closes it.
   is a credential change as well as a config one, and an unkeyed query answers for everything the
   same way a public resolver does — which the RUNBOOK already warns about for DNSBLs generally.
 
-- **A dropped keyed zone logs its key in the `error` field.** Measured 2026-09-14 during plan 021's
+- ~~**A dropped keyed zone logs its key in the `error` field.**~~ **Resolved 2026-09-14, the same
+  day.** `selfTestZone` builds every reason from `RedactZone(zone)`, and `query` returns a resolver
+  error through `redactError`, which flattens it to text with the zone redacted — flattened rather
+  than wrapped, so no `Unwrap` chain still holds the key. `TestADroppedZoneNeverCarriesItsKey`
+  drives all four self-test failures with a keyed zone and a `*net.DNSError` naming the full query,
+  and checks both the drop reason and the "no zone passed" error; it failed on the two
+  resolver-error paths before `query` was changed, with the node's exact log text. Takes effect on
+  the node at the next `deploy`. The cosmetic half below stays open.
+
+  Original entry: measured 2026-09-14 during plan 021's
   wrong-key gate: `blocklist zone dropped` printed `"zone":"<key>.combined.mail.abusix.zone"` and,
   in the same line, `"error":"00000000….combined.mail.abusix.zone test point unreachable: lookup
   2.0.0.127.00000000….combined.mail.abusix.zone …"`. `RedactZone` is applied to `d.Zone` in

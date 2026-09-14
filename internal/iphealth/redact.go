@@ -1,6 +1,9 @@
 package iphealth
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
 
 // Zone families whose subscription key rides *inside the query name*, as the
 // first label: Abusix (`<key>.combined.mail.abusix.zone`) and Spamhaus's Data
@@ -38,6 +41,23 @@ func RedactZone(zone string) string {
 		return "<key>." + strings.Join(labels[1:], ".")
 	}
 	return zone
+}
+
+// redactError returns err with zone's key replaced by `<key>`, for errors that
+// name the query — a resolver's *net.DNSError carries the whole
+// `2.0.0.127.<key>.combined.mail.abusix.zone` in its Name.
+//
+// The result is flattened to text on purpose. Keeping the original in an
+// Unwrap chain would hand the key to anything that walks it, and nothing that
+// receives a query error needs its type: `query` has already read IsNotFound.
+// Measured 2026-09-14 on the node, with a wrong key: the dropped zone's `zone`
+// field was redacted and its `error` field, on the same log line, was not.
+func redactError(err error, zone string) error {
+	reported := RedactZone(zone)
+	if err == nil || reported == zone {
+		return err
+	}
+	return errors.New(strings.ReplaceAll(err.Error(), zone, reported))
 }
 
 // RedactedZones maps RedactZone over a list, for the call sites that report a set.

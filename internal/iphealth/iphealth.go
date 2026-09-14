@@ -287,20 +287,24 @@ func (h *Health) SelfTest(ctx context.Context) ([]DroppedZone, error) {
 }
 
 // selfTestZone probes one zone's documented test and clean points.
+//
+// Every reason names the zone redacted: the caller logs it, and the case that
+// produces one for a keyed zone is precisely a key that stopped working.
 func (h *Health) selfTestZone(ctx context.Context, zone string) error {
+	reported := RedactZone(zone)
 	listed, err := h.query(ctx, "2.0.0.127", zone)
 	if err != nil {
-		return fmt.Errorf("%s test point unreachable: %w", zone, err)
+		return fmt.Errorf("%s test point unreachable: %w", reported, err)
 	}
 	if !listed {
-		return fmt.Errorf("%s did not list its own test point; the resolver cannot query it", zone)
+		return fmt.Errorf("%s did not list its own test point; the resolver cannot query it", reported)
 	}
 	clean, err := h.query(ctx, "1.0.0.127", zone)
 	if err != nil {
-		return fmt.Errorf("%s clean point unreachable: %w", zone, err)
+		return fmt.Errorf("%s clean point unreachable: %w", reported, err)
 	}
 	if clean {
-		return fmt.Errorf("%s listed its own clean point; the resolver answers everything (a stub)", zone)
+		return fmt.Errorf("%s listed its own clean point; the resolver answers everything (a stub)", reported)
 	}
 	return nil
 }
@@ -397,7 +401,9 @@ func (h *Health) query(ctx context.Context, prefix, zone string) (bool, error) {
 		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
 			return false, nil
 		}
-		return false, err
+		// Redacted here rather than at each caller: the error names the whole
+		// query, and a keyed zone's key is part of that name.
+		return false, redactError(err, zone)
 	}
 	// A listing is any 127.0.0.0/8 answer. 127.255.255.254 is the "your query
 	// was refused" sentinel and is not a listing — but the self-test is what

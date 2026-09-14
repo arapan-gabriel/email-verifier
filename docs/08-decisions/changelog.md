@@ -3,6 +3,29 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-14 — A key that stops working no longer writes itself into the journal
+
+Closes the hole plan 021's wrong-key gate found in this morning's redaction. The dropped zone's
+`error` field carried the key twice: once from `selfTestZone`'s own `%s`, once inside the
+resolver's `*net.DNSError`, whose `Name` is the whole query. Both are closed inside `iphealth`, so
+no caller has to remember: every reason names `RedactZone(zone)`, and `query` returns resolver
+errors through `redactError`.
+
+**Flattened to text, not wrapped.** A wrapper that redacts `Error()` but keeps the original behind
+`Unwrap` would still hand the key to anything walking the chain. Nothing downstream needs the
+type — `query` has already read `IsNotFound`, `Check` ignores the error, and `SelfTest`'s callers
+only log it — so the type is the cheaper thing to lose.
+
+**Test first, and it reproduced the node.** `TestADroppedZoneNeverCarriesItsKey` covers all four
+ways a zone fails its self-test, plus the "no zone passed" error that wraps the same reason. With
+only `selfTestZone` changed it failed on exactly the two resolver-error paths, printing
+`lookup 2.0.0.127.sk_secret.combined.mail.abusix.zone on 127.0.0.53:53: server misbehaving` — the
+line the node logged at 10:50 UTC. Why the error names `127.0.0.53` although the query went to
+`127.0.0.1` stays open in `tech-debt.md`, as its cosmetic half.
+
+Not deployed: the node runs `224b0f9`, where the leak needs a key that fails *and* a restart to
+fire. `go test -race`, `go vet`, `gofmt`, `golangci-lint` (0 issues) green.
+
 ## 2026-09-14 — Plan 021: the node watches Abusix, on a binary that predates the plan
 
 A Guardian Mail **Free** key was issued and tested from the node through its own unbound before it
