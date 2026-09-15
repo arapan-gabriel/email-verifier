@@ -5,6 +5,16 @@ later plan closes it.
 
 ## Open
 
+- **A 4xx refusal of our IP is retried like greylisting.** Ladder day 5 (2026-09-15): Hetzner's
+  `451` carrying *"the amount of spam we are receiving from your server … rbl.your-server.de"* classes
+  `deferred` (no throttle hint matches), so `retryHint` gives it the default window and Data Scout
+  re-asks. Nine domains were re-asked; one came back `550`. Every retry is traffic at a server that
+  has just said it holds us listed, which is the traffic that keeps a listing alive.
+
+  Not folded into plan 022 because the class decides three things at once — retry hint, policy-stop
+  counting and `ObservePolicy` — and a 4xx `policy` needs a decision on each. Smallest honest fix: a
+  4xx whose text matches `senderHints` blocklist wording returns no retry hint.
+
 - **`TestConcurrentSessionsAreIsolated` is timing-flaky under load.** Seen once on 2026-09-11 during
   a full `-race` run of all 15 packages — `connections leaked: 1 still active` — and not reproduced
   in five isolated runs or three subsequent full ones. `internal/mxsim/smtp/server_test.go`, present
@@ -63,6 +73,9 @@ later plan closes it.
   row looks like every other policy block until someone reads the reply text, which only became
   possible with plan 018.
 
+  **First half closed 2026-09-15** (plan 022): `readReply` now keeps every line, so the capability
+  list reaches `step`'s caller; nothing reads `250-STARTTLS` from it yet.
+
   **Nothing records a decision to omit it,** so this is read as an omission rather than a trade-off.
   If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
   in writing here, and the item can be closed as accepted instead of fixed.
@@ -83,6 +96,11 @@ later plan closes it.
   text rather than through our own check**, which inverts the design. `SelfTest` exists so the node
   knows its own standing before it spends it; instead the node believed itself healthy while a
   receiving server was reading our IP out of a list by name.
+
+  **A fourth list, 2026-09-15** (plan 022): Hetzner's own `rbl.your-server.de` refused us on ladder
+  day 5 while all three watched zones were clean. It answers as a DNSBL — test point `127.0.0.2`,
+  clean point empty, checked by hand from the node — and wants adding to
+  `VERIFIERD_IP_HEALTH_ZONES`.
 
   **Coverage half closed 2026-09-14** (plan 021): the Abusix zone is configured on the node through
   `VERIFIERD_IP_HEALTH_ZONES` and checked alongside the default pair — configured rather than

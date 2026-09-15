@@ -170,6 +170,34 @@ func TestRejectionOfUsIsNeverARejectionOfTheAddress(t *testing.T) {
 	}
 }
 
+// A refusal of us sent as a multi-line reply at RCPT must reach the result
+// whole and never condemn the address — the day-5 Hetzner refusal, end to end
+// through a session rather than through readReply alone.
+func TestAMultiLineRefusalAtRCPTIsReadWhole(t *testing.T) {
+	d := scriptedMX("220 mx.test ESMTP", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "EHLO"):
+			return "250-mx.test greets you\r\n250-PIPELINING\r\n250 STARTTLS"
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			return strings.ReplaceAll(hetznerRBL, "\n", "\r\n")
+		}
+		return "250 ok"
+	})
+	resp := probeWith(t, d, Request{
+		MXHost: "mx.test", Domain: "example.test", Emails: []string{"office@example.test"},
+	})
+	r := resp.Results["office@example.test"]
+	if r.Class != ClassPolicy {
+		t.Errorf("Class = %s, want policy — a blocklist refusal is about us", r.Class)
+	}
+	if r.Accepted != nil {
+		t.Errorf("Accepted = %v, want nil", *r.Accepted)
+	}
+	if !strings.Contains(r.Reply, "rbl.your-server.de") || !strings.HasSuffix(r.Reply, "Ihrem Serveranbieter erfahren.") {
+		t.Errorf("Reply = %q, want every line of the refusal", r.Reply)
+	}
+}
+
 // fakeProfiles remembers randomiser verdicts in memory.
 type fakeProfiles struct {
 	mu     sync.Mutex

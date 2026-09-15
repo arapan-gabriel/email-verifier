@@ -3,6 +3,32 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-15 — Plan 022: a reply is read whole, and a blocklist named in prose is about us
+
+Warm-up ladder day 5 stopped on a refusal nothing on either side could read. Hetzner's managed mail
+answered eight domains `451 Ihrem Serveranbieter erfahren.` and one, on its recheck, `550` with the
+same words — classed `invalid`. `swaks` from the node showed seven lines: *"we cannot currently
+accept your e-mail due to the amount of spam we are receiving from your server. Please check
+https://rbl.your-server.de/?ip=92.222.87.97"*. `readReply` had kept the last.
+
+**Two defects, both needed for the wrong verdict.** The reader dropped the reason; and the reason,
+read whole, still matched no sender hint and has no enhanced code, so it would have fallen through to
+`invalid` anyway. Fixing only the reader would have made the log honest and the verdict still wrong.
+
+**Joined with `\n`, prefixes kept.** The text stays exactly what the server sent, `EnhancedCode`
+still anchors on the first line, and a consumer that wants one line can split. Bounded at 4096 bytes
+kept, never at bytes read: stopping the read early would leave the tail on the socket to be taken as
+the next command's answer — `TestReadReplyKeepsEveryLine` asserts the following reply is intact.
+
+**`rbl.` and not `rbl`**, because the bare form matches `marble`; there is a test row for it.
+
+**Not changed:** a 4xx carrying the same prose still classes `deferred` and gets a retry hint — the
+retry that produced today's `550`. Moving it to `policy` alters retry, policy-stop and IP-health at
+once, so it is a tech-debt item, not a rider on this fix. The Hetzner DNS zone (`rbl.your-server.de`,
+self-test passes by hand) is prepared for `VERIFIERD_IP_HEALTH_ZONES` but not on the node yet.
+
+`go test -race`, `go vet`, `gofmt`, `golangci-lint` (0 issues) green. Not deployed.
+
 ## 2026-09-14 — A key that stops working no longer writes itself into the journal
 
 Closes the hole plan 021's wrong-key gate found in this morning's redaction. The dropped zone's

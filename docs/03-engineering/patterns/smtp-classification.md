@@ -23,6 +23,15 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
 | `450`/`451` greylisting | unknown (retry) | per-recipient, rate-independent |
 | `550 5.7.x` / `554 …blocked` / reverse DNS | **policy** → unknown | **our IP** |
 | `421 4.7.x` / unusual rate | throttled → unknown (back off) | our rate |
+| `550` naming a spam blocklist in prose, no enhanced code (Hetzner `rbl.your-server.de`) | **policy** → unknown | **our IP** |
+
+## Read the whole reply (plan 022)
+
+A multi-line reply puts its reason first and its sign-off last. The reader keeps every line —
+bounded, but always read to the final one — because classifying the last line alone turned Hetzner's
+refusal of our IP into `550 Ihrem Serveranbieter erfahren.`, which no hint matches and which
+therefore fell through to `invalid`. The enhanced code is still read from the start of the text, where
+RFC 3463 puts it.
 
 ## Two classes that look temporary but are not throttling
 

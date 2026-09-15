@@ -106,7 +106,10 @@ nowhere to go — the row, the job and the quota are Data Scout's. It already ha
 this endpoint owes it is a deferral it can schedule against. See
 `docs/03-engineering/patterns/retry-greylist.md`, including the tuple constraint that makes a retry
 work at all. Only `valid` and `invalid` are statements about a mailbox. `reply` carries the server's
-own words and `err` the transport error, both for the audit trail.
+own words and `err` the transport error, both for the audit trail. **`reply` is the whole reply**
+(plan 022): every line of a multi-line answer, joined by `\n` with its own `NNN-` prefix, first line
+first, kept to 4096 bytes. Before 022 it was the final line only — which for a multi-line refusal is
+the sign-off, not the reason.
 
 > **Reading `class` without `catch_all` is a contract violation, not a style preference**
 > (invariant 7). `class` classifies the *reply*; `catch_all` says whether that reply could mean

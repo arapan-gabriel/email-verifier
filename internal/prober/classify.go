@@ -117,6 +117,15 @@ var senderHints = []string{
 	"i=ip", "blocked", "blacklist", "spamhaus", "reputation",
 	"not accepted from your ip", "unsolicited", "bad reputation",
 	"sender address", "sender verify", "sender rejected", "sender domain",
+	// A receiving server's own blocklist, named in prose rather than in an
+	// enhanced code. Hetzner's managed mail (MX *.your-server.de) refuses a
+	// listed client with a seven-line 550 carrying no RFC 3463 code; its only
+	// sender-shaped words are these. Before the reply was read whole, the
+	// classifier saw just "550 Ihrem Serveranbieter erfahren." and called it
+	// invalid (warm-up ladder day 5, 2026-09-15). "rbl." and not "rbl": the
+	// bare form matches "marble".
+	"amount of spam", "spam we are receiving", "spamaufkommen", "rbl.",
+	"dnsbl", "blocklist", "block list", "black list",
 }
 
 // mailboxHints say plainly that the recipient is the problem. They are what
@@ -296,8 +305,25 @@ func classifyNetErr(err error) Class {
 	return ClassConnError
 }
 
+// maxReplyBytes bounds the text one reply may keep. A reply is the server
+// explaining itself, and Hetzner's refusal runs to about 560 bytes; a server
+// that talks for megabytes is still read to its final line, so the session
+// stays in step, but only this much of it is kept.
+const maxReplyBytes = 4096
+
+// readReply reads one SMTP reply, continuation lines included, and returns the
+// final code with the whole text, one line per "\n".
+//
+// It used to keep only the last line. A multi-line reply puts its reason first
+// and its sign-off last, so what reached the classifier, the log and Data
+// Scout's stop rule was the sign-off: on 2026-09-15 Hetzner's
+// "550-... due to the amount of spam we are receiving from your server. Please
+// check https://rbl.your-server.de/?ip=92.222.87.97 ..." arrived as
+// "550 Ihrem Serveranbieter erfahren." and was classed invalid — a refusal of
+// us read as a missing mailbox (invariant 1). The EHLO capability list was
+// discarded the same way (tech-debt: STARTTLS).
 func readReply(r *bufio.Reader) (int, string, error) {
-	var last string
+	var text strings.Builder
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
@@ -311,10 +337,15 @@ func readReply(r *bufio.Reader) (int, string, error) {
 		if err != nil {
 			return 0, line, fmt.Errorf("bad reply %q", line)
 		}
-		last = line
+		if text.Len() < maxReplyBytes {
+			if text.Len() > 0 {
+				text.WriteByte('\n')
+			}
+			text.WriteString(line)
+		}
 		if len(line) > 3 && line[3] == '-' {
 			continue
 		}
-		return code, last, nil
+		return code, text.String(), nil
 	}
 }

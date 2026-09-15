@@ -1,6 +1,10 @@
 package prober
 
-import "testing"
+import (
+	"bufio"
+	"strings"
+	"testing"
+)
 
 // The table that matters most in this repo: which replies may condemn a
 // mailbox and which may not (invariant 1,
@@ -35,6 +39,12 @@ func TestClassify(t *testing.T) {
 		// address in the batch. ../ds-smtp-retry still carries this bug.
 		{"bad sender system address", 554, "554 5.1.8 <verify@probe.example.test>: Sender address rejected: Domain not found", ClassPolicy},
 		{"bad sender mailbox syntax", 501, "501 5.1.7 Bad sender address syntax", ClassPolicy},
+		// Warm-up ladder day 5 (2026-09-15): a receiving server's own blocklist,
+		// no enhanced code, and its reason only in the continuation lines.
+		{"hetzner rbl, read whole", 550, hetznerRBL, ClassPolicy},
+		{"dnsbl named in prose", 550, "550 Rejected because 192.0.2.1 is in dnsbl.example.test", ClassPolicy},
+		// "rbl." must not fire on a word that merely contains the letters.
+		{"marble is not an rbl", 550, "550 5.1.1 <info@marble.example>: user unknown", ClassInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := Classify(tc.code, tc.text); got != tc.want {
@@ -86,5 +96,58 @@ func TestEnhancedCodeReadsOnlyTheLeadingToken(t *testing.T) {
 		if got := EnhancedCode(tc.reply); got != tc.want {
 			t.Errorf("EnhancedCode(%q) = %q, want %q", tc.reply, got, tc.want)
 		}
+	}
+}
+
+// hetznerRBL is the refusal Hetzner's managed mail sent the probe IP on
+// 2026-09-15, captured whole with swaks from the node.
+const hetznerRBL = "550-Unfortunately we cannot currently accept your e-mail due to the amount of\n" +
+	"550-spam we are receiving from your server. Please check\n" +
+	"550-https://rbl.your-server.de/?ip=192.0.2.1 for further details or contact\n" +
+	"550-your server provider. / Leider koennen wir Ihre E-Mails aufgrund der\n" +
+	"550-Spamaufkommens von Ihrem Server momentan nicht annehmen. Weitere Details\n" +
+	"550-können Sie unter https://rbl.your-server.de/?ip=192.0.2.1 bzw. von\n" +
+	"550 Ihrem Serveranbieter erfahren."
+
+// The reason of a multi-line reply is in its first lines, not its last. Keeping
+// only the final line is how a blocklist refusal became "invalid".
+func TestReadReplyKeepsEveryLine(t *testing.T) {
+	wire := strings.ReplaceAll(hetznerRBL, "\n", "\r\n") + "\r\n" + "250 2.0.0 next reply\r\n"
+	r := bufio.NewReader(strings.NewReader(wire))
+	code, text, err := readReply(r)
+	if err != nil {
+		t.Fatalf("readReply: %v", err)
+	}
+	if code != 550 || text != hetznerRBL {
+		t.Errorf("readReply = %d %q, want 550 and the reply whole", code, text)
+	}
+	if got := Classify(code, text); got != ClassPolicy {
+		t.Errorf("Classify(whole reply) = %s, want policy", got)
+	}
+	// The reader must stop exactly at the reply's end, or the next command
+	// reads this reply's tail as its own answer.
+	if code, text, err = readReply(r); err != nil || code != 250 || text != "250 2.0.0 next reply" {
+		t.Errorf("next readReply = %d %q %v, want the following reply intact", code, text, err)
+	}
+}
+
+// A server may talk for as long as it likes; the session still ends on its
+// final line, and only a bounded amount of the text is kept.
+func TestReadReplyIsBounded(t *testing.T) {
+	line := "451-" + strings.Repeat("x", 96) + "\r\n"
+	wire := strings.Repeat(line, 500) + "451 4.3.0 done\r\n" + "250 ok\r\n"
+	r := bufio.NewReader(strings.NewReader(wire))
+	code, text, err := readReply(r)
+	if err != nil {
+		t.Fatalf("readReply: %v", err)
+	}
+	if code != 451 {
+		t.Errorf("code = %d, want the final line's 451", code)
+	}
+	if len(text) > maxReplyBytes+len(line) {
+		t.Errorf("kept %d bytes, want at most about %d", len(text), maxReplyBytes)
+	}
+	if code, _, err = readReply(r); err != nil || code != 250 {
+		t.Errorf("next readReply = %d %v, want 250 — the long reply was not consumed to its end", code, err)
 	}
 }
