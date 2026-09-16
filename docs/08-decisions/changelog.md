@@ -3,6 +3,33 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-16 — Plan 024: a demand for TLS is about us, and stopped being a dead mailbox
+
+Warm-up day 6, part 12: `stewe.de` answered `550 A TLS connection is required`. No RFC 3463 code, no
+matching sender hint, so `classifyPermanent` fell through to **`invalid`** — invariant 1 broken, the
+same shape plan 022 fixed for blocklist prose. The prober has no STARTTLS step, so this reply says
+everything about our session and nothing about the mailbox.
+
+Two costs, and the second compounds: a live address recorded dead, and **the ladder's own gate
+inflated** — day 6 read 7 invalid of 354 answered, and one of the seven was this. That number decides
+whether the next rung is safe.
+
+`senderHints` gains `starttls`, `tls connection is required`, `tls is required`, `tls required`,
+`requires tls`, `session encryption is required`, `encryption is required`. `starttls` bare because
+RFC 3207's own wording is *"must issue a STARTTLS command first"* and no mailbox rejection contains
+it. The existing precedence is unchanged and now asserted: a reply naming both TLS and a missing user
+stays `invalid`.
+
+**Replies carrying `5.7.x` were already policy** — day 3's `530 5.7.0 STARTTLS is mandatory` and day
+5's six Sophos `5.7.4` rows. This closes only the no-enhanced-code fall-through.
+
+**The rows already stored are left alone**, on day 5's precedent with
+`office@unterscheider-bestattung.at`: the warm-up README records the misread rather than editing the
+database by hand, because a gate is auditable only if the record says what the engine actually said.
+
+**Not fixed:** the prober still cannot do STARTTLS, so those addresses stay unanswerable. `unknown`
+is the honest verdict, and the tech-debt item keeps the real fix.
+
 ## 2026-09-16 — Plan 022's gate moves to ladder day 6, because the fix worked twice over
 
 The gate said: one probe to a Hetzner-hosted recipient returns every line of the reply. Tested from

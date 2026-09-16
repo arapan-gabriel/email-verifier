@@ -126,6 +126,17 @@ var senderHints = []string{
 	// bare form matches "marble".
 	"amount of spam", "spam we are receiving", "spamaufkommen", "rbl.",
 	"dnsbl", "blocklist", "block list", "black list",
+	// A refusal of the *session* for want of encryption. The prober has no
+	// STARTTLS step (tech-debt), so these arrive whenever an MX insists — and
+	// the ones carrying 5.7.x were already policy by their code. These are the
+	// ones that carry none: `550 A TLS connection is required` (stewe.de,
+	// warm-up ladder day 6, 2026-09-16) fell through to invalid and recorded a
+	// live mailbox as dead. "starttls" as a bare token is RFC 3207's own
+	// wording — "must issue a STARTTLS command first" — and no mailbox
+	// rejection contains it.
+	"starttls", "tls connection is required", "tls is required",
+	"tls required", "requires tls", "session encryption is required",
+	"encryption is required",
 }
 
 // mailboxHints say plainly that the recipient is the problem. They are what

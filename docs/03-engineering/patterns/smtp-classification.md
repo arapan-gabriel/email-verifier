@@ -24,6 +24,7 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
 | `550 5.7.x` / `554 …blocked` / reverse DNS | **policy** → unknown | **our IP** |
 | `421 4.7.x` / unusual rate | throttled → unknown (back off) | our rate |
 | `550` naming a spam blocklist in prose, no enhanced code (Hetzner `rbl.your-server.de`) | **policy** → unknown | **our IP** |
+| `550 A TLS connection is required`, no enhanced code (plan 024) | **policy** → unknown | **our session** — the prober has no STARTTLS step |
 
 ## Read the whole reply (plan 022)
 

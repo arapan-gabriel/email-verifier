@@ -108,6 +108,12 @@ later plan closes it.
   **First half closed 2026-09-15** (plan 022): `readReply` now keeps every line, so the capability
   list reaches `step`'s caller; nothing reads `250-STARTTLS` from it yet.
 
+  **The verdict half closed 2026-09-16** (plan 024): a TLS demand carrying **no enhanced code** used
+  to fall through to `invalid`. Warm-up ladder day 6 recorded a live mailbox dead on
+  `550 A TLS connection is required`, and the row also inflated the day's invalid share — the number
+  the ladder advances on. Those replies now class `policy`. The gap itself is unchanged: an MX that
+  requires STARTTLS is still unanswerable, and the honest answer is `unknown`.
+
   **Nothing records a decision to omit it,** so this is read as an omission rather than a trade-off.
   If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
   in writing here, and the item can be closed as accepted instead of fixed.

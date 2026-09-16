@@ -43,6 +43,18 @@ func TestClassify(t *testing.T) {
 		// no enhanced code, and its reason only in the continuation lines.
 		{"hetzner rbl, read whole", 550, hetznerRBL, ClassPolicy},
 		{"dnsbl named in prose", 550, "550 Rejected because 192.0.2.1 is in dnsbl.example.test", ClassPolicy},
+		// Warm-up ladder day 6 (2026-09-16), plan 024: a refusal of the session
+		// for want of encryption, carrying no enhanced code. The prober has no
+		// STARTTLS step, so this says everything about us and nothing about the
+		// mailbox — and it used to be recorded as `invalid`.
+		{"tls demanded, no enhanced code", 550, "550 A TLS connection is required", ClassPolicy},
+		{"rfc 3207 wording", 530, "530 Must issue a STARTTLS command first", ClassPolicy},
+		{"session encryption demanded", 550, "550 Session encryption is required", ClassPolicy},
+		// Unchanged: these already carried a sender-shaped code.
+		{"starttls mandatory 5.7.0", 530, "530 5.7.0 STARTTLS is mandatory", ClassPolicy},
+		// A reply that names both stays about the recipient — the existing rule,
+		// asserted here because the TLS wording is new.
+		{"tls wording but the user is the problem", 550, "550 5.1.1 No such user (TLS required for other mail)", ClassInvalid},
 		// "rbl." must not fire on a word that merely contains the letters.
 		{"marble is not an rbl", 550, "550 5.1.1 <info@marble.example>: user unknown", ClassInvalid},
 	} {
