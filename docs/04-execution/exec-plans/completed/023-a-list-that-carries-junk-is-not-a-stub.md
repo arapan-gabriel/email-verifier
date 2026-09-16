@@ -1,6 +1,6 @@
 # Plan 023 — A list that carries junk is not a stub: the clean point gets a second opinion
 
-**Status:** Active — started 2026-09-16
+**Status:** Complete (2026-09-16)
 **Phase:** B
 **Depends on:** 010, 021
 
@@ -78,19 +78,30 @@ exactly as it did.
       documentation range does not cost the zone; an unreachable second opinion does; a keyed zone's
       caveat carries no key
 - [x] Docs: `ip-reputation.md`, `RUNBOOK.md`, `metrics.md`, `tech-debt.md`, `changelog.md`, `ROADMAP.md`
-- [ ] Deploy through `deploy.yml`
-- [ ] `rbl.your-server.de` appended to `VERIFIERD_IP_HEALTH_ZONES` on the node, one restart
+- [x] Deploy through `deploy.yml` — 2026-09-16 07:06 UTC, run `35066893209`, sha `6d609c9`,
+      `deployed and healthy`
+- [x] `rbl.your-server.de` appended to `VERIFIERD_IP_HEALTH_ZONES` on the node, one restart —
+      2026-09-16 07:08 UTC (backup `/etc/verifierd/env.bak-2026-09-16`; the line went from three
+      zones to four, and the diff was read with the Abusix key masked)
 
 ## Definition of Done
 
-- [ ] **Manual gate:** after the deploy and the env change, `blocklist checking enabled` names four
-      zones including `rbl.your-server.de`, `blocklist zone kept with a caveat` names it once, no
-      `zone dropped`, and `/admin/ip-health` stays `{"burned": false}`
+- [x] **Manual gate — passed live 2026-09-16 07:08:19 UTC**, on the deployed binary:
+      `blocklist checking enabled` names all four zones with the Abusix key as `<key>`;
+      `blocklist zone kept with a caveat` names `rbl.your-server.de` exactly once, with the reason
+      *"lists 127.0.0.1, which RFC 5782 reserves as its clean point; kept because 192.0.2.1 is not
+      listed, so this is a list carrying a bad entry rather than a resolver answering everything"*;
+      zero `zone dropped` lines; preflight `PASS=15 WARN=2 FAIL=0`. **`burned` read from
+      `ip:health:92.222.87.97` = `ok`** rather than from `GET /admin/ip-health`: the admin route is
+      mTLS-authenticated and the client certificate lives on the Data Scout box, while the Redis key
+      is what the same `Check` writes — the same fact, one hop earlier
 - [x] `go test -race -count=1 ./...` green
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean (0 issues)
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed — no SSRF surface (no socket opens
+      in this package), no verdict path touched, and the fail-closed rule is *kept*: the only change
+      to what disables a zone is that a stub must now answer three points instead of two
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
 

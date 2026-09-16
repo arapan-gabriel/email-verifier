@@ -42,6 +42,13 @@ entry tomorrow.
 answer about *our* address is unreliable. If that ever stops being true the answer is to stop
 watching the zone, not to half-trust it.
 
+**Live 2026-09-16 07:08:19 UTC**, deploy `35066893209` (`6d609c9`) then one restart with the zone
+appended to `/etc/verifierd/env`: `blocklist checking enabled` names four zones, the Abusix key shown
+as `<key>`; one `blocklist zone kept with a caveat` for `rbl.your-server.de` carrying its reason; zero
+`zone dropped`; `ip:health:92.222.87.97` still `ok`. `burned` was read from that Redis key rather than
+`GET /admin/ip-health` — the admin route wants the mTLS client certificate, which lives on the Data
+Scout box, and the key is what the same `Check` writes.
+
 `SelfTest` now returns `SelfTestResult{Dropped, Caveats}` (`DroppedZone` renamed `ZoneFinding` — it
 always was "a zone and what we found about it"), and `cmd/verifierd` logs a caveat at `warn` beside
 the existing `error` for a drop. No endpoint, Redis key or metric changed; a kept zone carries its

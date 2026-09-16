@@ -101,7 +101,7 @@ later plan closes it.
   day 5 while all three watched zones were clean. It answers as a DNSBL and wants adding to
   `VERIFIERD_IP_HEALTH_ZONES`.
 
-  **It cannot be added yet, and the reason is our own self-test — 2026-09-16.** `selfTestZone`
+  **Adding it took a fix to our own self-test first — 2026-09-16.** `selfTestZone`
   asserts the RFC 5782 pair: `2.0.0.127` must come back listed and `1.0.0.127` must not. On this
   zone both answer `127.0.0.2`, measured from the node's own resolver and from an unrelated one:
 
@@ -122,7 +122,10 @@ later plan closes it.
   **Fixed in code the same day by plan 023:** a listed clean point now gets a second opinion from
   `192.0.2.1` and `203.0.113.1` (RFC 5737, unroutable, uncarryable), and only a zone that lists those
   too is treated as a resolver answering everything. A zone kept this way logs
-  `blocklist zone kept with a caveat` once at startup. The node's zone list is plan 023's last task.
+  `blocklist zone kept with a caveat` once at startup. **Closed on the node 2026-09-16 07:08 UTC:**
+  `rbl.your-server.de` is the fourth watched zone, kept with its caveat, `ip:health:92.222.87.97`
+  still `ok` — so the list that refused this IP on ladder day 5 is one the node now reads about
+  itself, instead of learning it from a receiving server's reply.
 
   **Coverage half closed 2026-09-14** (plan 021): the Abusix zone is configured on the node through
   `VERIFIERD_IP_HEALTH_ZONES` and checked alongside the default pair — configured rather than
