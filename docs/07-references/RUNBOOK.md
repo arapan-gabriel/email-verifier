@@ -100,6 +100,14 @@ IPs — you do not need a domain per sending node).
    (2026-09-14) and sent in full only on the query itself, because the same string also reaches
    `GET /admin/ip-health`'s `reason`, which Data Scout's health check puts in an email.
 
+   **Force IPv4 in every hand-run session from the node.** `swaks`, `curl`, `dig` — the host is
+   dual-stack and prefers IPv6, and on 2026-09-16 the node's `2001:41d0:404:200::169b` was listed on
+   Spamhaus CSS and `rbl.your-server.de` while `92.222.87.97` was clean on both. A session that
+   leaves over IPv6 is answered about an address the service never sends from (it dials `tcp4`,
+   invariant 3), so the reply describes a different sender than the one being investigated. Pass the
+   MX's A record as the target (`--server "$(dig +short A <mx> | head -1)"`), and read the address
+   the server echoes back in its greeting before believing anything else in the session.
+
    **Test the key before writing it anywhere**, from the node, through its own resolver — a wrong
    or not-yet-active key answers `SERVFAIL`, and a *keyless* query answers `SERVFAIL` too, so
    "nothing came back" never means "not listed":

@@ -76,7 +76,16 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
 ## Definition of Done
 
 - [ ] Manual gate: after the deploy, one probe to a Hetzner-hosted recipient returns a `reply`
-      with every line, and the journal line for a `policy` class carries the reason, redacted
+      with every line, and the journal line for a `policy` class carries the reason, redacted.
+      **Tested 2026-09-16 and found no longer reproducible as written.** `swaks --quit-after RCPT`
+      from the node to `dedi5891.your-server.de`, forced over IPv4 as the prober dials, for the very
+      address day 5 recorded as refused: `250 Your input was accepted`. The whitelist works, so
+      Hetzner no longer refuses this IP and the multi-line refusal cannot be asked for again without
+      getting re-listed on purpose. The same server still answers the whole seven-line refusal to the
+      node's **IPv6** address — a path invariant 3 forbids the prober to use, so it cannot serve as
+      the gate either. Options, for whoever closes this: re-aim the gate at the first multi-line
+      reply ladder day 6 produces (free, and it is about to run), or rest it on the `scriptedMX`
+      tests that already drive the same refusal end to end at `RCPT`
 - [x] `go test -race -count=1 ./...` green
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean (0 issues)
 - [x] `pr-checklist.md`: SSRF guard and fail-closed untouched; "us ≠ address" is the point of the

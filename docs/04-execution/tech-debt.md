@@ -5,6 +5,38 @@ later plan closes it.
 
 ## Open
 
+- **The node's IPv6 address is listed, and nothing watches it.** Found 2026-09-16 while trying to
+  reproduce plan 022's gate: a `swaks` session from the node to a Hetzner MX came back with the
+  seven-line refusal — naming `2001:41d0:404:200::169b`, **not** `92.222.87.97`. swaks had dialled
+  over IPv6, because the host is dual-stack and prefers it.
+
+  | address | `zen.spamhaus.org` | `rbl.your-server.de` |
+  |---|---|---|
+  | `92.222.87.97` (IPv4, the sending identity) | not listed | not listed |
+  | `2001:41d0:404:200::169b` (the node's IPv6) | **`127.0.0.3` — CSS**, "Listed by CSS" | **`127.0.0.2`** |
+  | `…169a` (the neighbour) | `127.0.0.3` | `127.0.0.2` |
+  | `2001:41d0:404:200::1` | not listed | not listed |
+
+  The neighbour being listed too points at the OVH range's own reputation rather than at anything
+  this node sent; the Hetzner entry's `Last seen` was refreshed by the very session that found it.
+
+  **No verdict is affected.** The prober dials `tcp4` (invariant 3, `dial_network: "tcp4"` on the
+  node) and the relay sets `Network = "tcp4"` for the same reason, so nothing this service sends
+  leaves from that address. The cost is elsewhere, in two places:
+
+  - **Every hand-run investigation from the node is wrong by default.** `swaks`, `curl`, anything:
+    it leaves from an address that two lists refuse, and reads back a refusal that is about a
+    different address than the one being investigated. That is exactly how this was found, and it
+    is one step from concluding "we are still listed" on the day the IPv4 has just been delisted.
+  - **`ip_health` watches `source_ip` only**, so the node reports good standing while an address it
+    owns is on Spamhaus CSS. True and useless in the same sentence — the same shape as the
+    2026-09-12 gap above, one address family along.
+
+  **Fix, cheapest first:** refuse the mistake rather than remember it — block outbound `:25` over
+  IPv6 at the firewall, so a hand-run session cannot leave that way. Then decide whether `ip_health`
+  should watch every global address the node holds, or whether the honest answer is that the node
+  should not have a routable IPv6 at all.
+
 - **A 4xx refusal of our IP is retried like greylisting.** Ladder day 5 (2026-09-15): Hetzner's
   `451` carrying *"the amount of spam we are receiving from your server … rbl.your-server.de"* classes
   `deferred` (no throttle hint matches), so `retryHint` gives it the default window and Data Scout
