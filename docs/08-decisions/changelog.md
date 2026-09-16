@@ -3,6 +3,51 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-16 — Plan 023: a list that carries junk is not a resolver answering everything
+
+Adding `rbl.your-server.de` to the node — plan 022's open task, and Data Scout's ladder day 6 —
+stopped at the last step before writing the env file, because the zone fails our own self-test.
+Measured from the node's resolver and from an unrelated one:
+
+| query | A | TXT |
+|---|---|---|
+| `2.0.0.127.rbl.your-server.de` | `127.0.0.2` | `"Local RBL"` — a static test point |
+| `1.0.0.127.rbl.your-server.de` | `127.0.0.2` | `"Last seen 2026-09-16 08:30:03"` |
+| `1.2.0.192…`, `5.5.5.5…` | empty | — |
+
+Hetzner's list is auto-populated from what receiving servers report, and somebody's misconfigured
+host reported its own loopback. **The assertion fired correctly and concluded the wrong thing:** "the
+clean point is listed" and "the resolver answers everything" are different facts, and `selfTestZone`
+read the first as the second. The cost was exact — the only list that has ever refused this IP in
+production could not be watched.
+
+**The fix is a second opinion, not an exemption.** When `1.0.0.127` comes back listed, the zone is
+asked about `192.0.2.1` and `203.0.113.1` — RFC 5737 documentation addresses, unroutable, so no mail
+has ever come from them and no honest list can carry them. Both listed is a resolver answering
+everything and still costs the zone; either one clean keeps it with a caveat the node logs once at
+startup; an error with no clean reading drops it as unreachable, because an opinion that cannot be
+taken is not an opinion.
+
+**Two points rather than one**, because the finding *is* that a real list can carry an address it
+should not — one bogus entry in a documentation range would otherwise reproduce the defect one
+address further along. **Fixed addresses rather than random ones:** `gosec` flags `math/rand`, a
+crypto source for a DNS label is theatre, and a fixed query is one a person can repeat by hand from
+the journal line that named it.
+
+**Not an exemption by name**, which would have been three lines: a named exception is a second list
+of zones to keep current, and the defect is general — any auto-populated list can carry a loopback
+entry tomorrow.
+
+**A kept zone is still trusted for listings.** The caveat says the list carries junk, not that its
+answer about *our* address is unreliable. If that ever stops being true the answer is to stop
+watching the zone, not to half-trust it.
+
+`SelfTest` now returns `SelfTestResult{Dropped, Caveats}` (`DroppedZone` renamed `ZoneFinding` — it
+always was "a zone and what we found about it"), and `cmd/verifierd` logs a caveat at `warn` beside
+the existing `error` for a drop. No endpoint, Redis key or metric changed; a kept zone carries its
+`ip_health_listed` series exactly as before. Six new tests, including the keyed-zone case: a caveat
+reaches the journal like every other zone string, so it is redacted like them.
+
 ## 2026-09-15 — Plan 022: a reply is read whole, and a blocklist named in prose is about us
 
 Warm-up ladder day 5 stopped on a refusal nothing on either side could read. Hetzner's managed mail
@@ -27,7 +72,10 @@ retry that produced today's `550`. Moving it to `policy` alters retry, policy-st
 once, so it is a tech-debt item, not a rider on this fix. The Hetzner DNS zone (`rbl.your-server.de`,
 self-test passes by hand) is prepared for `VERIFIERD_IP_HEALTH_ZONES` but not on the node yet.
 
-`go test -race`, `go vet`, `gofmt`, `golangci-lint` (0 issues) green. Not deployed.
+`go test -race`, `go vet`, `gofmt`, `golangci-lint` (0 issues) green. **Deployed 2026-09-15
+13:23 UTC** (sha `307f4e1`) — this line said "not deployed" until 2026-09-16 because it was
+written before the button was pressed. The node's zone list and the manual Hetzner probe are
+still open, and Data Scout's ladder day 6 waits on them.
 
 ## 2026-09-14 — A key that stops working no longer writes itself into the journal
 

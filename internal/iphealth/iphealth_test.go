@@ -358,15 +358,15 @@ func TestSelfTestDropsOneZoneAndKeepsTheRest(t *testing.T) {
 		Store: newStore(),
 	})
 
-	dropped, err := h.SelfTest(t.Context())
+	result, err := h.SelfTest(t.Context())
 	if err != nil {
 		t.Fatalf("one unanswerable zone disabled the whole check: %v", err)
 	}
-	if len(dropped) != 1 || dropped[0].Zone != abusix {
-		t.Fatalf("dropped = %+v, want exactly %s", dropped, abusix)
+	if len(result.Dropped) != 1 || result.Dropped[0].Zone != abusix {
+		t.Fatalf("dropped = %+v, want exactly %s", result.Dropped, abusix)
 	}
-	if !strings.Contains(dropped[0].Reason.Error(), "test point") {
-		t.Errorf("reason = %v, want it to name the test point", dropped[0].Reason)
+	if !strings.Contains(result.Dropped[0].Reason.Error(), "test point") {
+		t.Errorf("reason = %v, want it to name the test point", result.Dropped[0].Reason)
 	}
 
 	// The survivors are what gets queried from here on, so a zone absent from
@@ -394,12 +394,12 @@ func TestSelfTestStillDisablesWhenNoZonePasses(t *testing.T) {
 		Store:  newStore(),
 	})
 
-	dropped, err := h.SelfTest(t.Context())
+	result, err := h.SelfTest(t.Context())
 	if err == nil {
 		t.Fatal("a resolver that answers no zone passed the self-test")
 	}
-	if len(dropped) != 2 {
-		t.Errorf("dropped = %+v, want both zones reported", dropped)
+	if len(result.Dropped) != 2 {
+		t.Errorf("dropped = %+v, want both zones reported", result.Dropped)
 	}
 	// Check must still refuse: not trusted means not acted upon.
 	if _, err := h.Check(t.Context()); err == nil {
@@ -428,17 +428,144 @@ func TestSelfTestDropsAWildcardZoneIndividually(t *testing.T) {
 		Store:  newStore(),
 	})
 
-	dropped, err := h.SelfTest(t.Context())
+	result, err := h.SelfTest(t.Context())
 	if err != nil {
 		t.Fatalf("SelfTest: %v", err)
 	}
-	if len(dropped) != 1 || dropped[0].Zone != wildcard {
-		t.Fatalf("dropped = %+v, want exactly %s", dropped, wildcard)
+	if len(result.Dropped) != 1 || result.Dropped[0].Zone != wildcard {
+		t.Fatalf("dropped = %+v, want exactly %s", result.Dropped, wildcard)
 	}
-	if !strings.Contains(dropped[0].Reason.Error(), "clean point") {
-		t.Errorf("reason = %v, want it to name the clean point", dropped[0].Reason)
+	if !strings.Contains(result.Dropped[0].Reason.Error(), "clean point") {
+		t.Errorf("reason = %v, want it to name the clean point", result.Dropped[0].Reason)
 	}
 	if zones := h.Zones(); len(zones) != 1 || zones[0] != "zen.spamhaus.org" {
 		t.Fatalf("Zones() = %v, want only zen.spamhaus.org", zones)
+	}
+}
+
+// Plan 023, and the reason it exists. rbl.your-server.de is a real list —
+// Hetzner's own, the one that refused this IP on ladder day 5 — and on
+// 2026-09-16 it answered 127.0.0.2 for RFC 5782's clean point as well as for
+// its test point, because its entries come from what receiving servers report
+// and somebody's misconfigured host reported its own loopback. Two unrelated
+// addresses answered nothing, so it is not a resolver answering everything, and
+// the old test dropped it anyway.
+func TestAListCarryingTheCleanPointIsKeptWithACaveat(t *testing.T) {
+	const hetzner = "rbl.your-server.de"
+	h := New(Options{
+		IP:    "92.222.87.97",
+		Zones: []string{"zen.spamhaus.org", hetzner},
+		Lookup: answers(map[string][]string{
+			"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"},
+			"2.0.0.127." + hetzner:       {"127.0.0.2"}, // "Local RBL", a static test point
+			"1.0.0.127." + hetzner:       {"127.0.0.2"}, // "Last seen 2026-09-16 08:30:03"
+		}),
+		Store: newStore(),
+	})
+
+	result, err := h.SelfTest(t.Context())
+	if err != nil {
+		t.Fatalf("SelfTest: %v", err)
+	}
+	if len(result.Dropped) != 0 {
+		t.Fatalf("dropped = %+v, want nothing dropped", result.Dropped)
+	}
+	if len(result.Caveats) != 1 || result.Caveats[0].Zone != hetzner {
+		t.Fatalf("caveats = %+v, want exactly %s", result.Caveats, hetzner)
+	}
+	// The caveat has to say what is wrong and why the zone survived it, because
+	// a journal line is where this gets read a year from now.
+	detail := result.Caveats[0].Reason.Error()
+	for _, want := range []string{hetzner, "127.0.0.1", "192.0.2.1"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("caveat = %q, want it to name %s", detail, want)
+		}
+	}
+	// And the zone is watched: a caveat is not a soft drop.
+	if zones := h.Zones(); len(zones) != 2 {
+		t.Fatalf("Zones() = %v, want both zones watched", zones)
+	}
+}
+
+// The second opinion costs two queries per zone, so it is asked only when the
+// clean point actually comes back listed — every zone in normal service still
+// self-tests in exactly two lookups.
+func TestTheSecondOpinionIsOnlyAskedWhenTheCleanPointIsListed(t *testing.T) {
+	var mu sync.Mutex
+	var asked []string
+	base := answers(map[string][]string{"2.0.0.127.zen.spamhaus.org": {"127.0.0.2"}})
+	h := healthy(func(ctx context.Context, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		asked = append(asked, host)
+		mu.Unlock()
+		return base(ctx, host)
+	}, newStore())
+
+	if _, err := h.SelfTest(t.Context()); err != nil {
+		t.Fatalf("SelfTest: %v", err)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("queries = %v, want the test point and the clean point alone", asked)
+	}
+	for _, host := range asked {
+		for _, point := range unlistablePoints {
+			if strings.HasPrefix(host, point.prefix+".") {
+				t.Errorf("asked %q for a zone whose clean point was clean", host)
+			}
+		}
+	}
+}
+
+// One bogus entry is the whole finding, so a single documentation address in
+// the list must not decide the zone — that would reproduce the defect one
+// address further along. A stub has to answer both.
+func TestOneJunkEntryInTheDocumentationRangeDoesNotCostTheZone(t *testing.T) {
+	const zone = "junk.example"
+	h := healthy(answers(map[string][]string{
+		"2.0.0.127." + zone: {"127.0.0.2"},
+		"1.0.0.127." + zone: {"127.0.0.2"},
+		"1.2.0.192." + zone: {"127.0.0.2"}, // 192.0.2.1, listed too
+		"9.9.9.9." + zone:   {"127.0.0.2"},
+	}), newStore())
+	h.zones = []string{zone}
+
+	result, err := h.SelfTest(t.Context())
+	if err != nil {
+		t.Fatalf("SelfTest: %v", err)
+	}
+	if len(result.Dropped) != 0 {
+		t.Fatalf("dropped = %+v, want the zone kept on the second point", result.Dropped)
+	}
+	if len(result.Caveats) != 1 {
+		t.Fatalf("caveats = %+v, want one", result.Caveats)
+	}
+	if detail := result.Caveats[0].Reason.Error(); !strings.Contains(detail, "203.0.113.1") {
+		t.Errorf("caveat = %q, want it to name the point that answered clean", detail)
+	}
+}
+
+// An opinion that cannot be taken is not an opinion. A zone whose answers we
+// cannot read is what the self-test refuses, and a listed clean point with no
+// second reading is exactly that.
+func TestASecondOpinionThatCannotBeTakenCostsTheZone(t *testing.T) {
+	const zone = "unreachable.example"
+	listed := []netip.Addr{netip.MustParseAddr("127.0.0.2")}
+	h := healthy(func(_ context.Context, host string) ([]netip.Addr, error) {
+		if strings.HasPrefix(host, "2.0.0.127.") || strings.HasPrefix(host, "1.0.0.127.") {
+			return listed, nil
+		}
+		return nil, &net.DNSError{Err: "server misbehaving", Name: host, IsTemporary: true}
+	}, newStore())
+	h.zones = []string{zone}
+
+	result, err := h.SelfTest(t.Context())
+	if err == nil {
+		t.Fatal("a zone whose second opinion errored was trusted")
+	}
+	if len(result.Dropped) != 1 {
+		t.Fatalf("dropped = %+v, want the zone", result.Dropped)
+	}
+	if reason := result.Dropped[0].Reason.Error(); !strings.Contains(reason, "unreachable") {
+		t.Errorf("reason = %q, want it to say the second opinion could not be taken", reason)
 	}
 }

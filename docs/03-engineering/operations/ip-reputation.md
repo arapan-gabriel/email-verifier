@@ -31,6 +31,17 @@ here is a self-inflicted outage.** Three ways to get one, all measured rather th
   each zone's documented test points (`2.0.0.127` must come back listed, `1.0.0.127` must not)
   before a single real answer is acted on. A resolver that fails disables checking and logs an
   error; it never pauses anything.
+
+  **A listed clean point gets a second opinion** (plan 023, 2026-09-16). `1.0.0.127` coming back
+  listed means one of two things, and they are not the same fact: a resolver answering everything,
+  or a list carrying an entry RFC 5782 says it must not. Measured on `rbl.your-server.de`, which
+  answers `127.0.0.2` for both its test point (TXT `"Local RBL"`) and `127.0.0.1` (TXT `"Last seen
+  2026-09-16 08:30:03"` — its entries are auto-populated from what receiving servers report) while
+  answering nothing for two unrelated addresses. So the self-test then asks about `192.0.2.1` and
+  `203.0.113.1`, RFC 5737 documentation addresses no honest list can carry: **both listed** is a
+  stub and costs the zone, **either one clean** keeps the zone and logs
+  `blocklist zone kept with a caveat`, and an error with no clean reading drops it as unreachable.
+  Two points rather than one, because the whole finding is that a real list can carry junk.
 - **A keyless query to a keyed zone answers like a clean one.** Abusix's zones require a
   subscription key *inside the query name*, so without one every lookup returns `SERVFAIL` — for a
   listed address exactly as for a clean one. Measured 2026-09-14, and the reason the 2026-09-12

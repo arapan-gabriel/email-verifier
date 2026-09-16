@@ -230,10 +230,39 @@ func (h *Health) PolicyHosts(window time.Duration) int {
 	return n
 }
 
-// DroppedZone is a zone that failed its self-test, and why.
-type DroppedZone struct {
+// ZoneFinding is a zone and what the self-test found about it — the reason it
+// was refused, or the caveat it was kept with.
+type ZoneFinding struct {
 	Zone   string
 	Reason error
+}
+
+// SelfTestResult is what one pass of the self-test found. Dropped zones are not
+// queried again; zones in Caveats are watched normally and carry something an
+// operator should know about them.
+type SelfTestResult struct {
+	Dropped []ZoneFinding
+	Caveats []ZoneFinding
+}
+
+// unlistablePoints are addresses no honest blocklist can carry: RFC 5737
+// documentation ranges, which are not routable, so no mail has ever come from
+// them. They are the second opinion when a zone lists RFC 5782's clean point.
+//
+// **Two of them, not one**, because the finding that produced them is precisely
+// that a real list can carry an address it should not: on 2026-09-16
+// rbl.your-server.de listed 127.0.0.1 (TXT "Last seen 2026-09-16 08:30:03" —
+// its entries come from what receiving servers report, and somebody's
+// misconfigured host reported its own loopback). One bogus entry in a
+// documentation range would otherwise disqualify a working zone the same way.
+// A resolver that answers everything answers both.
+//
+// Fixed rather than random: gosec flags math/rand, a crypto source for a DNS
+// label is theatre, and a fixed query is one a person can repeat by hand from
+// the journal line that named it.
+var unlistablePoints = []struct{ prefix, addr string }{
+	{"1.2.0.192", "192.0.2.1"},
+	{"1.113.0.203", "203.0.113.1"},
 }
 
 // SelfTest establishes whether the resolver can answer DNSBL queries, one zone
@@ -260,16 +289,20 @@ type DroppedZone struct {
 // is a different fact from "covered and clean" and the one worth being able to
 // read: on 2026-09-12 the node reported burned: false while listed on a zone it
 // was not watching.
-func (h *Health) SelfTest(ctx context.Context) ([]DroppedZone, error) {
+func (h *Health) SelfTest(ctx context.Context) (SelfTestResult, error) {
+	var result SelfTestResult
 	if !h.Enabled() {
-		return nil, fmt.Errorf("iphealth: no resolver configured for DNSBL queries")
+		return result, fmt.Errorf("iphealth: no resolver configured for DNSBL queries")
 	}
 	var kept []string
-	var dropped []DroppedZone
 	for _, zone := range h.zones {
-		if err := h.selfTestZone(ctx, zone); err != nil {
-			dropped = append(dropped, DroppedZone{Zone: zone, Reason: err})
+		caveat, err := h.selfTestZone(ctx, zone)
+		if err != nil {
+			result.Dropped = append(result.Dropped, ZoneFinding{Zone: zone, Reason: err})
 			continue
+		}
+		if caveat != nil {
+			result.Caveats = append(result.Caveats, ZoneFinding{Zone: zone, Reason: caveat})
 		}
 		kept = append(kept, zone)
 	}
@@ -277,36 +310,72 @@ func (h *Health) SelfTest(ctx context.Context) ([]DroppedZone, error) {
 		// Every zone failed. Report the first reason rather than a bare count:
 		// with one configured zone this is the old message verbatim, and with
 		// several the first is as good a witness as any to a broken resolver.
-		return dropped, fmt.Errorf("iphealth: no zone passed its self-test: %w", dropped[0].Reason)
+		return result, fmt.Errorf("iphealth: no zone passed its self-test: %w", result.Dropped[0].Reason)
 	}
 	h.mu.Lock()
 	h.zones = kept
 	h.trusted, h.tested = true, true
 	h.mu.Unlock()
-	return dropped, nil
+	return result, nil
 }
 
-// selfTestZone probes one zone's documented test and clean points.
+// selfTestZone probes one zone's documented test and clean points. It returns
+// a caveat — a zone worth keeping and worth saying something about — or an
+// error, which means the zone is not trusted at all.
 //
 // Every reason names the zone redacted: the caller logs it, and the case that
 // produces one for a keyed zone is precisely a key that stopped working.
-func (h *Health) selfTestZone(ctx context.Context, zone string) error {
+func (h *Health) selfTestZone(ctx context.Context, zone string) (caveat, err error) {
 	reported := RedactZone(zone)
 	listed, err := h.query(ctx, "2.0.0.127", zone)
 	if err != nil {
-		return fmt.Errorf("%s test point unreachable: %w", reported, err)
+		return nil, fmt.Errorf("%s test point unreachable: %w", reported, err)
 	}
 	if !listed {
-		return fmt.Errorf("%s did not list its own test point; the resolver cannot query it", reported)
+		return nil, fmt.Errorf("%s did not list its own test point; the resolver cannot query it", reported)
 	}
 	clean, err := h.query(ctx, "1.0.0.127", zone)
 	if err != nil {
-		return fmt.Errorf("%s clean point unreachable: %w", reported, err)
+		return nil, fmt.Errorf("%s clean point unreachable: %w", reported, err)
 	}
-	if clean {
-		return fmt.Errorf("%s listed its own clean point; the resolver answers everything (a stub)", reported)
+	if !clean {
+		return nil, nil
 	}
-	return nil
+	// RFC 5782 says a list must never carry 127.0.0.1, so this is either a
+	// resolver answering everything — the outage this test exists to prevent —
+	// or a list carrying an entry it should not. Only the first must cost the
+	// zone, and the two are told apart by asking about addresses no list can
+	// legitimately hold.
+	return h.secondOpinion(ctx, zone, reported)
+}
+
+// secondOpinion decides what a listed clean point means. Both unlistable points
+// listed is a resolver answering everything; either one clean is a real list
+// with junk in it, kept with a caveat. If neither answered clean and something
+// errored, the opinion could not be taken — and a zone whose answers cannot be
+// read is what this test refuses.
+func (h *Health) secondOpinion(ctx context.Context, zone, reported string) (caveat, err error) {
+	var failed error
+	for _, point := range unlistablePoints {
+		junk, qerr := h.query(ctx, point.prefix, zone)
+		if qerr != nil {
+			failed = qerr
+			continue
+		}
+		if junk {
+			continue
+		}
+		return fmt.Errorf(
+			"%s lists 127.0.0.1, which RFC 5782 reserves as its clean point; kept because %s is not listed, "+
+				"so this is a list carrying a bad entry rather than a resolver answering everything",
+			reported, point.addr), nil
+	}
+	if failed != nil {
+		return nil, fmt.Errorf("%s listed its own clean point and the second opinion is unreachable: %w", reported, failed)
+	}
+	return nil, fmt.Errorf(
+		"%s listed its own clean point, and %s and %s with it; the resolver answers everything (a stub)",
+		reported, unlistablePoints[0].addr, unlistablePoints[1].addr)
 }
 
 // Zones reports the zones actually being checked — after SelfTest, the

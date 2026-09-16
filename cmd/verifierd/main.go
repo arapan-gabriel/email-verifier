@@ -100,13 +100,21 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		ComplaintThreshold: cfg.IPHealth.ComplaintThreshold,
 	})
 	if health.Enabled() {
-		dropped, err := health.SelfTest(ctx)
+		selfTest, err := health.SelfTest(ctx)
 		// Logged whether or not the check survives: a zone we were asked to
 		// watch and cannot is the gap that lets the node report good standing
 		// while listed somewhere it never looked (2026-09-12).
-		for _, d := range dropped {
+		for _, d := range selfTest.Dropped {
 			logger.Error("blocklist zone dropped — it failed its self-test",
 				"zone", iphealth.RedactZone(d.Zone), "error", d.Reason)
+		}
+		// A zone that is watched and has something wrong with it — today, one
+		// that carries an entry RFC 5782 reserves (plan 023). Warn, not error:
+		// the zone is being queried, and the operator should know what kind of
+		// list is answering.
+		for _, c := range selfTest.Caveats {
+			logger.Warn("blocklist zone kept with a caveat",
+				"zone", iphealth.RedactZone(c.Zone), "detail", c.Reason)
 		}
 		if err != nil {
 			// A resolver we cannot trust disables the check. It must never

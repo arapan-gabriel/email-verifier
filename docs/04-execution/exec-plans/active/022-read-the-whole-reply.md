@@ -1,6 +1,9 @@
 # Plan 022 — Read the whole reply: a multi-line refusal of us is not a missing mailbox
 
-**Status:** Active — code and tests done 2026-09-15; not deployed (the node change needs approval)
+**Status:** Active — code and tests done 2026-09-15 and **deployed the same day, 13:23 UTC**
+(sha `307f4e1`, `deployed and healthy`). **One item remains: the manual gate below.** The node's
+zone list turned out to need a code fix first — `rbl.your-server.de` lists `127.0.0.1` and our own
+`selfTestZone` dropped it — and that, with the node step, moved to **plan 023**
 **Phase:** B
 **Depends on:** 018, 021
 
@@ -57,9 +60,18 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
       reply's end; a 50 KB reply is consumed and kept to the bound; the same refusal end to end at
       `RCPT` through `scriptedMX`; `marble` is not an RBL
 - [x] Docs: `api.md`, `smtp-classification.md`, `tech-debt.md`, `changelog.md`, `ROADMAP.md`
-- [ ] Deploy through `deploy.yml`
-- [ ] Add `rbl.your-server.de` to `VERIFIERD_IP_HEALTH_ZONES` on the node (self-test verified by
-      hand: `2.0.0.127` → `127.0.0.2`, `1.0.0.127` → nothing)
+- [x] Deploy through `deploy.yml` — 2026-09-15 13:23 UTC, run `34974628333`; `verifierd` active and
+      the installed binary's hash matching the artefact CI tested
+- [ ] ~~Add `rbl.your-server.de` to `VERIFIERD_IP_HEALTH_ZONES` on the node~~ — **blocked 2026-09-16,
+      and not by the node.** Re-measured before writing the env file: `2.0.0.127` → `127.0.0.2`
+      (TXT `"Local RBL"`, a static test point) and `1.0.0.127` → **`127.0.0.2`** as well (TXT
+      `"Last seen 2026-09-16 08:30:03"` — a live listing of `127.0.0.1`, auto-populated from what
+      receiving servers report). `1.2.0.192` and `5.5.5.5` answer nothing, so the zone is not a stub;
+      it simply lists the address RFC 5782 says a list must never carry. `selfTestZone` would drop it
+      on every start and log an error, so adding it now buys an error line and no coverage. The
+      15.09 note above recorded the pair as passing; it does not today. Fix and reasoning in
+      `tech-debt.md` — the clean-point assertion needed a second, un-listable point first. **Moved to
+      plan 023**, which makes that change and owns the node step; this plan does not wait for it
 
 ## Definition of Done
 

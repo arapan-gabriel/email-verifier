@@ -75,14 +75,14 @@ func TestADroppedZoneNeverCarriesItsKey(t *testing.T) {
 			}
 
 			h := New(Options{IP: "92.222.87.97", Zones: []string{"zen.spamhaus.org", keyed}, Lookup: lookup, Store: newStore()})
-			dropped, err := h.SelfTest(t.Context())
+			result, err := h.SelfTest(t.Context())
 			if err != nil {
 				t.Fatalf("SelfTest: %v", err)
 			}
-			if len(dropped) != 1 {
-				t.Fatalf("dropped = %+v, want the keyed zone alone", dropped)
+			if len(result.Dropped) != 1 {
+				t.Fatalf("dropped = %+v, want the keyed zone alone", result.Dropped)
 			}
-			reason := dropped[0].Reason.Error()
+			reason := result.Dropped[0].Reason.Error()
 			if strings.Contains(reason, "sk_secret") {
 				t.Errorf("the subscription key reached the drop reason: %q", reason)
 			}
@@ -127,5 +127,41 @@ func TestAKeyNeverReachesTheReport(t *testing.T) {
 	}
 	if _, ok := rep.Listed["<key>.combined.mail.abusix.zone"]; !ok {
 		t.Errorf("Listed is keyed by the raw zone: %v", rep.Listed)
+	}
+}
+
+// The caveat is the third string main.go logs about a zone (plan 023), and it
+// reaches the journal exactly like the other two. A keyed zone that lists the
+// clean point is not hypothetical: Abusix's own zones are auto-populated too.
+func TestAKeptZonesCaveatNeverCarriesItsKey(t *testing.T) {
+	const keyed = "sk_secret.combined.mail.abusix.zone"
+	listed := []netip.Addr{netip.MustParseAddr("127.0.0.2")}
+	h := New(Options{
+		IP:    "92.222.87.97",
+		Zones: []string{keyed},
+		Lookup: func(_ context.Context, host string) ([]netip.Addr, error) {
+			// Test point and clean point both listed; the documentation
+			// addresses are not, so the zone survives with a caveat.
+			if strings.HasPrefix(host, "2.0.0.127.") || strings.HasPrefix(host, "1.0.0.127.") {
+				return listed, nil
+			}
+			return nil, nil
+		},
+		Store: newStore(),
+	})
+
+	result, err := h.SelfTest(t.Context())
+	if err != nil {
+		t.Fatalf("SelfTest: %v", err)
+	}
+	if len(result.Caveats) != 1 {
+		t.Fatalf("caveats = %+v, want the keyed zone kept with one", result.Caveats)
+	}
+	detail := result.Caveats[0].Reason.Error()
+	if strings.Contains(detail, "sk_secret") {
+		t.Errorf("the subscription key reached the caveat: %q", detail)
+	}
+	if !strings.Contains(detail, "<key>.combined.mail.abusix.zone") {
+		t.Errorf("caveat = %q, want it to still name the zone, redacted", detail)
 	}
 }

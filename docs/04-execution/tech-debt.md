@@ -98,9 +98,31 @@ later plan closes it.
   receiving server was reading our IP out of a list by name.
 
   **A fourth list, 2026-09-15** (plan 022): Hetzner's own `rbl.your-server.de` refused us on ladder
-  day 5 while all three watched zones were clean. It answers as a DNSBL — test point `127.0.0.2`,
-  clean point empty, checked by hand from the node — and wants adding to
+  day 5 while all three watched zones were clean. It answers as a DNSBL and wants adding to
   `VERIFIERD_IP_HEALTH_ZONES`.
+
+  **It cannot be added yet, and the reason is our own self-test — 2026-09-16.** `selfTestZone`
+  asserts the RFC 5782 pair: `2.0.0.127` must come back listed and `1.0.0.127` must not. On this
+  zone both answer `127.0.0.2`, measured from the node's own resolver and from an unrelated one:
+
+  | query | A | TXT |
+  |---|---|---|
+  | `2.0.0.127.rbl.your-server.de` | `127.0.0.2` | `"Local RBL"` — a static test point |
+  | `1.0.0.127.rbl.your-server.de` | `127.0.0.2` | `"Last seen 2026-09-16 08:30:03"` — a live listing |
+  | `1.2.0.192…`, `5.5.5.5…` | empty | — |
+
+  So the zone is **not** a stub — it answers nothing for two unrelated addresses — it simply *lists
+  127.0.0.1*, because its entries are auto-populated from what receiving servers report and someone's
+  misconfigured host reported its own loopback. The listing was refreshed the morning it was found,
+  so waiting it out is not a plan. Plan 022 recorded the pair as passing on 2026-09-15; it does not
+  today, which is the useful half of the finding: **the check is right to fire and wrong in what it
+  concludes.** `selfTestZone` reads "clean point is listed" as "the resolver answers everything",
+  and those are different facts.
+
+  **Fixed in code the same day by plan 023:** a listed clean point now gets a second opinion from
+  `192.0.2.1` and `203.0.113.1` (RFC 5737, unroutable, uncarryable), and only a zone that lists those
+  too is treated as a resolver answering everything. A zone kept this way logs
+  `blocklist zone kept with a caveat` once at startup. The node's zone list is plan 023's last task.
 
   **Coverage half closed 2026-09-14** (plan 021): the Abusix zone is configured on the node through
   `VERIFIERD_IP_HEALTH_ZONES` and checked alongside the default pair — configured rather than

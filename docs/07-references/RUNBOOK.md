@@ -91,6 +91,9 @@ IPs — you do not need a domain per sending node).
 
    Since plan 021 the self-test is per zone, so adding this cannot cost the coverage already there:
    a zone that stops answering is dropped and logged, and checking stops only when none survive.
+   Since plan 023 a zone that lists RFC 5782's clean point is kept — after `192.0.2.1` and
+   `203.0.113.1` are asked about, to tell a list carrying junk from a resolver answering
+   everything — and logged once as `blocklist zone kept with a caveat`.
    Confirm after a restart — the `blocklist checking enabled` line names the zones actually in
    force, and `ip_health_listed` carries one series per zone. **Both print the zone as
    `<key>.combined.mail.abusix.zone`**: the key is redacted wherever a zone is *reported*

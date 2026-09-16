@@ -33,7 +33,9 @@ which is the default, and deliberately so: without a resolver that can answer DN
 checking stays disabled rather than trusting the host's stub.
 
 **A single zone missing from the series is a different fact, and since plan 021 it is a readable
-one: that zone is not covered.** The self-test runs per zone and keeps only the zones that pass, so
+one: that zone is not covered.** A zone kept with a caveat (plan 023 — it lists RFC 5782's clean
+point) carries its series like any other; only a *dropped* zone is missing. The self-test runs per
+zone and keeps only the zones that pass, so
 a configured zone that cannot answer — a lapsed subscription key, a rename — drops out and is logged
 at startup (`blocklist zone dropped`) rather than disabling the rest. Read the label set as *what is
 actually being watched*: on 2026-09-12 the node reported `burned: false` with two clean series while
