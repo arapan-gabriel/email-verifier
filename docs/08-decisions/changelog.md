@@ -3,6 +3,23 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-16 — Plan 022's gate moves to ladder day 6, because the fix worked twice over
+
+The gate said: one probe to a Hetzner-hosted recipient returns every line of the reply. Tested from
+the node with `swaks --quit-after RCPT`, forced over IPv4 as the prober dials, asking about the exact
+address day 5 recorded as refused — `250 Your input was accepted`. The whitelist propagated, so the
+refusal that motivated the plan can only be obtained by getting re-listed on purpose, which is the one
+thing the ladder exists to avoid.
+
+**Re-aimed at the first multi-line reply of day 6**, from any MX: the `smtp_reply` journal line must
+show every line, and Data Scout's `signals.smtp_reply` must carry the same text for the same row. It
+costs nothing — the day is about to run — and it tests the same code against traffic we were going to
+send anyway. If the day produces no multi-line reply, that is recorded as the answer and the plan
+rests on the `scriptedMX` tests, which drive the refusal end to end at `RCPT`.
+
+**A gate is re-aimed, not deleted, and the reason is written down** — the condition it described was
+removed by our own delisting, which is a better outcome than the gate passing.
+
 ## 2026-09-16 — Plan 023: a list that carries junk is not a resolver answering everything
 
 Adding `rbl.your-server.de` to the node — plan 022's open task, and Data Scout's ladder day 6 —

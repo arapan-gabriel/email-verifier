@@ -1,7 +1,9 @@
 # Plan 022 — Read the whole reply: a multi-line refusal of us is not a missing mailbox
 
 **Status:** Active — code and tests done 2026-09-15 and **deployed the same day, 13:23 UTC**
-(sha `307f4e1`, `deployed and healthy`). **One item remains: the manual gate below.** The node's
+(sha `307f4e1`, `deployed and healthy`). **One item remains: the manual gate below**, re-aimed 2026-09-16 at the first multi-line reply of
+ladder day 6, because the original one asked for a Hetzner refusal that the whitelist has made
+unobtainable — the probe now comes back `250`. The node's
 zone list turned out to need a code fix first — `rbl.your-server.de` lists `127.0.0.1` and our own
 `selfTestZone` dropped it — and that, with the node step, moved to **plan 023**
 **Phase:** B
@@ -75,17 +77,21 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
 
 ## Definition of Done
 
-- [ ] Manual gate: after the deploy, one probe to a Hetzner-hosted recipient returns a `reply`
-      with every line, and the journal line for a `policy` class carries the reason, redacted.
-      **Tested 2026-09-16 and found no longer reproducible as written.** `swaks --quit-after RCPT`
+- [ ] **Manual gate, re-aimed 2026-09-16: the first multi-line reply of ladder day 6.** Any MX, not
+      Hetzner's: the `smtp_reply` journal line shows every line of the reply, redacted, and Data
+      Scout's `signals.smtp_reply` carries the same text for the same row. If day 6 produces no
+      multi-line reply at all, that is itself the answer to record — and the `scriptedMX` tests,
+      which drive this refusal end to end at `RCPT`, are what the plan then rests on.
+
+      The original gate — one probe to a Hetzner-hosted recipient — **was tested 2026-09-16 and is
+      no longer reproducible as written.** `swaks --quit-after RCPT`
       from the node to `dedi5891.your-server.de`, forced over IPv4 as the prober dials, for the very
       address day 5 recorded as refused: `250 Your input was accepted`. The whitelist works, so
       Hetzner no longer refuses this IP and the multi-line refusal cannot be asked for again without
       getting re-listed on purpose. The same server still answers the whole seven-line refusal to the
       node's **IPv6** address — a path invariant 3 forbids the prober to use, so it cannot serve as
       the gate either. Options, for whoever closes this: re-aim the gate at the first multi-line
-      reply ladder day 6 produces (free, and it is about to run), or rest it on the `scriptedMX`
-      tests that already drive the same refusal end to end at `RCPT`
+      reply ladder day 6 produces — taken, above
 - [x] `go test -race -count=1 ./...` green
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean (0 issues)
 - [x] `pr-checklist.md`: SSRF guard and fail-closed untouched; "us ≠ address" is the point of the
