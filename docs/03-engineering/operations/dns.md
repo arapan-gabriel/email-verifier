@@ -20,9 +20,21 @@ the verified state: plan 013. The shape:
 | TXT | `<domain>` | `v=spf1 ip4:<ip> -all` | add `include:` before anything else sends from the domain |
 | TXT | `probe.<domain>` | `v=spf1 ip4:<ip> -all` | the verification `MAIL FROM` domain |
 | MX | `probe.<domain>` | the same routers as the root | **required**, see below |
-| TXT | `_dmarc.<domain>` | `v=DMARC1; p=none; sp=none; rua=...` | `sp=` set explicitly so tightening `p=` later does not silently tighten `probe.` |
+| TXT | `_dmarc.<domain>` | `v=DMARC1; p=reject; sp=reject; rua=...` while the domain sends no message mail; `p=none; sp=none` only while you are still finding out | `sp=` is always set explicitly, so the subdomain policy is a decision rather than an inheritance |
 | TXT | `<selector>._domainkey.<domain>` | `v=DKIM1; k=rsa; p=...` | Phase C only — verification signs nothing |
 
+- **A domain that sends no message mail belongs at `p=reject`, and sooner than feels natural.**
+  Verification sends `RCPT` without a body, so it has no `From:` and cannot appear in a DMARC report
+  at all; the apex MX exist to *receive* bounces, which a sending policy does not touch. Everything
+  a report does contain is therefore somebody else. `datascoutmail.com` sat at `p=none` until
+  2026-09-17 and was forged in that window — NTT Docomo reported three messages from consumer
+  addresses in India, Costa Rica and Argentina, SPF hardfail, unsigned, **delivered**, because the
+  policy said to deliver them. It is now `p=reject; sp=reject`.
+- **`sp=reject` covers `probe.` and every other subdomain, which is the point and also the trap.**
+  Nothing sends from a subdomain today. When phase C's relay does, DKIM must be published *before*
+  the first message: being listed in SPF is not alignment, and under `reject` an unsigned message
+  whose envelope domain differs from its `From:` is refused rather than delivered to spam (plan
+  `014`).
 - **PTR and A must agree in both directions** (FCrDNS). Without it Yahoo, Apple, GMX and Microsoft
   reject before `RCPT` with a `5.7.x` that reads like a missing mailbox.
 - **The identity is IPv4-only.** Verify with the address family pinned (`swaks -4`, prober `tcp4`) —

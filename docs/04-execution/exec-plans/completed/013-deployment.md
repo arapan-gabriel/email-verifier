@@ -120,7 +120,7 @@ Node: OVH VPS-1, France, Debian 13, `92.222.87.97`, domain `datascoutmail.com`.
 |---|---|
 | FCrDNS | `92.222.87.97` ⇄ `mail.datascoutmail.com` — both directions agree |
 | SPF `@` and `probe` | `v=spf1 ip4:92.222.87.97 -all` |
-| DMARC | `v=DMARC1; p=none; sp=none; rua=mailto:postmaster@datascoutmail.com` |
+| DMARC | `v=DMARC1; p=none; sp=none; rua=mailto:postmaster@datascoutmail.com` — **superseded 2026-09-17**: `p=reject; sp=reject` after the domain was forged at `p=none` (`dns.md`) |
 | DKIM | selector `s1`, RSA-2048, key at `/etc/verifierd/dkim/s1.private` (0600, `verifierd`) |
 | Blocklists | Spamhaus ZEN, SpamCop, UCEPROTECT L1/L2 — clean. `/24` sampled, 0 listed. |
 | UCEPROTECT L3 | listed — **ASN-wide (AS16276), not this IP**; unfixable by re-provisioning, and empirically not enforced by the providers tested below |

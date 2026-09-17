@@ -3,6 +3,33 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-17 — `datascoutmail.com` moves to `p=reject`, because at `p=none` it was being forged
+
+NTT Docomo's aggregate report for 2026-09-16: three messages with `From: datascoutmail.com` from
+`106.219.66.41` (an Indian mobile network), `179.50.178.44` (`ct.co.cr`) and `191.102.248.11`
+(`ipred.com.ar`) — each SPF **hardfail**, unsigned, `disposition: none`. Three consumer addresses on
+three continents, which is what a botnet borrowing a name looks like.
+
+**None of it is ours, and none of it could be.** Verification sends `RCPT` and disconnects: there is
+no body, no `From:`, so probing cannot appear in a DMARC report at all. Product mail lives on
+`getdatascout.com`. Everything in a report about this domain is therefore somebody else.
+
+**`p=reject; sp=reject`, verified on 1.1.1.1, 8.8.8.8 and 9.9.9.9.** Safe here in a way it is not on
+the product domain: this one sends no message mail. The probe's envelope is
+`probe.datascoutmail.com`, the phase-C relay is not live, and the apex MX exist to *receive* bounces
+through Cloudflare Email Routing, which a sending policy does not touch. There is nothing of ours for
+`reject` to break — and `p=none` was telling every receiver to deliver the forgeries.
+
+**`sp=reject` is the point and the trap.** It covers `probe.` and every future subdomain. When the
+relay starts sending, DKIM must be published *before* the first message: SPF membership is not
+alignment, and under `reject` an unsigned message whose envelope domain differs from its `From:` is
+refused outright rather than filed in spam. Written into plan `014` as a precondition, and into
+`dns.md` beside the record.
+
+**The general lesson, recorded in `dns.md` and the RUNBOOK:** a domain that sends no message mail
+belongs at `p=reject` sooner than feels natural. `p=none` is a listening post, and this one listened
+while three forgeries were delivered.
+
 ## 2026-09-16 — Plan 024: a demand for TLS is about us, and stopped being a dead mailbox
 
 Warm-up day 6, part 12: `stewe.de` answered `550 A TLS connection is required`. No RFC 3463 code, no

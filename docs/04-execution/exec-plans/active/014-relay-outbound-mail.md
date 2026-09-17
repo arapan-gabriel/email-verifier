@@ -98,10 +98,22 @@ depends on 014 for the sending half, 014 depends on 015 for the address it sends
 ### Sending reputation is not probing reputation
 
 The warm-up ladder now running warms *connection and recipient-probing* behaviour. Sending is judged
-on content, complaint rate and volume shape, and needs its own ramp. DMARC is `p=none`, which is
-right for a sender nobody has seen yet and wrong to leave there. **This plan may be built while the
-probe ladder runs; production mail must not be switched over until it finishes** — and then with its
-own ramp, not on day one.
+on content, complaint rate and volume shape, and needs its own ramp. **This plan may be built while
+the probe ladder runs; production mail must not be switched over until it finishes** — and then with
+its own ramp, not on day one.
+
+**DMARC on `datascoutmail.com` is `p=reject; sp=reject` since 2026-09-17, and that is now a
+precondition on this plan rather than a note.** It was moved off `p=none` because the domain was
+being forged — NTT Docomo's report for 2026-09-16 carried three messages with `From:
+datascoutmail.com` from consumer addresses in India, Costa Rica and Argentina, all SPF hardfail and
+unsigned, all delivered because the policy said to deliver them. The domain sends no message mail
+today, so `reject` costs nothing and stops the forgeries landing (Data Scout's plan `086`).
+
+**The consequence for the first real send from here:** it must be DKIM-signed *before* it goes out,
+not after a bounce report explains why it did not arrive. Being inside the SPF record is not enough —
+alignment is what DMARC evaluates, and an unsigned message whose envelope domain differs from the
+`From:` fails it under `reject`. The signing task below is therefore a gate on the first send, and
+`s1`'s public key must be published and resolvable before the relay is switched on.
 
 ## Tasks
 

@@ -63,7 +63,11 @@ IPs — you do not need a domain per sending node).
 6. **DKIM:** generate a key, publish the public half at
    `<selector>._domainkey.yourdomain.com`.
 7. **DMARC** on `_dmarc.yourdomain.com`:
-   `v=DMARC1; p=none; rua=mailto:postmaster@yourdomain.com`.
+   `v=DMARC1; p=none; sp=none; rua=mailto:postmaster@yourdomain.com` — and **move it to
+   `p=reject; sp=reject` as soon as you know what sends from the domain**, which for a probe node is
+   *nothing*: verification has no message and no `From:`, so every report you receive is somebody
+   forging the name. `datascoutmail.com` spent its first weeks at `p=none` and was forged in them
+   (2026-09-17, `dns.md`). `p=none` is a listening post, not a setting to leave behind.
 8. **HELO name** = the FCrDNS hostname (`mail.yourdomain.com`), never a lab name
    (`*.test`) — those do not resolve and the `550` back reads like a bad mailbox.
 
