@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: 'Commit to deploy (default: current main)'
+        description: 'Commit, branch or tag to deploy — short hashes fine (default: current main)'
         required: false
         default: ''
 
@@ -36,12 +36,19 @@ jobs:
           INPUT_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
-          SHA="$INPUT_SHA"
-          if [ -z "$SHA" ]; then
-            SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" -q .sha)
+          # Whatever was asked for — a short hash, a branch, a tag — is resolved to the
+          # full 40-character SHA here, because the CI lookup below queries `head_sha=`,
+          # which matches nothing else. On 2026-09-17 `-f sha=837aa36` was refused with
+          # "no successful ci run for 837aa36", while that commit's CI was green and its
+          # artifact was sitting there: the gate had asked the right question with an
+          # unusable key, and the message sent the operator to look at CI.
+          REF="${INPUT_SHA:-main}"
+          if ! SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${REF}" -q .sha 2>/dev/null); then
+            echo "::error::'${REF}' is not a commit, branch or tag in ${GITHUB_REPOSITORY}"
+            exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          echo "Deploying $SHA"
+          echo "Deploying $SHA (asked for '${REF}')"
 
       # The artifact CI tested, not a rebuild. A commit whose gate is not green
       # cannot be deployed — that is the gate. Rebuilding here would ship a

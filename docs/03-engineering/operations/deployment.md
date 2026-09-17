@@ -67,7 +67,18 @@ the tier the node is mid-batch most of the day: a restart cuts in-flight SMTP se
 the warm-up ladder a deploy on the wrong day smears the measurement the ladder exists to take.
 
 It deploys **the artifact CI tested**, never a rebuild: the workflow resolves the commit's green
-`ci` run and downloads its bundle, so a commit whose gate is not green cannot be deployed. The
+`ci` run and downloads its bundle, so a commit whose gate is not green cannot be deployed.
+
+```bash
+gh workflow run deploy.yml -R <owner>/email-verifier            # current main
+gh workflow run deploy.yml -R <owner>/email-verifier -f sha=837aa36   # or a branch, or a tag
+```
+
+**The input is resolved to a full SHA before anything else happens** (2026-09-17). The run lookup
+queries `head_sha=`, which matches nothing but the full 40 characters, so a short hash used to be
+refused with *"no successful ci run for 837aa36"* while that commit's CI was green — a message that
+sends you to look at CI for a problem that is in the key, not the answer. Short hashes, branch names
+and tags all work now, and the log line says what was asked for beside what was resolved. The
 bundle carries the binary, the unit, `preflight.sh`, the config and `SHA256SUMS`, because a fix that
 reaches the binary but not the gate that guards it is worse than no fix.
 
