@@ -2,8 +2,9 @@
 
 **Date**: 2026-09-18
 **Author**: Gabriel Arapan (+ Claude)
-**Status**: In Progress — the page is written and reviewed against the code (`web/datascoutmail/index.html`).
-Publishing it and repointing the two mailboxes are dashboard steps.
+**Status**: In Progress — page written, reviewed against the code, **published on the apex
+2026-09-18**, and `abuse@`/`postmaster@` routed to `ops@getdatascout.com`. Left: one delivery test
+from an outside sender, the changelog entry, and telling Data Scout's `086` that section G is done.
 
 **Depends on**: Data Scout plan `086` (the product moved to `getdatascout.com` on 2026-09-17/18, so
 this apex is free). **Unblocks**: `086`'s section G and its Definition of Done.
@@ -62,9 +63,14 @@ receiving postmaster is most entitled to hold us to.
 
 - [x] `web/datascoutmail/index.html` — the page, claims checked against `internal/prober`,
   `internal/relay`, `config/verifierd.yaml` and Data Scout's `verify_tasks.py`
-- [ ] Publish it on the `datascoutmail.com` apex (Cloudflare Pages), replacing the product landing
-- [ ] Email Routing: `abuse@` and `postmaster@datascoutmail.com` → the `ops@getdatascout.com`
-      mailbox (the catch-all Worker already forwards everything that is not a bounce there)
+- [x] **Published 2026-09-18** — `https://datascoutmail.com/` answers `200` with this page (title,
+  operator and `abuse@` checked from outside); the product landing is gone from the apex. MX
+  (Cloudflare Email Routing) and DMARC `p=reject; sp=reject` unaffected
+- [x] **Email Routing rules added 2026-09-18**: `abuse@` and `postmaster@datascoutmail.com` → the
+      verified destination `ops@getdatascout.com`. Address rules are evaluated before the catch-all,
+      so these two reach the mailbox directly instead of passing through the bounce Worker — an
+      abuse report and a DMARC aggregate arrive even if that Worker is broken or mid-deploy
+      *(delivery still to be confirmed with a message from an outside sender)*
 - [ ] `docs/08-decisions/changelog.md`
 - [ ] Tell Data Scout's plan `086` that section G is done
 
