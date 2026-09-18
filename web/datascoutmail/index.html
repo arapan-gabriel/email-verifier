@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>datascoutmail.com — mailbox verification by GAMMA IT SOLUTIONS SRL</title>
+<meta name="description" content="What connects from 92.222.87.97, why it never sends a message, who operates it, and how to have your domain excluded." />
+<link rel="canonical" href="https://datascoutmail.com/" />
+<meta name="robots" content="index, follow" />
+<meta name="theme-color" content="#4f46e5" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M16 7l6 9-6 9-6-9z' fill='white'/%3E%3C/svg%3E" />
+<!--
+  The apex page for datascoutmail.com (plan 025). This domain belongs to the verifier
+  alone: its PTR, HELO, envelope sender and mTLS certificate all carry the name, so a
+  postmaster who looks it up after seeing 92.222.87.97 in their logs must land on an
+  explanation, not on a product landing page. Reputation separation from the product
+  domain is the point; concealment is not — an operator who cannot be identified is
+  treated worse by blocklist operators than one who publishes this.
+
+  Every claim here is checked against the service: the prober issues RCPT and quits
+  (internal/prober), the envelope sender is verify@probe.datascoutmail.com (plan 019),
+  suppression is consulted before any probe (internal/suppress, plan 020).
+-->
+<style>
+:root { color-scheme: light dark; --fg:#171717; --muted:#525252; --line:#e5e5e5; --soft:#fafafa; --brand:#4f46e5; --bg:#fff; }
+@media (prefers-color-scheme: dark) { :root { --fg:#f5f5f5; --muted:#d4d4d4; --line:#262626; --soft:#171717; --brand:#818cf8; --bg:#0a0a0a; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height:1.6; }
+a { color:var(--brand); font-weight:500; text-decoration:none; }
+a:hover { text-decoration:underline; }
+header, main, footer { max-width:46rem; margin:0 auto; padding:0 1.25rem; }
+header { padding-top:2rem; font-weight:600; letter-spacing:-.01em; }
+main { padding-top:2.5rem; padding-bottom:3.5rem; }
+h1 { font-size:2rem; line-height:1.2; letter-spacing:-.02em; margin:0 0 1rem; }
+h2 { font-size:1.15rem; letter-spacing:-.01em; margin:2.5rem 0 0; }
+p { color:var(--muted); font-size:.9375rem; }
+dl { margin:1.25rem 0 0; border-top:1px solid var(--line); }
+dl div { display:grid; gap:.25rem; padding:.875rem 0; border-bottom:1px solid var(--line); }
+@media (min-width:640px) { dl div { grid-template-columns:1fr 2fr; gap:1.5rem; } }
+dt { font-weight:500; font-size:.875rem; }
+dd { margin:0; font-size:.875rem; color:var(--muted); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.875em; background:var(--soft); padding:.1em .35em; border-radius:.25rem; }
+footer { border-top:1px solid var(--line); padding-top:1.25rem; padding-bottom:2rem; font-size:.75rem; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>◆ datascoutmail.com</header>
+<main>
+  <h1>Mailbox verification, not mail delivery</h1>
+  <p>
+    If <code>92.222.87.97</code> or <code>mail.datascoutmail.com</code> appeared in your mail
+    server's log, this page explains what it was. The host checks whether an email address can
+    receive mail. It is operated by <strong>GAMMA IT SOLUTIONS SRL</strong> (Chișinău, Moldova) for
+    <a href="https://getdatascout.com">Data Scout</a>, which keeps its own, separate domain.
+  </p>
+
+  <h2>What the connection does</h2>
+  <dl>
+    <div><dt>The conversation</dt><dd>It opens a session, says <code>MAIL FROM</code> and <code>RCPT TO</code>, reads your answer, and quits. <strong>It never issues <code>DATA</code></strong> — no message body, no subject, no attachment is ever transmitted, so nothing can be delivered to anybody's inbox.</dd></div>
+    <div><dt>Envelope sender</dt><dd><code>verify@probe.datascoutmail.com</code></dd></div>
+    <div><dt>HELO / PTR</dt><dd><code>mail.datascoutmail.com</code> — forward and reverse DNS match, SPF and DMARC are published for the name.</dd></div>
+    <div><dt>Pace</dt><dd>A rate held per receiving mail server, which backs off as soon as you slow it down and climbs again only while you keep accepting. A <code>4xx</code> is a reason to wait, not to retry harder.</dd></div>
+    <div><dt>What we keep</dt><dd>The address checked, your server's reply code and text, and a timestamp. Answers are cached, so the same address is not asked about twice.</dd></div>
+    <div><dt>What a rejection means</dt><dd>If your server refuses <em>us</em> — a block, a TLS demand, greylisting — the result is recorded as <em>unknown</em>, never as "this address does not exist".</dd></div>
+  </dl>
+
+  <h2>Keeping your domain out</h2>
+  <p>
+    Write to <a href="mailto:abuse@datascoutmail.com">abuse@datascoutmail.com</a> with the domain
+    name. We add the domain, and every address we already hold for it, to a suppression list that is
+    checked before an address is verified — so the checking stops and what we hold about the site is
+    deleted with it. Blocking the IP or the HELO name at your edge works too, and is read as
+    <em>unknown</em> rather than as a verdict about your users.
+  </p>
+  <p>
+    The same address is where an abuse report or a blocklist notice should go; it is read by the
+    people who operate the host, not by a queue.
+  </p>
+
+  <h2>Why this name is separate</h2>
+  <p>
+    Address verification talks to mail servers all day, and that is judged by reputation systems
+    whatever it does. Keeping it on its own registrable domain means nothing it earns can reach the
+    domain our customers and payment providers see. That is also why this page carries no pricing
+    and no sign-up: the product lives at <a href="https://getdatascout.com">getdatascout.com</a>.
+  </p>
+</main>
+<footer>
+  Operated by GAMMA IT SOLUTIONS SRL · <a href="mailto:abuse@datascoutmail.com">abuse@datascoutmail.com</a> ·
+  <a href="mailto:postmaster@datascoutmail.com">postmaster@datascoutmail.com</a>
+</footer>
+</body>
+</html>
