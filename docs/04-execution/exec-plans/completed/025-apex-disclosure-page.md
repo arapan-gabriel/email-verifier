@@ -2,9 +2,9 @@
 
 **Date**: 2026-09-18
 **Author**: Gabriel Arapan (+ Claude)
-**Status**: In Progress — page written, reviewed against the code, **published on the apex
-2026-09-18**, and `abuse@`/`postmaster@` routed to `ops@getdatascout.com`. Left: one delivery test
-from an outside sender, the changelog entry, and telling Data Scout's `086` that section G is done.
+**Status**: **Complete — 2026-09-18.** The page is live on the apex, `abuse@` and `postmaster@` are
+routed to `ops@getdatascout.com`, delivery was confirmed with a message from an outside sender, and
+Data Scout's plan `086` has section G ticked.
 
 **Depends on**: Data Scout plan `086` (the product moved to `getdatascout.com` on 2026-09-17/18, so
 this apex is free). **Unblocks**: `086`'s section G and its Definition of Done.
@@ -71,19 +71,20 @@ receiving postmaster is most entitled to hold us to.
       so these two reach the mailbox directly instead of passing through the bounce Worker — an
       abuse report and a DMARC aggregate arrive even if that Worker is broken or mid-deploy
       *(delivery still to be confirmed with a message from an outside sender)*
-- [ ] `docs/08-decisions/changelog.md`
-- [ ] Tell Data Scout's plan `086` that section G is done
+- [x] `docs/08-decisions/changelog.md`
+- [x] Tell Data Scout's plan `086` that section G is done (its commit `0ba110d`)
 
 ---
 
 ## Definition of Done
 
-- [ ] `https://datascoutmail.com/` serves the disclosure page: no pricing, no sign-up, the operator
-      named, `abuse@` reachable
-- [ ] A message to `abuse@datascoutmail.com` arrives in the `ops@` mailbox
-- [ ] Nothing on the page contradicts the service — re-checked if the prober, the pacer or the
-      suppression path changes
-- [ ] Data Scout `086` section G ticked
+- [x] `https://datascoutmail.com/` serves the disclosure page: no pricing, no sign-up, the operator
+      named, `abuse@` reachable — checked from outside, `200`
+- [x] A message to `abuse@datascoutmail.com` arrives in the `ops@` mailbox — confirmed 2026-09-18
+      from an outside sender
+- [x] Nothing on the page contradicts the service — two claims were corrected while writing it;
+      **re-check when the prober, the pacer or the suppression path changes**
+- [x] Data Scout `086` section G ticked
 
 ---
 

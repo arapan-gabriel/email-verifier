@@ -3,6 +3,32 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-18 — The apex explains the prober instead of selling the product (plan 025)
+
+`datascoutmail.com` served Data Scout's marketing landing, which answered none of the questions that
+bring a postmaster to this domain and tied the probing IP to the product's brand. It now serves a
+single static page: what connects, that the session ends after `RCPT` and **never issues `DATA`**,
+the envelope sender, HELO and PTR, what is kept, that a refusal of *us* is recorded as `unknown`
+rather than as a verdict about a mailbox (invariant 1), how to be excluded, and why this name is
+kept apart from the product's. No pricing, no sign-up, no JavaScript, no third-party request — it is
+meant to be read from a log entry at three in the morning.
+
+**Two claims were wrong in the draft and were corrected against this repository before publishing.**
+"One session at a time per mail server" — the pacer holds a per-MX rate with AIMD inside calibrated
+bands. "The suppression list is consulted before any connection is opened" — `internal/relay` checks
+it and the probe path does not; Data Scout checks it before verifying (`verify_tasks.py`, plan
+`040`), which is a different place with a different guarantee. Writing a disclosure page is a good
+way to find out what a service actually does: an inaccurate one is worse than none, because it is
+the page a WAF operator holds us to.
+
+`abuse@` and `postmaster@datascoutmail.com` now have their own Email Routing rules to
+`ops@getdatascout.com`. Address rules run before the catch-all, so an abuse report or a DMARC
+aggregate arrives even when the bounce Worker is broken or mid-deploy. Verified end to end: the page
+answers `200` from outside, and a message from an outside sender reached the mailbox.
+
+Closes section G of Data Scout's plan `086`, which is what freed this apex in the first place — the
+product moved to `getdatascout.com` on 2026-09-17/18.
+
 ## 2026-09-17 — `datascoutmail.com` moves to `p=reject`, because at `p=none` it was being forged
 
 NTT Docomo's aggregate report for 2026-09-16: three messages with `From: datascoutmail.com` from
