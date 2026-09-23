@@ -10,6 +10,25 @@ a code to a verdict.
 `MAIL FROM` may mean "no such mailbox". Everything else that fails — connection refusal, TLS error,
 timeout, 4xx, a blanket 550 before `MAIL FROM` — is `unknown`.
 
+### Enforced in code, not only in the table (plan 027)
+
+Two places make the rule structural rather than a property of the hint lists:
+
+- **A reply code is three ASCII digits with a first digit of 2–5** (`replyCode`, RFC 5321 §4.2).
+  `strconv.Atoi` took `999`, `600`, `-55` and `+25`; `"999 no such user"` used to reach
+  `classifyPermanent` and come back `invalid`. Now such a line is a read error — a broken session,
+  `conn_error` — and `Classify` itself returns `unknown` for any code outside 200–599, ahead of
+  every other rule (the fuzzer found `621 greylist` slipping through as `deferred` when the range
+  check sat after the greylist wording).
+- **Nothing before `RCPT` can be a verdict** (`beforeRCPT`). A refusal at the banner, `EHLO` or
+  `MAIL FROM` goes through `Classify` for its *kind* (throttled, deferred, policy …), but a result
+  that would be `valid` or `invalid` becomes `policy` for a 5xx and `unknown` otherwise. Postfix's
+  `reject_unlisted_sender` answers `MAIL FROM` with `550 5.1.0 <verify@…>: Sender address rejected:
+  User unknown in virtual mailbox table` — subject 1 plus mailbox wording, which `Classify` reads as
+  `invalid` — and before plan 027 that class was stamped on every address in the chunk. Data Scout
+  derives `accepted` from `class`, so one refusal of our envelope sender recorded a whole batch
+  undeliverable.
+
 ## Read the enhanced code first (RFC 3463)
 
 The `5.X.Y` enhanced status answers "who is this about" before the prose. Subject `X`:
@@ -89,4 +108,6 @@ here to keep in sync.
 ## Testing
 
 Table-driven over `(code, text) → Class`. The SMTP transport is behind an interface so no test opens
-a socket.
+a socket. The session is one table (`session_table_test.go`) whose every row also asserts "no
+`invalid` without an `RCPT` answer", and `FuzzClassify` holds invariant 1 as a property over every
+integer code (plan 027; target list in `testing/strategy.md`).

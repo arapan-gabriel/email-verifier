@@ -188,6 +188,11 @@ func (r *Registry) Render() string {
 	counts := slices.Clone(r.counts)
 	sum, observed := r.sum, r.observed
 	pacer := r.pacer
+	// The relay fields too. They were read after Unlock, and a scrape racing
+	// Sent() is a concurrent map read and write — a fatal error that takes the
+	// process down, not a stale number (plan 027, found under -race).
+	sent := maps.Clone(r.sent)
+	qDepth, complaints := r.qDepth, r.complaints
 	r.mu.Unlock()
 
 	var b strings.Builder
@@ -241,22 +246,22 @@ func (r *Registry) Render() string {
 	writeGauge(&b, "verify_tracked_mx", "MX hosts the pacer is currently holding state for.")
 	fmt.Fprintf(&b, "verify_tracked_mx %d\n", tracked)
 
-	if r.complaints > 0 {
+	if complaints > 0 {
 		fmt.Fprint(&b, "# HELP relay_complaints_total Spam complaints reported by the caller.\n")
 		fmt.Fprint(&b, "# TYPE relay_complaints_total counter\n")
-		fmt.Fprintf(&b, "relay_complaints_total %d\n", r.complaints)
+		fmt.Fprintf(&b, "relay_complaints_total %d\n", complaints)
 	}
 
-	if len(r.sent) > 0 || r.qDepth != [3]int{} {
+	if len(sent) > 0 || qDepth != [3]int{} {
 		fmt.Fprint(&b, "# HELP relay_sent_total Outbound delivery attempts by outcome.\n")
 		fmt.Fprint(&b, "# TYPE relay_sent_total counter\n")
-		for _, k := range slices.Sorted(maps.Keys(r.sent)) {
-			fmt.Fprintf(&b, "relay_sent_total{outcome=%q} %d\n", k, r.sent[k])
+		for _, k := range slices.Sorted(maps.Keys(sent)) {
+			fmt.Fprintf(&b, "relay_sent_total{outcome=%q} %d\n", k, sent[k])
 		}
 		fmt.Fprint(&b, "# HELP relay_queue_depth Messages waiting, by state.\n")
 		fmt.Fprint(&b, "# TYPE relay_queue_depth gauge\n")
 		for i, state := range [3]string{"ready", "later", "dead"} {
-			fmt.Fprintf(&b, "relay_queue_depth{state=%q} %d\n", state, r.qDepth[i])
+			fmt.Fprintf(&b, "relay_queue_depth{state=%q} %d\n", state, qDepth[i])
 		}
 	}
 

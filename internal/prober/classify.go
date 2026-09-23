@@ -220,6 +220,16 @@ func hasAny(t string, hints []string) bool {
 // service where a code becomes a meaning
 // (docs/03-engineering/patterns/smtp-classification.md).
 func Classify(code int, text string) Class {
+	// Outside 200–599 the peer is not speaking SMTP, and a peer that does not
+	// speak SMTP may never condemn an address (invariant 1, plan 027). This
+	// sits first so nothing later — least of all classifyPermanent, which used
+	// to receive everything >= 500 — can read prose into such a code. First
+	// means ahead of the greylist wording too: the fuzzer found "621 greylist"
+	// coming back deferred.
+	if code < 200 || code > 599 {
+		return ClassUnknown
+	}
+
 	t := strings.ToLower(text)
 
 	// Greylisting says "try again later" too, but it is per-recipient and
@@ -244,8 +254,8 @@ func Classify(code int, text string) Class {
 			return ClassThrottled
 		}
 		return ClassDeferred
-	case code < 500:
-		return ClassUnknown
+	case code < 400:
+		return ClassUnknown // 3xx: never a reply to RCPT
 	}
 
 	return classifyPermanent(t)
@@ -322,6 +332,23 @@ func classifyNetErr(err error) Class {
 // stays in step, but only this much of it is kept.
 const maxReplyBytes = 4096
 
+// replyCode reads the three-digit code leading a reply line. RFC 5321 §4.2
+// makes it exactly three ASCII digits with a first digit of 2–5; strconv.Atoi
+// is not that parse, since it takes "-55", "+25" and "999" alike. Plan 027
+// found "999 no such user" and "600 user unknown" reaching classifyPermanent
+// and coming back invalid — a peer that does not speak SMTP condemning an
+// address (invariant 1).
+func replyCode(line string) (int, bool) {
+	if len(line) < 3 {
+		return 0, false
+	}
+	a, b, c := line[0], line[1], line[2]
+	if a < '2' || a > '5' || b < '0' || b > '9' || c < '0' || c > '9' {
+		return 0, false
+	}
+	return int(a-'0')*100 + int(b-'0')*10 + int(c-'0'), true
+}
+
 // readReply reads one SMTP reply, continuation lines included, and returns the
 // final code with the whole text, one line per "\n".
 //
@@ -344,8 +371,8 @@ func readReply(r *bufio.Reader) (int, string, error) {
 		if len(line) < 3 {
 			return 0, line, fmt.Errorf("short reply %q", line)
 		}
-		code, err := strconv.Atoi(line[:3])
-		if err != nil {
+		code, ok := replyCode(line)
+		if !ok {
 			return 0, line, fmt.Errorf("bad reply %q", line)
 		}
 		if text.Len() < maxReplyBytes {

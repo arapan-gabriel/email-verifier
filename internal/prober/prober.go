@@ -523,7 +523,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	if code != 220 {
 		// A 421 here is the provider throttling the connection itself, and it
 		// is exactly the signal the pacer exists to react to.
-		class := Classify(code, text)
+		class := beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -536,7 +536,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
 	}
 	if code != 250 {
-		class := Classify(code, text)
+		class := beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -550,7 +550,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	}
 	if code != 250 {
 		// Everything up to and including a failed MAIL FROM is about us.
-		class := Classify(code, text)
+		class := beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -650,6 +650,30 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
 	return out, verdict
+}
+
+// beforeRCPT classifies a reply that refused the session before any RCPT was
+// asked — the banner, EHLO or MAIL FROM. None of those can be about a mailbox
+// (invariant 1), whatever the prose says, but Classify reads prose: Postfix's
+// reject_unlisted_sender answers MAIL FROM with "550 5.1.0 <verify@…>: Sender
+// address rejected: User unknown in virtual mailbox table", subject 1 plus
+// mailbox wording, which Classify calls invalid. fail() stamped that class on
+// every address in the chunk, and Data Scout derives `accepted` from `class`,
+// so one refusal of our envelope sender recorded a whole batch undeliverable.
+// Found by plan 027's session table.
+//
+// A would-be verdict becomes policy for a 5xx (a permanent refusal of our
+// client, which is what ClassPolicy means) and unknown otherwise (a 2xx that is
+// not the expected 220/250). Every other class already says who it is about.
+func beforeRCPT(code int, text string) Class {
+	c := Classify(code, text)
+	if c != ClassValid && c != ClassInvalid {
+		return c
+	}
+	if code >= 500 && code <= 599 {
+		return ClassPolicy
+	}
+	return ClassUnknown
 }
 
 // decideCatchAll reads the bogus probes.
