@@ -3,6 +3,79 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-22 — Plan 027: coverage measured and gated, and four defects no test had caught
+
+The suite ran green under `-race` and measured nothing. Service coverage was 76.1%, and it hid the
+places that matter most: `internal/api` at 50.8% (four admin handlers at 0%), the mTLS builder at
+14%, and the token-bucket Lua — invariant 4 — never executed at all, because the limiter's fake
+re-implemented its arithmetic in Go. At sign-off every package clears its floor. The service total
+is 92.7% (own tests only, no Redis): api 97.7, config 100, cmd/verifierd 88.2, prober 97.0, pacer
+96.4 (97.3 with Redis), limiter 100, resolver 95.4, redis 94.0, metrics 99.1, iphealth 98.3,
+suppress 96.7, relay 75.9, mxprofile 95.2.
+
+**Four behaviour changes, each pinned by a test that failed first.**
+
+1. *An out-of-range reply code was classed `invalid` (invariant 1).* `readReply` took any three
+   characters `strconv.Atoi` parses, so `999 no such user` and `600 user unknown` reached
+   `classifyPermanent` and condemned the address. A reply code is now three ASCII digits with a
+   first digit of 2–5, and `Classify` returns `unknown` outside 200–599 **before** any other rule.
+   The fuzzer then caught this plan's own first version of the fix: the range check sat after the
+   greylist wording, so `621 greylist` came back `deferred`. It is a committed regression seed now.
+2. *The RESP parser panicked on a hostile length.* `*1125899906842624` hit `makeslice: cap out of
+   range`, and a panic on a request goroutine takes the process down. Bulk length is capped at
+   Redis's own 512 MiB, arrays at 2^20, nesting at 8; a bulk above 64 KiB grows its buffer as bytes
+   arrive, so a length that lies costs nothing. Over-limit is an error, which the pool already
+   treats as a broken connection.
+3. *A refusal before `RCPT` could be recorded as `invalid` (invariant 1) — found by the new session
+   table, fixed under the plan's own rule that a finding breaking a hard invariant is fixed rather
+   than deferred.* The banner, `EHLO` and `MAIL FROM` failure paths put `Classify(code, text)`
+   straight into `class`. Postfix's `reject_unlisted_sender` answers `MAIL FROM` with
+   `550 5.1.0 <verify@…>: Sender address rejected: User unknown in virtual mailbox table` —
+   subject 1 plus mailbox wording — which is `invalid`, stamped on every address in the chunk. Data
+   Scout derives `accepted` from `class` (`smtp_probe.py`), so one refusal of our envelope sender
+   recorded a whole batch undeliverable. `beforeRCPT` now turns a would-be verdict into `policy`
+   for a 5xx and `unknown` otherwise (a `250` banner used to give every address `class: valid`).
+   **This is a classification change on the live path**: pre-`RCPT` refusals worded like a missing
+   mailbox now arrive as `policy`, which Data Scout's stop rule counts.
+4. *`/metrics` could crash the process.* `Render` read the relay counters — a map among them — after
+   releasing its lock, so a scrape racing `Sent()` is a concurrent map read and write, a fatal
+   runtime error. `Complaint()` is reachable live (`POST /admin/ip-health/complaint`). Found by the
+   plan's concurrency test under `-race`; the fields are now snapshotted with the others.
+
+**The coverage gate** is `scripts/coverage-gate.sh` (POSIX sh + awk, checked under dash and mawk)
+over `scripts/coverage-floors.txt`. Each package is counted by its own tests only: `-coverpkg=./...`
+credits `internal/prober` for lines an `internal/api` test walks without asserting anything. One
+floor per package, because a single total can rise on `metrics` while `prober` falls. Floors are
+the plan's Design 2 targets and only move up; the percentage comparison **truncates**, so 75.99
+neither passes a 76 floor nor prints as `76.0` beside a failure (it did, in the first draft).
+`internal/relay` is held at its measured 75 rather than raised to 80, because 014/015 will reshape
+it (decided 2026-09-22). CI runs the gate as a new step; `CLAUDE.md` Phase 4 and the PR checklist
+list it. Removing the prober's new test files drops prober to 84.7% and the gate fails — shown
+once, then restored.
+
+**Real Redis, without a new dependency.** `miniredis` would have brought gopher-lua and still not
+been the Redis that runs the script in production. The real-Redis tests skip unless
+`VERIFIERD_TEST_REDIS_ADDR` is set (decided 2026-09-22: env-gated rather than spawning
+`redis-server`); CI provides a `redis:7-alpine` service and a step that **fails if any of them
+skipped**. The limiter's fake is now a faithful model of the Lua (per-key state, burst cap, caller's
+clock), and `TestFakeAgreesWithRealScript` holds the two together step for step. Two fail-closed
+tests need no Redis and always run, including `TestRedisDownMeansZeroDials`: the real pacer and
+limiter over a dead address open **zero** connections — the plan 003 gate made permanent.
+
+**Fuzzing:** eleven Go-native targets over every parser and invariant-shaped function; their seeds
+and `testdata/fuzz/` regression files run in every `go test`. Long fuzzing is a separate workflow
+(`fuzz.yml`, weekly + `workflow_dispatch`, 60s per target, a red run is the alert and no issue is
+opened — decided 2026-09-22), in its own file because a schedule in `ci.yml` would also produce
+release artifacts that `deploy.yml` looks up by commit.
+
+**Also:** a route table proving every non-health route answers `401` (invariant 11) and a real mTLS
+handshake refusing no-cert and wrong-CA clients; a `Validate` row per rule, checked with `errors.Is`;
+the flaky `TestConcurrentSessionsAreIsolated` waits for the count to settle (50/50 under `-race`).
+**Deferred to tech-debt, not fixed:** auth-off-without-mTLS still boots (it changes a live boot
+contract — decided 2026-09-22); a learned band with `0 < burst < 1` can never admit; a relay header
+named `From:` slips past the reserved-header check. No endpoint, Redis key or metric changed;
+`06-generated/*` is untouched.
+
 ## 2026-09-18 — The apex explains the prober instead of selling the product (plan 025)
 
 `datascoutmail.com` served Data Scout's marketing landing, which answered none of the questions that

@@ -133,6 +133,20 @@ how failures are typed.
   a data race here corrupts pacing state shared across every MX.
 - Mandatory regression tests for every invariant: us≠address, SSRF refusal, fail-closed,
   policy≠throttle, IPv4-only.
+- **Every parser and every invariant-shaped function has a property test** (Go native fuzzing,
+  plan 027). Seeds live in the target's `f.Add` calls and in `testdata/fuzz/<Target>/`, and run in
+  every plain `go test`; long fuzzing is a weekly job, not a PR gate. A crasher becomes a committed
+  regression seed in the PR that fixes it. Target list: `docs/03-engineering/testing/strategy.md`.
+- **Coverage is gated per package and ratchets** (`scripts/coverage-gate.sh`,
+  `scripts/coverage-floors.txt`). Each package is counted by its own tests only — a package is
+  proven by its tests, not by a caller that walks through it — and a floor only moves up. A single
+  service-wide number would hide the edge (`internal/api`, the mTLS builder) behind well-tested
+  packages; that is why there is one floor per package.
+- **A fake must not drift from what it stands in for.** Where a fake re-implements behaviour (the
+  limiter's model of the Lua bucket), a test runs the same sequence against the fake and the real
+  thing and requires them to agree.
+- Tests against real Redis skip unless `VERIFIERD_TEST_REDIS_ADDR` is set; CI always sets it
+  (`docs/03-engineering/testing/integration.md`).
 
 ## 8. Security posture
 

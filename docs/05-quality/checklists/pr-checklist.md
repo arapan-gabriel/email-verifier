@@ -32,10 +32,15 @@ they are the invariants that keep this service from becoming a list-destroyer or
 
 ## Gates (match CI exactly)
 
-- [ ] `go test -race -count=1 ./...` green
+- [ ] `go test -race -count=1 ./...` green (CI also runs the real-Redis tests; locally `make test-redis`)
+- [ ] `scripts/coverage-gate.sh` green — every package at or above its floor in
+      `scripts/coverage-floors.txt`. A floor lowered in this PR is explained in its description
 - [ ] `go vet ./...` clean
 - [ ] `gofmt -l .` empty
 - [ ] `golangci-lint run` clean
+- [ ] A new parser or invariant-shaped function has a fuzz target (added to `FUZZ_TARGETS` in the
+      `Makefile` and to the table in `03-engineering/testing/strategy.md`); a new HTTP route has a
+      row in `everyRoute` (`internal/api/routes_test.go`)
 
 ## Docs
 

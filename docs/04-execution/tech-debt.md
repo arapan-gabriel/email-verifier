@@ -5,6 +5,36 @@ later plan closes it.
 
 ## Open
 
+- **`config.Validate` accepts authentication off with no mTLS** (plan 027, open question 1).
+  `VERIFIERD_AUTH_ENABLED=false` with no `tls.*` loads cleanly; `run` logs a warning and serves
+  `POST /probe` with no credentials at all. Invariant 11 says *every* request is authenticated.
+  **Recommended:** refuse to boot on `auth.enabled: false` unless `tls.client_ca_file` is set or
+  `http.addr` is loopback — invariant 11 enforced rather than documented, the move invariant 3 got
+  (`dial_network != tcp4` refuses to boot). Deliberately **not** done in plan 027: it changes the
+  startup contract of a live service, and deserves its own decision and a check of the node's
+  EnvironmentFile first. `TestValidateAuthOffWithoutMTLSIsAcceptedToday` pins today's behaviour and
+  says to flip itself when this lands.
+- **A learned band with `0 < burst < 1` can never be admitted** (found by `FuzzBandNormalise`,
+  plan 027). `Band.normalise` replaces a burst ≤ 0 with 1 but keeps a fractional one, and
+  `token_bucket.lua` caps tokens at burst and needs 1 to admit — so `Acquire` would wait on
+  `retry_after` forever (until the caller's deadline) for that MX. No shipped band does this (all 71
+  carry `"burst": 1`); only a hand-written `limits:mx:<host>` could. Fix when next in `band.go`:
+  `normalise` should raise any burst below 1 to 1, and the property test's `Burst > 0` becomes
+  `Burst >= 1`.
+- **Relay: a caller-supplied header *name* is not validated** (found while writing
+  `FuzzMessageBuild`, plan 027). `Build` refuses reserved names after `TrimSpace`+lowercase, but
+  a name of `From:` passes (`"from:"` is not in the map) and renders as `From:: ceo@x.test` — a
+  second `From` line that a lenient parser reads as `From` with value `: ceo@x.test`. That is the
+  identity DKIM/DMARC align on, which `reservedHeaders` exists to protect. Not live (Phase C,
+  relay off by default); fix with 014: names must be RFC 5322 `ftext` (printable ASCII 33–126
+  except `:`), checked before the reserved lookup.
+- **The prober's own session tests poll real sockets in two places.** `cmd/verifierd`'s `run()`
+  tests wait for a real listener (`main_test.go`, `tls_test.go`, `run_features_test.go`) and the
+  mxsim `TestConcurrentSessionsAreIsolated` waits for a real TCP server's count to settle. Both
+  use `time.Sleep` in a bounded poll, not a fixed wait, because `synctest` cannot advance past
+  network I/O. Recorded so it is not mistaken for a missed conversion (pr-checklist
+  "Correctness"): every other time-dependent test runs under `synctest`.
+
 - **The node's IPv6 address is listed, and nothing watches it.** Found 2026-09-16 while trying to
   reproduce plan 022's gate: a `swaks` session from the node to a Hetzner MX came back with the
   seven-line refusal — naming `2001:41d0:404:200::169b`, **not** `92.222.87.97`. swaks had dialled
@@ -46,37 +76,6 @@ later plan closes it.
   Not folded into plan 022 because the class decides three things at once — retry hint, policy-stop
   counting and `ObservePolicy` — and a 4xx `policy` needs a decision on each. Smallest honest fix: a
   4xx whose text matches `senderHints` blocklist wording returns no retry hint.
-
-- **`TestConcurrentSessionsAreIsolated` is timing-flaky under load.** Seen once on 2026-09-11 during
-  a full `-race` run of all 15 packages — `connections leaked: 1 still active` — and not reproduced
-  in five isolated runs or three subsequent full ones. `internal/mxsim/smtp/server_test.go`, present
-  since the scaffold and untouched since.
-
-  The assertion reads an active-connection count immediately after closing, so a server goroutine
-  that has not yet finished decrementing looks like a leak. It is the test that is racy, not the
-  simulator.
-
-  **Worth fixing rather than tolerating:** a gate that fails for no reason is a gate people learn to
-  re-run instead of read, and this repository's whole argument for its checklists is that a red
-  result means something. The fix is to wait for the count to settle with a deadline rather than
-  sampling it once.
-
-- ~~**Invariant 7 has no counterpart in the code.**~~ **Resolved 2026-09-11, by rewording rather
-  than by adding a class.** The invariant said a `250` on a catch-all *is* `risky`; the classifier
-  has no `ClassRisky` and never had, and four documents named `risky` as a value this service
-  produces.
-
-  **Option 2 was taken.** `class` now officially classifies the *reply*, and `risky` is documented
-  as the caller's scoring of `class` together with `catch_all`. Adding the class would have been
-  truthful to the old wording and would have cost a second cross-repo contract reconciliation — for
-  a distinction the caller already reads correctly — on a contract that had just been reconciled,
-  exercised over the wire and put into production carrying live verdicts.
-
-  **The invariant keeps its teeth in the place a consumer actually looks.** `06-generated/api.md`
-  now states that reading `class` without `catch_all` is a contract violation, with the consequence
-  spelled out: a consumer that maps `class` alone marks every address at every catch-all domain
-  deliverable. `CLAUDE.md` invariant 7, `smtp-classification.md`, `ARCHITECTURE.md`,
-  `ENGINEERING-STANDARDS.md` and `storage-contract.md` all say the same thing now.
 
 - **The prober cannot do STARTTLS, so an MX that requires it is permanently unanswerable.**
   Measured in production on 2026-09-11, warm-up ladder day 3: `gw.art-trier.de` answered
@@ -229,6 +228,37 @@ Known deferrals baked into the roadmap (not debt, but tracked so they are not fo
   re-proposed.
 
 ## Resolved
+
+- **`TestConcurrentSessionsAreIsolated` is timing-flaky under load.** **Resolved 2026-09-22 by plan 027:** the test now waits (bounded, 2s) for the server's active count to reach zero instead of sampling it once; a real leak still fails. Proven with `go test -race -count=50 ./internal/mxsim/smtp/ -run TestConcurrentSessionsAreIsolated` (green, 50/50). Original entry: Seen once on 2026-09-11 during
+  a full `-race` run of all 15 packages — `connections leaked: 1 still active` — and not reproduced
+  in five isolated runs or three subsequent full ones. `internal/mxsim/smtp/server_test.go`, present
+  since the scaffold and untouched since.
+
+  The assertion reads an active-connection count immediately after closing, so a server goroutine
+  that has not yet finished decrementing looks like a leak. It is the test that is racy, not the
+  simulator.
+
+  **Worth fixing rather than tolerating:** a gate that fails for no reason is a gate people learn to
+  re-run instead of read, and this repository's whole argument for its checklists is that a red
+  result means something. The fix is to wait for the count to settle with a deadline rather than
+  sampling it once.
+
+- ~~**Invariant 7 has no counterpart in the code.**~~ **Resolved 2026-09-11, by rewording rather
+  than by adding a class.** The invariant said a `250` on a catch-all *is* `risky`; the classifier
+  has no `ClassRisky` and never had, and four documents named `risky` as a value this service
+  produces.
+
+  **Option 2 was taken.** `class` now officially classifies the *reply*, and `risky` is documented
+  as the caller's scoring of `class` together with `catch_all`. Adding the class would have been
+  truthful to the old wording and would have cost a second cross-repo contract reconciliation — for
+  a distinction the caller already reads correctly — on a contract that had just been reconciled,
+  exercised over the wire and put into production carrying live verdicts.
+
+  **The invariant keeps its teeth in the place a consumer actually looks.** `06-generated/api.md`
+  now states that reading `class` without `catch_all` is a contract violation, with the consequence
+  spelled out: a consumer that maps `class` alone marks every address at every catch-all domain
+  deliverable. `CLAUDE.md` invariant 7, `smtp-classification.md`, `ARCHITECTURE.md`,
+  `ENGINEERING-STANDARDS.md` and `storage-contract.md` all say the same thing now.
 
 - **RESP client has no unix-socket support.** ~~The minimal Redis client ported from the lab in
   plan 003 dials TCP.~~ **Stale — closed 2026-09-04 during plan 013.** It was true of the lab's

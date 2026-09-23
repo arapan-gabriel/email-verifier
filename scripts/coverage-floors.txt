@@ -1,0 +1,30 @@
+# Coverage floors for scripts/coverage-gate.sh (plan 027).
+#
+# "<package-dir> <percent>", whole numbers, each package counted by its own
+# tests only (no -coverpkg). internal/mxsim/* and cmd/mxsim are excluded.
+#
+# RATCHET: floors only move up. A change that lowers one says why in its PR
+# description, and the reviewer checks it. Raise a floor when a package's
+# tests move it well clear; do not raise it to the last decimal, or an
+# unrelated refactor that deletes two covered lines turns the gate red.
+#
+# These are plan 027's Design 2 targets. Measured at sign-off (2026-09-22,
+# without VERIFIERD_TEST_REDIS_ADDR) every package is above its floor; the
+# numbers are recorded in the plan.
+cmd/verifierd       60
+internal/api        85
+internal/config     85
+internal/iphealth   88
+internal/limiter    95
+internal/metrics    80
+# Not in plan 027's table; held where it already was.
+internal/mxprofile  95
+internal/pacer      92
+internal/prober     92
+internal/redis      90
+# Held at its measured value (75.9 at sign-off), not raised to 80: plans 014/015 are active and
+# will reshape the package (plan 027, open question 4, decided 2026-09-22).
+internal/relay      75
+internal/resolver   92
+internal/suppress   88
+total               85

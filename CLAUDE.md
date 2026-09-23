@@ -94,11 +94,14 @@ you go; write tests alongside code; keep the plan's Status current.
 
 ### Phase 4 — Quality check
 Must match `.github/workflows/ci.yml` exactly:
-1. `go test -race -count=1 ./...`
+1. `go test -race -count=1 ./...` (CI also sets `VERIFIERD_TEST_REDIS_ADDR` so the real-Redis
+   tests run; locally `make test-redis` does the same)
 2. `go vet ./...`
 3. `gofmt -l .` (no output)
 4. `golangci-lint run`
-5. `docs/05-quality/checklists/pr-checklist.md` — every item (SSRF guard, fail-closed, and
+5. `scripts/coverage-gate.sh` — per-package coverage at or above `scripts/coverage-floors.txt`
+   (floors ratchet: they only move up)
+6. `docs/05-quality/checklists/pr-checklist.md` — every item (SSRF guard, fail-closed, and
    "us ≠ address" verdicts are mandatory).
 
 ### Phase 5 — Update docs
@@ -126,6 +129,9 @@ go test -race -count=1 ./...
 go vet ./...
 gofmt -l .
 golangci-lint run
+scripts/coverage-gate.sh   # or `make gate` for all of the above
+make test-redis            # the suite with the real-Redis tests on (docker)
+make fuzz FUZZTIME=60s     # long fuzzing, what the weekly job runs
 
 # run the service (config from env / internal/config)
 go run ./cmd/verifierd -config config/verifierd.yaml

@@ -11,6 +11,19 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # The central bucket (invariant 4) runs against a real Redis here, not only
+    # against the Go model of its Lua (plan 027). Locally those tests skip
+    # unless VERIFIERD_TEST_REDIS_ADDR is set; in CI it always is.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v7
 
@@ -19,9 +32,22 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      # These four are the Phase-4 gate from CLAUDE.md, in order and verbatim.
+      # These are the Phase-4 gate from CLAUDE.md, in order and verbatim.
       - name: go test -race
+        env:
+          VERIFIERD_TEST_REDIS_ADDR: 127.0.0.1:6379
         run: go test -race -count=1 ./...
+
+      # The real-Redis tests skip without the variable, and a skip is silent in
+      # the step above. This makes "they ran" visible in the log, and fails if
+      # any of them skipped (plan 027 Definition of Done).
+      - name: real-Redis tests ran
+        env:
+          VERIFIERD_TEST_REDIS_ADDR: 127.0.0.1:6379
+        run: |
+          out="$(go test -count=1 -v -run 'Real|FakeAgrees' ./internal/limiter/ ./internal/pacer/)"
+          echo "$out" | grep -E '^(=== RUN|--- (PASS|FAIL|SKIP)|ok|FAIL)'
+          if echo "$out" | grep -q -- '--- SKIP'; then echo "a real-Redis test skipped in CI"; exit 1; fi
 
       - name: go vet
         run: go vet ./...
@@ -38,6 +64,14 @@ jobs:
           # red with no change of ours, and the version CI runs should be the
           # version the Phase-4 gate runs locally. Bump it deliberately.
           version: v2.13.2
+
+      # Per-package coverage against scripts/coverage-floors.txt (plan 027). A
+      # second run, without -race: instrumented race builds are slower, and
+      # keeping the two apart lets either be rerun alone.
+      - name: coverage
+        env:
+          VERIFIERD_TEST_REDIS_ADDR: 127.0.0.1:6379
+        run: scripts/coverage-gate.sh
 
   binary:
     runs-on: ubuntu-latest

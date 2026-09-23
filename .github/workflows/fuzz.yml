@@ -1,0 +1,44 @@
+# Long fuzzing (plan 027). Not a PR gate: the seed corpora already run in every
+# `go test` (testdata/fuzz/ plus each target's f.Add seeds), which keeps the
+# gate deterministic. This job spends 60s per target looking for new inputs.
+#
+# Its own workflow, not a job in ci.yml: a schedule there would also run the
+# gate and the release bundle weekly, and deploy.yml looks ci.yml's artifacts up
+# by commit.
+#
+# A red run is the alert — no issue is opened automatically (decided
+# 2026-09-22). A crasher is minimised, committed under the package's
+# testdata/fuzz/<Target>/ as a regression seed, and fixed in the same PR.
+name: fuzz
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # -fuzz takes one target per package per run, so loop. The list is
+      # `make fuzz-list`; keep the two in step (the Makefile is the source).
+      - name: fuzz every target for 60s
+        run: make fuzz FUZZTIME=60s
+
+      - name: keep any crasher
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashers
+          path: '**/testdata/fuzz/**'
