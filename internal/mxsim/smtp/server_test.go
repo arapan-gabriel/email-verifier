@@ -393,7 +393,16 @@ func TestConcurrentSessionsAreIsolated(t *testing.T) {
 	if st.Rcpt != 20 || st.Accepted != 20 {
 		t.Fatalf("stats: %+v", st)
 	}
+	// The client returning from QUIT does not mean the server goroutine has
+	// decremented its count yet, so sampling once read a closing session as a
+	// leak (tech-debt, 2026-09-11). Wait for it to settle, with a deadline: a
+	// real leak still fails, it just fails after two seconds (plan 027).
+	deadline := time.Now().Add(2 * time.Second)
+	for st.CurrentConcurrent != 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		st = l.eng.Stats()
+	}
 	if st.CurrentConcurrent != 0 {
-		t.Fatalf("connections leaked: %d still active", st.CurrentConcurrent)
+		t.Fatalf("connections leaked: %d still active after 2s", st.CurrentConcurrent)
 	}
 }

@@ -2,6 +2,7 @@ package iphealth
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -33,13 +34,21 @@ func TestAComplaintSpikePausesSendingAndNothingElse(t *testing.T) {
 }
 
 // A complaint from last month says nothing about today.
+// On the synctest clock (plan 027), so the window is the real one rather than
+// a millisecond chosen to keep a wall-clock sleep short.
 func TestComplaintsAgeOutOfTheWindow(t *testing.T) {
-	h := New(Options{IP: "203.0.113.1", ComplaintWindow: time.Millisecond, ComplaintThreshold: 1})
-	h.ObserveComplaint()
-	time.Sleep(5 * time.Millisecond)
-	if paused, _ := h.SendingPaused(); paused {
-		t.Fatal("an expired complaint still counted")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		h := New(Options{IP: "203.0.113.1", ComplaintWindow: time.Hour, ComplaintThreshold: 1})
+		h.ObserveComplaint()
+		time.Sleep(59 * time.Minute)
+		if paused, _ := h.SendingPaused(); !paused {
+			t.Fatal("a complaint inside the window stopped counting")
+		}
+		time.Sleep(2 * time.Minute)
+		if paused, _ := h.SendingPaused(); paused {
+			t.Fatal("an expired complaint still counted")
+		}
+	})
 }
 
 // Zero is off, which is what a node with no relay needs: a threshold nobody
