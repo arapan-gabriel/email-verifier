@@ -1,0 +1,22 @@
+{
+  "notes": [
+    "Hostnames that front one receiving system, and the pace key they share (plan 026).",
+    "Matched in order on the lower-cased, dot-trimmed MX host, on a label boundary:",
+    "a suffix matches the host itself or anything ending in '.' + suffix.",
+    "A key starts with '@', which no hostname can contain, so it never collides with a real host.",
+    "smtp.google.com is not in the plan's table: it is the MX Google gives new Workspace",
+    "domains, and the warm-up ladder met it on 2026-09-29 (a 5.1.1 from basket-dragons.de)."
+  ],
+  "families": [
+    {"suffix": "mail.protection.outlook.com", "key": "@microsoft-eop"},
+    {"suffix": "aspmx.l.google.com", "key": "@google"},
+    {"suffix": "googlemail.com", "key": "@google"},
+    {"suffix": "smtp.google.com", "key": "@google"},
+    {"suffix": "pphosted.com", "key": "@proofpoint"},
+    {"suffix": "mimecast.com", "key": "@mimecast"},
+    {"suffix": "mimecast.co.za", "key": "@mimecast"},
+    {"suffix": "hornetsecurity.com", "key": "@hornetsecurity"},
+    {"suffix": "ionos.de", "key": "@ionos"},
+    {"suffix": "kundenserver.de", "key": "@ionos"}
+  ]
+}

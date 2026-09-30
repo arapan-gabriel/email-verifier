@@ -341,6 +341,9 @@ func replyLogger(enabled bool, logger *slog.Logger) func(prober.ReplyEvent) {
 	return func(ev prober.ReplyEvent) {
 		logger.Info("smtp_reply",
 			"mx_host", ev.MXHost,
+			// The bucket the answer was paced under: a pause traces to the
+			// family that caused it, not to one tenant of it (plan 026).
+			"pace_key", pacer.PaceKey(ev.MXHost),
 			"class", string(ev.Class),
 			"smtp_code", ev.SMTPCode,
 			"enhanced_code", ev.EnhancedCode,

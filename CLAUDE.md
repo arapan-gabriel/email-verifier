@@ -44,6 +44,9 @@ Stack: **Go 1.25** · net/smtp (hand-rolled state machine, from `ds-smtp-retry/r
    goes through the shared Redis bucket (`ds-smtp-retry` contract, `internal/limiter/token_bucket.lua`, embedded in the binary,
    take+refill in one round trip). N probe nodes with local buckets means N× the intended rate at
    Gmail — the bucket is the one thing that must stay shared as the service scales past one IP.
+   **"The recipient MX" is the receiving system, not the hostname** (plan 026): every tenant host of
+   one system (`*.mail.protection.outlook.com`, Google's MX names, …) draws from that system's one
+   bucket under its pace key (`pacer.PaceKey`); an unlisted host is its own system.
 5. **Rate ceilings fail *closed*.** If Redis is unreachable, skip the probe (return `unknown`)
    rather than send unpaced. An unconfirmed verdict is recoverable; a blocklist entry is not.
 6. **`ClassPolicy` (a `5.7.x`/`554 blocked` about our IP) is never counted as throttling** and

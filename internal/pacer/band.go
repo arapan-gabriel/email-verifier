@@ -81,20 +81,28 @@ type Reader interface {
 	Get(ctx context.Context, key string) (string, bool, error)
 }
 
-// bandFor resolves the working range for one MX, most specific first:
+// bandFor resolves the working range for one pace key, most specific first:
 //
-//  1. limits:mx:<host> in Redis — measured, and the only source allowed to
+//  1. limits:mx:<key> in Redis — measured, and the only source allowed to
 //     raise a ceiling (plan 012 writes it).
-//  2. the shipped seed for the recipient domain — an educated guess.
-//  3. the conservative default.
+//  2. the shipped seed for the family, when the key is one (`bands/@google.json`)
+//     — found through the MX, because a company on Workspace is not gmail.com
+//     and its own domain has no seed (plan 026).
+//  3. the shipped seed for the recipient domain — an educated guess.
+//  4. the conservative default.
 //
 // A Redis failure here is not fatal on its own: the caller still has to take a
 // token, and that call failing is what makes the probe fail closed.
-func (p *Pacer) bandFor(ctx context.Context, mxHost, domain string) Band {
-	if raw, ok, err := p.store.Get(ctx, "limits:mx:"+mxHost); err == nil && ok {
+func (p *Pacer) bandFor(ctx context.Context, key, domain string) Band {
+	if raw, ok, err := p.store.Get(ctx, "limits:mx:"+key); err == nil && ok {
 		var b Band
 		if json.Unmarshal([]byte(raw), &b) == nil {
 			return b.normalise()
+		}
+	}
+	if strings.HasPrefix(key, "@") {
+		if b, ok := readSeed(key); ok {
+			return b
 		}
 	}
 	if b, ok := seedFor(domain); ok {

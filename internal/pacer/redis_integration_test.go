@@ -133,3 +133,54 @@ func TestPacerFailsClosedWithRedisDown(t *testing.T) {
 		}
 	}
 }
+
+// Plan 026's gate at the bucket: 32 goroutines acquiring through two
+// *different* EOP tenant hostnames get, in aggregate, exactly what one host
+// would — the burst, then nothing until the tiny rate refills. Before 026 each
+// tenant had a bucket of its own and this admitted twice the burst.
+func TestRealFamilyNeverOverAdmitsAcrossTenants(t *testing.T) {
+	c := realRedis(t)
+	ctx := t.Context()
+	const key = "@microsoft-eop"
+	clean := func() {
+		for _, k := range []string{"limits:mx:" + key, limiter.Key(key), "rt:mx:" + key + ":rate",
+			"rt:mx:" + key + ":conc", "rt:mx:" + key + ":state", "rt:mx:" + key + ":pause_until"} {
+			if _, err := c.Do(context.Background(), "DEL", k); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	if err := c.Set(ctx, "limits:mx:"+key,
+		`{"min_rate_per_sec":0.001,"max_rate_per_sec":0.001,"burst":5,"pause_seconds":60}`); err != nil {
+		t.Fatal(err)
+	}
+
+	p := New(c, limiter.New(c), Options{})
+	tenants := [2]string{"contoso-com.mail.protection.outlook.com", "fabrikam-de.mail.protection.outlook.com"}
+	var admitted atomic.Int64
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			if err := p.Acquire(ctx, tenants[i%2], "example.test"); err == nil {
+				admitted.Add(1)
+			} else if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("Acquire = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := admitted.Load(); n != 5 {
+		t.Errorf("32 acquires over two tenants admitted %d, want exactly the family's burst 5", n)
+	}
+	for _, tenant := range tenants {
+		if n, err := c.Do(ctx, "EXISTS", limiter.Key(tenant)); err != nil || n != int64(0) {
+			t.Errorf("a per-tenant bucket %s was created", limiter.Key(tenant))
+		}
+	}
+}

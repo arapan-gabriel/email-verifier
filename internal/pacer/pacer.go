@@ -13,7 +13,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/metrics"
 )
 
-// State names match the Redis contract (rt:mx:<host>:state).
+// State names match the Redis contract (rt:mx:<key>:state, key = PaceKey(host)).
 const (
 	StateProbing = "PROBING"
 	StateSteady  = "STEADY"
@@ -198,25 +198,31 @@ func (p *Pacer) evictLocked() {
 
 // Acquire blocks a probe until this MX has budget for it.
 //
+// Budget is drawn under the host's pace key (PaceKey), not the host: every
+// tenant of one receiving system draws from that system's bucket. Callers keep
+// passing the real host — the mapping happens here, once, so the SSRF guard,
+// the dial and the journal still see the hostname (plan 026).
+//
 // **It fails closed** (invariant 5): if the bucket cannot be consulted, the
 // error is returned and the caller must skip the probe. An unconfirmed verdict
 // is recoverable; a blocklist entry is not.
 func (p *Pacer) Acquire(ctx context.Context, mxHost, domain string) error {
-	st := p.stateFor(ctx, mxHost, domain)
+	key := PaceKey(mxHost)
+	st := p.stateFor(ctx, key, domain)
 
 	p.mu.Lock()
 	if time.Now().Before(st.pausedUntil) {
 		until := st.pausedUntil
 		p.mu.Unlock()
-		return &PausedError{MXHost: mxHost, Until: until}
+		return &PausedError{MXHost: key, Until: until}
 	}
 	rate, burst := st.rate, st.band.Burst
 	p.mu.Unlock()
 
 	for {
-		d, err := p.take.Take(ctx, mxHost, rate, burst)
+		d, err := p.take.Take(ctx, key, rate, burst)
 		if err != nil {
-			return fmt.Errorf("pacer: no budget established for %s: %w", mxHost, err)
+			return fmt.Errorf("pacer: no budget established for %s: %w", key, err)
 		}
 		if d.Allowed {
 			return nil
@@ -243,8 +249,9 @@ func (p *Pacer) Acquire(ctx context.Context, mxHost, domain string) error {
 // taking a bool derived from Class.IsThrottle, this package cannot be handed
 // the wrong signal by mistake.
 func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
+	key := PaceKey(mxHost)
 	p.mu.Lock()
-	st, ok := p.mx[mxHost]
+	st, ok := p.mx[key]
 	if !ok {
 		p.mu.Unlock()
 		return
@@ -294,12 +301,12 @@ func (p *Pacer) Observe(ctx context.Context, mxHost string, throttled bool) {
 	snapshot := *st
 	p.mu.Unlock()
 	if paused && p.metrics != nil {
-		p.metrics.Pause(mxHost)
+		p.metrics.Pause(key)
 	}
 	if propose {
-		p.proposeBand(ctx, mxHost, snapshot)
+		p.proposeBand(ctx, key, snapshot)
 	}
-	p.persist(ctx, mxHost, snapshot)
+	p.persist(ctx, key, snapshot)
 }
 
 // Proposal is evidence that a band's ceiling is lower than the provider's, and
@@ -315,22 +322,23 @@ type Proposal struct {
 	FormedAt    int64   `json:"formed_at"`
 }
 
-// ProposalKey is where a proposal for one MX lives.
-func ProposalKey(mxHost string) string { return "limits:mx:" + mxHost + ":proposed" }
+// ProposalKey is where a proposal for one MX lives — under its pace key, so
+// every tenant of a family shares one proposal.
+func ProposalKey(mxHost string) string { return "limits:mx:" + PaceKey(mxHost) + ":proposed" }
 
-func (p *Pacer) proposeBand(ctx context.Context, mxHost string, st mxState) {
+func (p *Pacer) proposeBand(ctx context.Context, key string, st mxState) {
 	next := min(p.opts.Promote.Ceiling, st.band.MaxRate*p.opts.Promote.Step)
 	if next <= st.band.MaxRate {
 		return // already at the absolute ceiling; there is nothing to propose
 	}
 	body, err := json.Marshal(Proposal{
-		MXHost: mxHost, CurrentMax: st.band.MaxRate, ProposedMax: next,
+		MXHost: key, CurrentMax: st.band.MaxRate, ProposedMax: next,
 		CleanAt: st.cleanAtCeiling, FormedAt: time.Now().Unix(),
 	})
 	if err != nil {
 		return
 	}
-	_ = p.store.Set(ctx, ProposalKey(mxHost), string(body))
+	_ = p.store.Set(ctx, ProposalKey(key), string(body))
 }
 
 // Proposal returns the standing proposal for an MX, if any.
@@ -350,26 +358,27 @@ func (p *Pacer) Proposal(ctx context.Context, mxHost string) (Proposal, bool) {
 // proposal, and drops the in-memory entry so the next request reads the new
 // band. This is the operator's decision, never the loop's.
 func (p *Pacer) Promote(ctx context.Context, mxHost string) (Proposal, error) {
-	pr, ok := p.Proposal(ctx, mxHost)
+	key := PaceKey(mxHost)
+	pr, ok := p.Proposal(ctx, key)
 	if !ok {
-		return Proposal{}, fmt.Errorf("pacer: no standing proposal for %s", mxHost)
+		return Proposal{}, fmt.Errorf("pacer: no standing proposal for %s", key)
 	}
 
-	band := p.bandFor(ctx, mxHost, "")
+	band := p.bandFor(ctx, key, "")
 	band.MaxRate = pr.ProposedMax
 	body, err := json.Marshal(band)
 	if err != nil {
 		return Proposal{}, err
 	}
-	if err := p.store.Set(ctx, "limits:mx:"+mxHost, string(body)); err != nil {
+	if err := p.store.Set(ctx, "limits:mx:"+key, string(body)); err != nil {
 		return Proposal{}, fmt.Errorf("pacer: writing the promoted band: %w", err)
 	}
-	if err := p.store.Set(ctx, ProposalKey(mxHost), ""); err != nil {
+	if err := p.store.Set(ctx, ProposalKey(key), ""); err != nil {
 		return Proposal{}, err
 	}
 
 	p.mu.Lock()
-	delete(p.mx, mxHost) // the next request re-reads; no restart needed
+	delete(p.mx, key) // the next request re-reads; no restart needed
 	p.mu.Unlock()
 	return pr, nil
 }
@@ -378,7 +387,7 @@ func (p *Pacer) Promote(ctx context.Context, mxHost string) (Proposal, error) {
 func (p *Pacer) Rate(mxHost string) (float64, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	st, ok := p.mx[mxHost]
+	st, ok := p.mx[PaceKey(mxHost)]
 	if !ok {
 		return 0, false
 	}
@@ -389,50 +398,50 @@ func (p *Pacer) Rate(mxHost string) (float64, bool) {
 func (p *Pacer) State(mxHost string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if st, ok := p.mx[mxHost]; ok {
+	if st, ok := p.mx[PaceKey(mxHost)]; ok {
 		return st.state
 	}
 	return ""
 }
 
-func (p *Pacer) stateFor(ctx context.Context, mxHost, domain string) *mxState {
+func (p *Pacer) stateFor(ctx context.Context, key, domain string) *mxState {
 	p.mu.Lock()
-	if st, ok := p.mx[mxHost]; ok {
+	if st, ok := p.mx[key]; ok {
 		st.lastUsed = time.Now()
 		p.mu.Unlock()
 		return st
 	}
 	p.mu.Unlock()
 
-	band := p.bandFor(ctx, mxHost, domain)
+	band := p.bandFor(ctx, key, domain)
 	start := band.MaxRate
 	// A rate persisted by an earlier run may only ever *lower* the start.
 	// Backing off is a measurement; a quiet hour below the ceiling is not
 	// evidence that the ceiling moved.
-	if saved, ok := p.savedRate(ctx, mxHost); ok && saved < start {
+	if saved, ok := p.savedRate(ctx, key); ok && saved < start {
 		start = max(band.MinRate, saved)
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if st, ok := p.mx[mxHost]; ok { // another goroutine won the race
+	if st, ok := p.mx[key]; ok { // another goroutine won the race
 		st.lastUsed = time.Now()
 		return st
 	}
 	p.evictLocked()
 	st := &mxState{band: band, rate: start, conc: band.MinConc, state: StateProbing, lastUsed: time.Now()}
-	if until, ok := p.savedPause(ctx, mxHost); ok {
+	if until, ok := p.savedPause(ctx, key); ok {
 		st.pausedUntil = until
 		if time.Now().Before(until) {
 			st.state = StatePaused
 		}
 	}
-	p.mx[mxHost] = st
+	p.mx[key] = st
 	return st
 }
 
-func (p *Pacer) savedRate(ctx context.Context, mxHost string) (float64, bool) {
-	raw, ok, err := p.store.Get(ctx, "rt:mx:"+mxHost+":rate")
+func (p *Pacer) savedRate(ctx context.Context, key string) (float64, bool) {
+	raw, ok, err := p.store.Get(ctx, "rt:mx:"+key+":rate")
 	if err != nil || !ok {
 		return 0, false
 	}
@@ -443,8 +452,8 @@ func (p *Pacer) savedRate(ctx context.Context, mxHost string) (float64, bool) {
 	return v, true
 }
 
-func (p *Pacer) savedPause(ctx context.Context, mxHost string) (time.Time, bool) {
-	raw, ok, err := p.store.Get(ctx, "rt:mx:"+mxHost+":pause_until")
+func (p *Pacer) savedPause(ctx context.Context, key string) (time.Time, bool) {
+	raw, ok, err := p.store.Get(ctx, "rt:mx:"+key+":pause_until")
 	if err != nil || !ok {
 		return time.Time{}, false
 	}
@@ -457,8 +466,8 @@ func (p *Pacer) savedPause(ctx context.Context, mxHost string) (time.Time, bool)
 
 // persist publishes the working point so a restart, and a second node, resume
 // from it rather than from the ceiling.
-func (p *Pacer) persist(ctx context.Context, mxHost string, st mxState) {
-	base := "rt:mx:" + mxHost + ":"
+func (p *Pacer) persist(ctx context.Context, key string, st mxState) {
+	base := "rt:mx:" + key + ":"
 	_ = p.store.Set(ctx, base+"rate", strconv.FormatFloat(st.rate, 'f', -1, 64))
 	_ = p.store.Set(ctx, base+"conc", strconv.Itoa(st.conc))
 	_ = p.store.Set(ctx, base+"state", st.state)

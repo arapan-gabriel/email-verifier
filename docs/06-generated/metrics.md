@@ -18,12 +18,12 @@ it directly — as this repository already does for RESP and for SMTP.
 | `relay_sent_total` | counter | `outcome` | delivery attempts: `delivered`, `rejected`, `deferred`, and this service's own refusals — `suppressed`, `no_budget`, `no_mx` |
 | `relay_queue_depth` | gauge | `state` | `ready`, `later`, `dead`. A gauge because the question is whether anything is stuck *now*, and `dead` above zero always wants a person |
 | `verify_probe_blocked_total` | counter | `reason` | probes declined: `guarded`, `no_budget`, `paused`, `policy_stop` |
-| `verify_pause_events_total` | counter | `mx_host` | the pacer standing an MX down at the floor of its band |
+| `verify_pause_events_total` | counter | `mx_host` | the pacer standing a pace key down at the floor of its band — the label is the **pace key** (plan 026): `@microsoft-eop` for every EOP tenant |
 | `verify_rate_per_sec` | gauge | `mx_host` | rate the AIMD loop has settled on |
 | `verify_concurrency` | gauge | `mx_host` | concurrency it has settled on |
 | `verify_mx_state` | gauge | `mx_host`, `state` | 1 for the MX's current state |
 | `verify_request_duration_seconds` | histogram | — | end-to-end `POST /probe` |
-| `verify_tracked_mx` | gauge | — | MX hosts the pacer holds state for — **the cardinality canary** |
+| `verify_tracked_mx` | gauge | — | pace keys the pacer holds state for (a family counts once) — **the cardinality canary** |
 | `go_goroutines` | gauge | — | a service that must not leak them should say how many it has |
 
 | `ip_health_listed` | gauge | `ip`, `list` | 1 if this sending address is on the named blocklist |
@@ -46,7 +46,7 @@ So `ip_health_listed == 0` on the zones present never means "this IP is in good 
 
 ## Cardinality
 
-Four metrics are labelled by `mx_host`, which arrives in the request. Every one of them is bounded
+Four metrics are labelled by `mx_host`, which arrives in the request. Since plan 026 the value of that label is the **pace key**, not the raw host: every tenant of a family (`@microsoft-eop`, `@google`, …) is one series, so day 11's 1,005 hosts would be a few hundred keys. The `smtp_reply` log line carries both `mx_host` and `pace_key`. Every one of them is bounded
 by **`verify_tracked_mx`**: the pacer evicts idle MXes and caps how many it holds, so the label set
 cannot grow without limit. If that gauge climbs toward `pacer.max_tracked` and stays there, eviction
 has stopped working and the series count is about to follow — alert on it.

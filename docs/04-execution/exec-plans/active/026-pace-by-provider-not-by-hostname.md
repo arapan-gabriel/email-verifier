@@ -1,6 +1,6 @@
 # Plan 026 — Pace by provider, not by hostname
 
-**Status:** Planned (written 2026-09-21)
+**Status:** Code complete 2026-09-30 — deploy and the node gate pending (written 2026-09-21)
 **Phase:** B
 **Depends on:** 003 (central limiter), 012 (band promotion) — both complete
 
@@ -105,16 +105,16 @@ time and never met a tenant farm. Recorded here, not ported back.
 
 ## Tasks
 
-- [ ] Check every `limits:mx:*` key on the node (`redis-cli --scan --pattern 'limits:mx:*'`) and list
+- [x] Check every `limits:mx:*` key on the node (`redis-cli --scan --pattern 'limits:mx:*'`) and list — **done 2026-09-30**: the node holds only `limits:mx:92.222.87.97` (+ `:proposed`), our own IP from the self-test; nothing to carry
       any promoted band on a host that will map to a family; carry it to the family key or record why
       not
-- [ ] `internal/pacer/families.json` + `PaceKey` with label-boundary suffix matching
-- [ ] Route `Acquire` / `Observe` / `stateFor` / `persist` / `ProposalKey` / pause metrics through
+- [x] `internal/pacer/families.json` + `PaceKey` with label-boundary suffix matching — plus `smtp.google.com` under `@google` (deviation, see changelog)
+- [x] Route `Acquire` / `Observe` / `stateFor` / `persist` / `ProposalKey` / pause metrics through
       `PaceKey`; limiter `Take` receives the key
-- [ ] Band order: key → family seed → domain seed → conservative; seeds `bands/@microsoft-eop.json`,
+- [x] Band order: key → family seed → domain seed → conservative; seeds `bands/@microsoft-eop.json`,
       `bands/@google.json`
-- [ ] `pace_key=` on the `smtp_reply` journal line
-- [ ] Tests alongside:
+- [x] `pace_key=` on the `smtp_reply` journal line
+- [x] Tests alongside: — `internal/pacer/family_test.go`, `redis_integration_test.go::TestRealFamilyNeverOverAdmitsAcrossTenants` (real Redis, two tenants, exactly the burst), `mxprofile_test.go::TestRandomiserStaysPerTenant`. The two-listener mxsim shape became the real-Redis two-tenant test: the bucket is where aggregation happens, and the prober takes one port per instance
   - two EOP tenant hosts draw from one bucket — aggregate rate across both ≤ band max (mxsim, two
     listeners, the 003 gate's shape)
   - an unmatched host keeps its own bucket, key == hostname (no behaviour change)
@@ -123,10 +123,10 @@ time and never met a tenant farm. Recorded here, not ported back.
   - Redis down → `Acquire` on a family key fails closed (invariant 5)
   - a Workspace domain with no domain seed gets the `@google` band, not `conservative()`
   - randomiser stays per host: marking one tenant leaves a sibling tenant unmarked
-- [ ] `docs/06-generated/redis-contract.md` — `<mx_host>` may be an `@family` key; the table
-- [ ] `docs/06-generated/metrics.md` — per-MX labels are pace keys
-- [ ] `docs/03-engineering/patterns/aimd-pacing.md` — families, and why the randomiser is not one
-- [ ] `CLAUDE.md` + `docs/02-architecture/ARCHITECTURE.md` — invariant 4's wording: the receiving
+- [x] `docs/06-generated/redis-contract.md` — `<mx_host>` may be an `@family` key; the table
+- [x] `docs/06-generated/metrics.md` — per-MX labels are pace keys
+- [x] `docs/03-engineering/patterns/aimd-pacing.md` — families, and why the randomiser is not one
+- [x] `CLAUDE.md` + `docs/02-architecture/ARCHITECTURE.md` — invariant 4's wording: the receiving
       system, not the hostname
 - [ ] Deploy (016's button) and run the gate
 
@@ -139,12 +139,13 @@ time and never met a tenant farm. Recorded here, not ported back.
       key. Recorded here with the numbers
 - [ ] **Downstream gate (Data Scout plan 083):** the burst day of the hold week — one uninterrupted
       batch of ~2,000 from the warm-up pool — runs clean on the ladder's stop rules with this deployed
-- [ ] `go test -race -count=1 ./...` green
-- [ ] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed (a family key is
+- [x] `go test -race -count=1 ./...` green — 2026-09-30, with `VERIFIERD_TEST_REDIS_ADDR` (make test-redis)
+- [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean — 0 issues; `scripts/coverage-gate.sh` ok (pacer 96.7%, total 92.8%)
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed (a family key is
       still a `Take`), SSRF guard unaffected (the dial still uses the vetted real host), "us ≠
       address" unaffected (no classification change)
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+      — confirmed 2026-09-30. us ≠ address, SSRF, IPv4: no classification or dial change. Fail-closed: `TestFamilyKeyFailsClosed`. Central bucket: the family bucket is the shared one. `policy` does not drive the pacer: `TestAPolicyAnswerFromOneTenantLeavesTheFamilyRate`. **One note on §2 "no package-level mutable state"**: `families` is package-level, parsed once from the embedded file and never written after — the same shape as the existing `seed embed.FS`; no `init()`
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added — redis-contract, metrics, aimd-pacing, CLAUDE.md + ARCHITECTURE invariant 4, changelog, ROADMAP
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations

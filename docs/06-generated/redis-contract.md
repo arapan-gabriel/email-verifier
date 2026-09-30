@@ -20,15 +20,24 @@ forever for a verdict that will not come.
 
 ## Keys
 
+**`<pace_key>` (plan 026)** is `pacer.PaceKey(mx_host)`: a **family key** such as `@microsoft-eop`
+or `@google` for a host of a known receiving system (`internal/pacer/families.json` — suffix match on
+a label boundary), otherwise the MX hostname itself. `@` cannot occur in a hostname, so a family key
+never collides with a real host. Every tenant of a family shares that family's bucket, band, working
+point and pause. Per-tenant `rt:mx:*.mail.protection.outlook.com:*` keys written before 026 are no
+longer read; they are operational state and expire from relevance on their own. The randomiser key
+below **stays per host** on purpose.
+
+
 | Key | Written by | Meaning |
 |---|---|---|
-| `limits:mx:<mx_host>` | operator / calibration (012) | Calibrated band JSON: `min_rate_per_sec`, `max_rate_per_sec`, `min_concurrency`, `max_concurrency`, `burst`, `cooldown_seconds`, `pause_seconds` |
-| `limits:mx:<mx_host>:proposed` | pacer (012) | evidence that the band's ceiling is below the provider's limit — never applied automatically, promoted by an operator |
-| `rt:mx:<mx_host>:rate` | pacer | rate the AIMD loop has settled on |
-| `rt:mx:<mx_host>:conc` | pacer | concurrency it has settled on |
-| `rt:mx:<mx_host>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |
-| `rt:mx:<mx_host>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
-| `rt:mx:<mx_host>:pause_until` | pacer | epoch seconds; only this MX pauses |
+| `limits:mx:<pace_key>` | operator / calibration (012) | Calibrated band JSON: `min_rate_per_sec`, `max_rate_per_sec`, `min_concurrency`, `max_concurrency`, `burst`, `cooldown_seconds`, `pause_seconds` |
+| `limits:mx:<pace_key>:proposed` | pacer (012) | evidence that the band's ceiling is below the provider's limit — never applied automatically, promoted by an operator |
+| `rt:mx:<pace_key>:rate` | pacer | rate the AIMD loop has settled on |
+| `rt:mx:<pace_key>:conc` | pacer | concurrency it has settled on |
+| `rt:mx:<pace_key>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |
+| `rt:mx:<pace_key>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
+| `rt:mx:<pace_key>:pause_until` | pacer | epoch seconds; only this pace key pauses — a whole family when the key is one |
 | `mx:<mx_host>:randomiser` | prober (005) | `1` with a TTL: this host answers inconsistently, so no `250` from it is trustworthy for **any** domain it serves |
 | `suppress:hashes` | suppression (011) | set of **salted digests** — never addresses. See `api.md`; an entry that is not a digest is refused rather than stored |
 | `suppress:version` / `suppress:updated_at` | suppression (011) | which export this copy is, and when it landed — the staleness check reads them |
@@ -48,7 +57,7 @@ Redis holds what genuinely must be shared: the rate budget, the calibrated bands
 
 - **Take and refill in one round trip.** `token_bucket.lua` does both; two calls let concurrent
   workers (or nodes) double-spend. This is invariant 4.
-- **The bucket is central.** N probe nodes share one `rt:mx:<host>:bucket`. Never a per-process
+- **The bucket is central.** N probe nodes share one `rt:mx:<pace_key>:bucket`. Never a per-process
   bucket — and "central" means shared between probe nodes, not hosted on the application host. This
   Redis belongs to the prober; see ARCHITECTURE §"Which Redis, and why not Data Scout's".
 - **Fail closed.** A Redis error on the pacing path means skip the probe (`unknown`), never send

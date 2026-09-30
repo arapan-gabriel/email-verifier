@@ -66,6 +66,7 @@ internal/
   resolver/             MX/A lookup, cache, no-MX fallback, + SSRF guard (NEW — not in the lab)
   prober/               one RCPT session + catch-all probe + reply classification  ← from lab
   pacer/               per-MX AIMD over the CENTRAL Redis token bucket             ← from lab
+                         keyed by PaceKey: provider families share one bucket (026)
   limiter/             the shared bucket (token_bucket.lua) as THE limiter          ← from lab contract
   suppress/             suppression-list check before any probe/send (NEW)
   iphealth/             blocklist self-monitoring, "burned IP" detection (NEW)
@@ -137,7 +138,9 @@ The binding list lives in `CLAUDE.md` ("Hard invariants"). The architectural one
 
 - **us ≠ address** — a rejection of the client is never a verdict about the mailbox.
 - **no private MX** — SSRF guard on every resolved IP.
-- **central bucket** — pacing is shared across nodes, always.
+- **central bucket** — pacing is shared across nodes, always, and keyed by the **receiving system**:
+  every tenant host of one provider (`*.mail.protection.outlook.com` → `@microsoft-eop`) shares one
+  bucket (`pacer.PaceKey`, plan 026).
 - **fail closed** — no Redis, no probe.
 - **policy ≠ throttle** — a `5.7.x` about our IP never drives pacing or condemns a mailbox.
 - **stateless about business data** — verdicts belong to Data Scout.

@@ -7,7 +7,7 @@ verify` + the lab's `config/limiter/token_bucket.lua`, now embedded at
 ## The band
 
 Each MX has a calibrated band `[min_rate, max_rate]` (+ concurrency band, cooldown, pause) in Redis
-(`limits:mx:<host>`). Seed bands ship embedded in `internal/pacer/bands/*.json` (from `ds-smtp-retry/config/
+(`limits:mx:<pace_key>` — see *Pace by receiving system* below). Seed bands ship embedded in `internal/pacer/bands/*.json` (from `ds-smtp-retry/config/
 limits-init`); calibration (plan 012) refines them.
 
 ## AIMD
@@ -25,6 +25,30 @@ limits-init`); calibration (plan 012) refines them.
   `4.2.2` over-quota) and `ClassPolicy` (IP blocks) are retried but never lower the rate or arm the
   pause. Otherwise three full mailboxes or one blocked IP would drag the whole MX to a crawl. This is
   the fix carried from `ds-smtp-retry`.
+
+## Pace by receiving system, not by hostname (plan 026)
+
+A hostname is not a receiving system. Every Microsoft 365 tenant has its own MX
+(`<tenant>.mail.protection.outlook.com`), and EOP counts us per sending IP across all of them — so
+keyed by hostname there was one bucket per tenant and **no shared limit at EOP at all** (27% of warm-up
+day 11 sat behind it). `pacer.PaceKey(host)` maps the hosts of a known system onto one **family key**
+(`@microsoft-eop`, `@google`, `@proofpoint`, `@mimecast`, `@hornetsecurity`, `@ionos`) from the shipped
+table `internal/pacer/families.json`; anything else keys by its own hostname, exactly as before.
+
+- The mapping happens **once, inside the pacer**: callers pass the real host, so the SSRF guard,
+  the dial and the journal still see it. Bucket, band, AIMD state, pause, proposal and per-MX
+  metrics all use the key.
+- Band lookup: `limits:mx:<key>` → **family seed** (`bands/@microsoft-eop.json`, `bands/@google.json`,
+  started from the `outlook.com` / `gmail.com` seeds) → recipient-domain seed → `conservative()`. A
+  company on Workspace is paced as Google, not as a stranger.
+- **Matching is a suffix on a label boundary**: `evil-outlook.com` and
+  `mail.protection.outlook.com.attacker.net` stay themselves. An unknown farm costs what it costs
+  today, not more.
+- **The randomiser stays per host.** Whether a tenant answers by coin flip is that tenant's
+  configuration; condemning a whole family for one would be wrong.
+- It raises no rate: 2,000 EOP addresses at 0.5-1.0/s take 35-70 minutes — the same as 2,000
+  `@gmail.com` — instead of however fast our concurrency allowed. Raising a family band is plan 012's
+  promotion, on evidence.
 
 ## The bucket is central (invariant 4, ADR-004)
 

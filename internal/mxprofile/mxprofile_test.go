@@ -109,3 +109,22 @@ func TestKey(t *testing.T) {
 		t.Errorf("Key = %q", got)
 	}
 }
+
+// Plan 026 shares one pace bucket across a family's tenants; the randomiser
+// verdict deliberately stays per host. Whether EOP answers by coin flip is a
+// property of one tenant's configuration, and condemning every tenant for one
+// would turn thousands of real verdicts into catch-all.
+func TestRandomiserStaysPerTenant(t *testing.T) {
+	f := newFake()
+	p := New(f, time.Hour)
+	ctx := t.Context()
+	p.MarkRandomiser(ctx, "contoso-com.mail.protection.outlook.com")
+	if p.IsRandomiser(ctx, "fabrikam-de.mail.protection.outlook.com") {
+		t.Error("marking one tenant condemned a sibling tenant")
+	}
+	for k := range f.kv {
+		if strings.Contains(k, "@") {
+			t.Errorf("a randomiser verdict was stored under a family key: %q", k)
+		}
+	}
+}

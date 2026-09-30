@@ -3,6 +3,52 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-09-30 — Plan 026: pace by provider, not by hostname (code complete, deploy pending)
+
+The rate budget was keyed by the exact MX hostname, and every Microsoft 365 tenant has its own —
+so EOP, which counts us per sending IP across all tenants, had **no shared limit at all**. On Data
+Scout's warm-up day 11, 437 of 1,595 addresses (27%) sat behind it in as many buckets; the ladder's
+20-30 minute pauses were the only thing spreading them out. `pacer.PaceKey(host)` now maps the hosts
+of a known receiving system onto one **family key** (`@microsoft-eop`, `@google`, `@proofpoint`,
+`@mimecast`, `@hornetsecurity`, `@ionos`), and the bucket, band, AIMD state, pause, proposal and
+per-MX metric labels all live under it. Anything unlisted keys by its own hostname, as before.
+
+Decisions:
+- **The mapping lives inside the pacer, once**, at `Acquire` / `Observe` / `Proposal` / `Promote`.
+  The prober and the relay keep passing the real host, so the SSRF guard, the dial and the
+  `smtp_reply` journal see the hostname; the journal gains `pace_key=` beside `mx_host=`.
+- **A suffix table, not IP/ASN grouping** — as the plan argued: EOP answers from rotating pools,
+  and a hosting ASN would lump unrelated small servers together. Matching is on a label boundary,
+  so `evil-outlook.com` and `mail.protection.outlook.com.attacker.net` stay themselves.
+- **Deviation: `smtp.google.com` added to `@google`.** Not in the plan's table; it is the MX Google
+  hands new Workspace domains, and the warm-up ladder met it on 2026-09-29.
+- **Consumer Outlook (`*.olc.protection.outlook.com`) is not in `@microsoft-eop`.** It is a
+  different front door with its own domain seeds; folding it in is a decision for evidence, not
+  for this plan.
+- **Family seeds** `bands/@microsoft-eop.json` and `bands/@google.json` copy the `outlook.com` and
+  `gmail.com` seeds unchanged (0.5-1.0/s, concurrency 1). The other four families get
+  `conservative()` — slower than today for IONOS's two hosts combined, which is the point.
+- **The randomiser verdict stays per host**, pinned by a test: one tenant's coin flip is not the
+  family's.
+- **The table is embedded and parsed at start-up; a malformed one panics.** A shipped file that
+  does not parse is a build defect, and failing soft would silently re-split every family.
+- **No promoted band was lost.** The node's `limits:mx:*` holds only `92.222.87.97` (our own IP,
+  the self-test), so no per-host promotion needed carrying to a family key.
+
+Cost, stated in the plan and unchanged: 2,000 addresses all on EOP now take 35-70 minutes instead of
+however fast Data Scout's concurrency allowed.
+
+Tests: `PaceKey` over every family, case, trailing dot and the look-alike hosts; two tenants share
+one bucket and one working point, and a throttle on one slows the other; an unmatched host keeps
+its own key; a policy answer leaves the family rate alone (invariant 6); a family key fails closed
+(invariant 5); a Workspace domain gets the `@google` band; promotion and pause name the family; the
+randomiser stays per tenant; and against **real Redis**, 32 racing acquires through two tenants admit
+exactly the family's burst of 5 (before 026: 10). Disabling `PaceKey` fails five of them. Gates:
+`go test -race` with Redis, vet, gofmt, golangci-lint 0 issues, coverage gate ok (pacer 96.7%).
+
+Left: deploy (between ladder rungs), the node gate (≥ 20 EOP tenants → one bucket), and Data Scout
+`083`'s burst day as the downstream gate.
+
 ## 2026-09-22 — Plan 027: coverage measured and gated, and four defects no test had caught
 
 The suite ran green under `-race` and measured nothing. Service coverage was 76.1%, and it hid the
