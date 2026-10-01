@@ -63,21 +63,28 @@ normal case — doubles it to 16.
    it makes the existing loop real rather than adding a second one. A node reads `conc` from
    its own state (rebuilt from `rt:mx:<key>:conc` like the rate); the lease set is shared.
 5. **Waiting.** A full lease set waits inside the request, honouring `ctx`, up to
-   `pacer.lease_wait` (default 20 s — well inside Data Scout's 90 s probe timeout, so a wait
-   never turns into a transport failure on its side). Past that the addresses come back
-   unattempted with `retry_after_seconds` from the earliest lease expiry — the path a pause
-   already takes, which Data Scout schedules as a recheck (plan 073).
-6. **Bands.** Today every seed says `max_concurrency: 1`. Enforcing that as-is would serialise
-   EOP to one session at a time — roughly 5-8 s per domain (connect, banner, one real RCPT,
-   catch-all RCPTs at 1/s) — cutting EOP throughput by about a third against what day 21
-   measured, with no evidence that Microsoft wanted it. So the family seeds move with this plan,
-   on day 21's evidence:
-   - `@microsoft-eop`: `min_concurrency 1`, `max_concurrency 4` (day 21 ran up to 8 clean);
-   - `@google`: `1` / `2`;
-   - every other seed and `conservative()`: unchanged at `1` / `1` — one session at a time to a
-     host we have not calibrated is the safe default, and Data Scout rarely holds two sessions
-     to one small host anyway.
-   Raising either further is plan 012's promotion path, on evidence.
+   `pacer.lease_wait` — **default 75 s**, just inside Data Scout's 90 s probe timeout so a wait
+   never becomes a transport failure on its side. It is long on purpose: with `conc = 1`, Data
+   Scout can have up to 16 domains in flight, and if ten of them are EOP tenants the tenth waits
+   ~60 s for the one connection (5-7 s a session). A short wait would turn that queue into
+   rechecks. Past the bound the addresses come back unattempted with `retry_after_seconds` from
+   the earliest lease expiry — the path a pause already takes, which Data Scout schedules as a
+   recheck (plan 073). How often that happens is a gate number, not a guess.
+6. **Bands: one connection per pace key, for every key** (operator's decision, 2026-10-01).
+   Every seed already says `max_concurrency: 1` and none moves. The reasoning: the rate is set
+   by the bucket, not by the connection count, so a second connection to a family adds no
+   questions per second — it only overlaps the dead time of the first one's handshake. One
+   connection is the quietest shape a receiver can see from us (EOP counts connections per IP,
+   not only recipients), and the simplest to reason about.
+
+   **The cost, stated so the gate can measure it.** A session serves one domain: connect +
+   banner + EHLO + `MAIL FROM` (1-3 s, no questions asked), then the real `RCPT` and 2-3
+   catch-all `RCPT`s at the family's 1/s, then `QUIT`. Of ~5-7 s per domain about 4 s are
+   questions, so EOP's effective rate falls from the 1/s the bucket allows to an estimated
+   **0.6-0.8/s** — about a quarter to a third slower than day 21. And one slow or timing-out
+   tenant holds the family's only connection (head-of-line); EOP is normally fast, so this is a
+   number to watch, not a reason to start higher. `conc` can still climb only by promotion
+   (plan 012), on evidence from this gate.
 7. **Observability.** Gauge `verify_inflight{mx_host=<pace_key>}` (bounded like the other
    per-key gauges by `verify_tracked_mx`); counter
    `verify_lease_waits_total{outcome=granted_after_wait|timed_out}`. The `rcpt_paced` line is
@@ -94,9 +101,9 @@ there.
       `conc` as the limit, fail closed, waits up to `lease_wait`, `PausedError` with the
       earliest expiry past it
 - [ ] Prober: take the lease before the dial, release in `defer`; every early-return path
-- [ ] Config: `pacer.session_lease`, `pacer.lease_wait`; start-up check that the lease
-      outlives the session timeout
-- [ ] Seeds: `@microsoft-eop` concurrency `1..4`, `@google` `1..2`
+- [ ] Config: `pacer.session_lease`, `pacer.lease_wait` (75 s); start-up checks that the lease
+      outlives the session timeout and that `lease_wait` stays under Data Scout's 90 s probe timeout
+- [ ] Seeds: unchanged — every key `1..1`; a test pins that every shipped seed and `conservative()` say `max_concurrency: 1`
 - [ ] Metrics `verify_inflight`, `verify_lease_waits_total`; `lease_wait_ms` on the session log
 - [ ] Tests alongside:
   - real Redis: 32 goroutines over one family key never hold more than `conc` leases at once
@@ -118,8 +125,10 @@ there.
 - [ ] **Manual-test gate:** from the node, Data Scout runs two concurrent verify jobs whose
       addresses include ≥ 20 EOP tenants; `ZCARD rt:mx:@microsoft-eop:inflight`, sampled every
       second for the run, never exceeds the family's `conc`, and the run's `rcpt_paced` EOP gaps
-      stay ≥ ~1 s (plan 026's gate still holds). Recorded here with the numbers, plus the EOP
-      throughput before/after (tokens per minute) so the cost of the limit is on record
+      stay ≥ ~1 s (plan 026's gate still holds). Recorded here with the numbers, plus: EOP
+      throughput before/after in tokens per minute (day 21's baseline: 0.40/s mean, 57 in the
+      busiest minute), the share of requests that hit `lease_wait` and came back as rechecks,
+      and the longest single EOP session — so the cost of one connection is on record
 - [ ] `go test -race -count=1 ./...` green, including the real-Redis tests
 - [ ] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean, coverage gate ok
 - [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed and central
@@ -136,9 +145,21 @@ there.
 - **Why enforce `conc` and not `max_concurrency`.** AIMD already moves `conc` on throttles.
   Enforcing the ceiling while ignoring the working value would leave the back-off half of the
   loop decorative, which is the defect this plan exists to remove.
-- **Open question — EOP's starting value.** `4` is a guess anchored on one clean day at up to 8.
-  Starting at `1` is the cautious alternative and costs about a third of EOP throughput; the
-  gate's before/after numbers are what settles it.
+- **Decided 2026-10-01: start every key at `1`.** The `4` first drafted for EOP was anchored on
+  one clean day at up to 8, which is evidence of tolerance, not of need. The before/after
+  throughput the gate records is what any later promotion is argued from.
+- **The way to win the handshake time back without a second connection** — a follow-up, not
+  this plan: ask about **several domains in one session** where the receiver allows it. Google
+  Workspace shares one MX (`aspmx.l.google.com`) across every hosted domain, so one session can
+  `RCPT` addresses of many companies and pay the handshake once. EOP is unproven: each tenant has
+  its own MX name over shared front ends, and whether a session opened to tenant A accepts a
+  `RCPT` for tenant B (or answers a relay refusal, which is about *us* and must stay `unknown`)
+  has to be measured before it is relied on. That changes the HTTP contract (`POST /probe` is
+  one MX group today) and Data Scout's grouping, so it is its own plan.
+- **The lasting fix for the queue is upstream.** With `conc = 1` per family, the useful number of
+  EOP requests in flight from Data Scout is about one; the rest wait inside the verifier. A
+  family-aware window on Data Scout's side (don't send a family more than it can take) would
+  keep its slots for hosts that can use them. Noted for Data Scout; not in scope here.
 - **Data Scout side.** Nothing to change. Its per-job window and platform ceiling stay the
   outer bounds; a lease wait surfaces there as a slower probe or, past `lease_wait`, as a
   rescheduled recheck it already handles.
