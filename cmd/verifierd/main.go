@@ -200,6 +200,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		// prober, so nothing here can leak a recipient.
 		ReplyMaxChars: cfg.Log.ReplyMaxChars,
 		OnReply:       replyLogger(cfg.Log.Replies, logger),
+		OnPaced:       pacedLogger(cfg.Log.Replies, logger),
 	})
 
 	// Outbound mail (plan 014). Nil unless configured, which leaves POST /send
@@ -349,6 +350,20 @@ func replyLogger(enabled bool, logger *slog.Logger) func(prober.ReplyEvent) {
 			"enhanced_code", ev.EnhancedCode,
 			"reply", ev.Reply,
 			"err", ev.Err)
+	}
+}
+
+// pacedLogger writes one line per granted token: when a question was asked of
+// which host, under which pace key. Plan 026's gate reads a family's aggregate
+// rate from these timestamps; smtp_reply cannot give it, because a 250 is never
+// logged there. No address, by construction — the hook is given only the host.
+// It shares the reply log's switch: both are the journal of what we asked.
+func pacedLogger(enabled bool, logger *slog.Logger) func(string) {
+	if !enabled {
+		return nil
+	}
+	return func(mxHost string) {
+		logger.Info("rcpt_paced", "mx_host", mxHost, "pace_key", pacer.PaceKey(mxHost))
 	}
 }
 

@@ -132,6 +132,13 @@ type Options struct {
 	// listening.
 	OnReply func(ReplyEvent)
 
+	// OnPaced is called once per token the pacer granted — one per question
+	// asked, real or catch-all — with the real MX host. A 250 is never logged
+	// by OnReply, so without this the rate a receiving system actually saw
+	// cannot be read back from the journal (plan 026's node gate). Nil means
+	// nobody is listening.
+	OnPaced func(mxHost string)
+
 	// ReplyMaxChars caps the logged reply. Zero uses DefaultReplyMaxChars; a
 	// negative value means no cap.
 	ReplyMaxChars int
@@ -703,7 +710,13 @@ func (p *Prober) acquire(ctx context.Context, req Request) error {
 	if p.opts.Pacer == nil {
 		return nil
 	}
-	return p.opts.Pacer.Acquire(ctx, req.MXHost, req.Domain)
+	if err := p.opts.Pacer.Acquire(ctx, req.MXHost, req.Domain); err != nil {
+		return err
+	}
+	if p.opts.OnPaced != nil {
+		p.opts.OnPaced(req.MXHost)
+	}
+	return nil
 }
 
 // observe reports one answer to the pacer, reduced to the only question it is

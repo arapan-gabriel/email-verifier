@@ -15,7 +15,13 @@
   `enhanced_code` and the reply. Those two classes are skipped because a `250` or a clean `5.1.x` is
   the whole story and they are the common case — logging them would bury the rest. Everything else
   is a verdict somebody later has to explain: a `block` that moved a rollout's stop rule, a throttle
-  that halved a rate. Off with `log.replies: false`; capped by `log.reply_max_chars`.
+  that halved a rate. Off with `log.replies: false`; capped by `log.reply_max_chars`. Since plan
+  026 each line also carries `pace_key`.
+- **When each question was asked** (plan 026). One `rcpt_paced` line per token the pacer granted
+  — every `RCPT`, catch-all probes included — with `mx_host` and `pace_key`. It is the only record
+  of the rate a receiving system actually saw, because `smtp_reply` skips the `250`s: a family's
+  aggregate rate is read from these timestamps (`journalctl -u verifierd -o cat | grep rcpt_paced |
+  grep '"pace_key":"@microsoft-eop"'`). Same switch as the reply log; no address, by construction.
 - **No address at info level.** The domain and a count are enough to find a problem; the local part
   is the customer's data. Full SMTP transcripts stay at debug. A test asserts it.
 

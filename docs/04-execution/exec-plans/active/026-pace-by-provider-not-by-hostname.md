@@ -137,6 +137,12 @@ time and never met a tenant farm. Recorded here, not ported back.
       new per-tenant `rt:mx:*` keys, and an aggregate `RCPT` rate within the `@microsoft-eop` band
       (read from the `smtp_reply` journal timestamps); a non-family host in the same run keeps its own
       key. Recorded here with the numbers
+      — **partial, 2026-09-30 14:20-14:45 UTC** (Data Scout day 21 parts 1-2, 200 addresses): one
+      `rt:mx:@microsoft-eop:bucket` for **34 tenants**, zero per-tenant EOP buckets created, family
+      `STEADY` at 1/s, non-family hosts on their own keys, every `smtp_reply` carrying `pace_key`.
+      **The rate half could not be read**: `smtp_reply` skips `250`s, so there was no EOP line at all.
+      `rcpt_paced` (one line per granted token, 2026-10-01) is added for exactly this; the rate is
+      read from it on day 21's part 3 (2,176 addresses, ~455 tenants)
 - [ ] **Downstream gate (Data Scout plan 083):** the burst day of the hold week — one uninterrupted
       batch of ~2,000 from the warm-up pool — runs clean on the ladder's stop rules with this deployed
 - [x] `go test -race -count=1 ./...` green — 2026-09-30, with `VERIFIERD_TEST_REDIS_ADDR` (make test-redis)

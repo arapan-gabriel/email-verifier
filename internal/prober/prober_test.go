@@ -1096,3 +1096,45 @@ func TestVerificationNeverSendsDATA(t *testing.T) {
 		}
 	}
 }
+
+// Plan 026's gate reads a family's rate from one journal line per token, so the
+// hook fires exactly once per granted token — the real RCPTs and the catch-all
+// probes alike — and never for a token the pacer refused.
+func TestOnPacedFiresOncePerGrantedToken(t *testing.T) {
+	d := scriptedMX("220 ok", func(cmd string) string {
+		switch {
+		case strings.HasPrefix(cmd, "RCPT TO"):
+			return "250 2.1.5 OK"
+		case strings.HasPrefix(cmd, "RSET"):
+			return ""
+		}
+		return "250 ok"
+	})
+	pc := &recordingPacer{}
+	var hosts []string
+	p := New(Options{Dialer: d, Resolver: stubResolver{}, Pacer: pc, Timeout: 5 * time.Second,
+		CatchAllProbes: 2, OnPaced: func(h string) { hosts = append(hosts, h) }})
+	if _, err := p.Probe(t.Context(), Request{
+		MXHost: "tenant.mail.protection.outlook.com", Domain: "example.test", NeedCatchAll: true,
+		Emails: []string{"a@example.test", "b@example.test", "c@example.test"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != pc.acquires || len(hosts) == 0 {
+		t.Fatalf("OnPaced fired %d times for %d granted tokens", len(hosts), pc.acquires)
+	}
+	for _, h := range hosts {
+		if h != "tenant.mail.protection.outlook.com" {
+			t.Errorf("OnPaced got %q, want the real host", h)
+		}
+	}
+
+	hosts = nil
+	refused := &recordingPacer{acquireErr: errors.New("no budget")}
+	p = New(Options{Dialer: d, Resolver: stubResolver{}, Pacer: refused, Timeout: 5 * time.Second,
+		OnPaced: func(h string) { hosts = append(hosts, h) }})
+	_, _ = p.Probe(t.Context(), Request{MXHost: "mx.test", Domain: "example.test", Emails: []string{"a@example.test"}})
+	if len(hosts) != 0 {
+		t.Errorf("OnPaced fired %d times with every token refused", len(hosts))
+	}
+}

@@ -51,3 +51,22 @@ func TestReplyLoggerOffReturnsNil(t *testing.T) {
 		t.Fatal("replyLogger(false) should be nil so the prober can skip the call")
 	}
 }
+
+// One line per token, with the family key beside the host and nothing else —
+// the hook is never given an address, so it cannot write one.
+func TestPacedLoggerWritesHostAndPaceKey(t *testing.T) {
+	if pacedLogger(false, slog.Default()) != nil {
+		t.Fatal("pacedLogger(false) should be nil so the prober skips the call")
+	}
+	var buf bytes.Buffer
+	pacedLogger(true, slog.New(slog.NewJSONHandler(&buf, nil)))("contoso-com.mail.protection.outlook.com")
+	line := buf.String()
+	for _, want := range []string{`"msg":"rcpt_paced"`, `"mx_host":"contoso-com.mail.protection.outlook.com"`, `"pace_key":"@microsoft-eop"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("line %s lacks %s", line, want)
+		}
+	}
+	if strings.Contains(line, "@example") || strings.Count(line, "@") != 1 {
+		t.Errorf("line carries more than the family key's @: %s", line)
+	}
+}

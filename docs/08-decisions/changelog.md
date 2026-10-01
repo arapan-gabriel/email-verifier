@@ -3,6 +3,17 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-10-01 — Plan 026: a journal line per token, because the gate could not be read
+
+The node gate asks for a family's aggregate rate "read from the `smtp_reply` journal timestamps".
+On 2026-09-30 the first live run (Data Scout day 21, parts 1-2) showed it cannot be: `smtp_reply`
+logs only results that are neither `valid` nor `invalid` (plan 018), so 200 addresses left three
+lines, none at EOP; Data Scout's `checked_at` is stamped per stored batch (34 EOP verdicts, 13
+timestamps). What that run *did* prove: one `rt:mx:@microsoft-eop:bucket` for 34 tenants, no
+per-tenant bucket created, the family `STEADY` at 1/s. The prober now takes an `OnPaced` hook,
+fired once per granted token with the real host, and `verifierd` writes `rcpt_paced` with
+`mx_host` and `pace_key` under the reply log's switch. ~2,400 lines on a ladder day.
+
 ## 2026-09-30 — Plan 026: pace by provider, not by hostname (code complete, deploy pending)
 
 The rate budget was keyed by the exact MX hostname, and every Microsoft 365 tenant has its own —
