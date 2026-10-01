@@ -1,6 +1,6 @@
 # Plan 024 — A demand for TLS is about us, not about the mailbox
 
-**Status:** Active — started 2026-09-16
+**Status:** Complete — signed off 2026-10-01 (started 2026-09-16). Its wordings class `policy` in production; the wordings it missed and the 421-as-throttle case moved to plan 030, STARTTLS itself to plan 031
 **Phase:** B
 **Depends on:** 018, 022
 
@@ -64,8 +64,20 @@ not add STARTTLS; it stops the absence from producing a verdict about somebody's
 - [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean (0 issues)
 - [x] `pr-checklist.md`: this is a verdict path, and the item it turns on is invariant 1 — "us ≠
       address" — which the tests state directly
-- [ ] Deployed, and the next ladder day carrying a TLS-only MX records `policy`, not `invalid`
-- [ ] Status Complete, moved to `completed/`, `ROADMAP.md` row updated
+- [x] Deployed, and the next ladder day carrying a TLS-only MX records `policy`, not `invalid` —
+      **deployed 2026-09-17 07:03 UTC** (`837aa36`, deploy run green after one failed attempt the
+      same morning). **Verified 2026-10-01 on ladder days 17-21:** every wording this plan added
+      classes `policy` — `550 Must issue STARTTLS` (days 17, 18), `530 5.7.0 … Must use TLS`
+      (day 17), `550 5.7.1 Session encryption is required` (days 17-21), `530 5.7.0 STARTTLS is
+      mandatory` (day 20); none came back `invalid`.
+      **Residual, handed on rather than held open:** three wordings this list does not match still
+      fall through to `invalid` after the deploy — `550 Encryption needed` and Mimecast's
+      `553 This route requires encryption (TLS)` (day 14, 2026-09-24), and `550 TLS encryption
+      required for mails from <our IP>` (day 16, 2026-09-26) — and `421 4.7.0 STARTTLS is
+      mandatory` / `421 4.7.0 TLS minimum version: TLSv1.2` class `throttled`, so a TLS demand moves
+      AIMD. All are in **plan 030** (a refusal of us is never a verdict). The cause underneath —
+      the prober has no STARTTLS at all — is **plan 031**
+- [x] Status Complete, moved to `completed/`, `ROADMAP.md` row updated — 2026-10-01
 
 ## Notes / decisions / deviations
 

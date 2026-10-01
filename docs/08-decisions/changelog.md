@@ -3,6 +3,20 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-10-01 — Plans 022 and 024 complete
+
+**022 — the whole reply, on the record.** The gate was re-aimed at the first multi-line reply the
+ladder produced and is answered from what was kept: day 10's IONOS quota refusal (2026-09-20)
+appears with all three lines in the node's `smtp_reply` journal and in Data Scout's
+`signals.smtp_reply` for the same row, matched by IONOS's case id, no address in either. The zone
+half was plan 023's and is complete.
+
+**024 — complete, with its gaps handed on.** Since the 2026-09-17 deploy every wording it added
+classes `policy` in production (ladder days 17-21). Measured after the deploy and not covered:
+"Encryption needed", Mimecast's "This route requires encryption (TLS)" and "TLS encryption required
+for mails from <our IP>" still class `invalid`, and `421` STARTTLS/TLS-version demands class
+`throttled` and move AIMD. Those belong to plan 030; the missing STARTTLS itself to plan 031.
+
 ## 2026-10-01 — Plan 026 complete: 481 tenants, one bucket, never faster than one a second
 
 Data Scout's burst day (warm-up day 21, part 3: 2,176 addresses in one job, 05:07-06:28 UTC) is

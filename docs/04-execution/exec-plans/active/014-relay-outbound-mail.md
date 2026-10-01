@@ -184,6 +184,12 @@ alignment is what DMARC evaluates, and an unsigned message whose envelope domain
       3. A test message to mail-tester scores well and passes SPF + DKIM + DMARC (the gate above),
          and its bounce — deliberately provoked to a dead address — arrives through the Worker.
 
+      **Checked 2026-10-01: conditions 1 and 2 are met.** The ladder held 2,400/day for seven
+      consecutive days and ran a 2,176-address burst clean (Data Scout plan 083); after it,
+      `/admin/ip-health` read `burned: false` and the public zones answered clean. `relay.enabled`
+      is still `false` in `/etc/verifierd/verifierd.yaml` on the node. **Condition 3 is the
+      operator's switch-on itself** — this plan and 015 close on it.
+
       **Who:** the operator, in this order, because the reverse order sends mail nobody reads:
       `relay.enabled: true` + restart `verifierd` → confirm `POST /send` answers `202` → set
       `EMAIL_PROVIDER=relay` in Data Scout's `.env` through CD → send one real password reset to a

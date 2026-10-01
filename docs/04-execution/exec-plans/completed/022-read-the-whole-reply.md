@@ -1,11 +1,6 @@
 # Plan 022 — Read the whole reply: a multi-line refusal of us is not a missing mailbox
 
-**Status:** Active — code and tests done 2026-09-15 and **deployed the same day, 13:23 UTC**
-(sha `307f4e1`, `deployed and healthy`). **One item remains: the manual gate below**, re-aimed 2026-09-16 at the first multi-line reply of
-ladder day 6, because the original one asked for a Hetzner refusal that the whitelist has made
-unobtainable — the probe now comes back `250`. The node's
-zone list turned out to need a code fix first — `rbl.your-server.de` lists `127.0.0.1` and our own
-`selfTestZone` dropped it — and that, with the node step, moved to **plan 023**
+**Status:** Complete — signed off 2026-10-01. Deployed 2026-09-15 (`307f4e1`); gate passed on the warm-up record (day 10's three-line IONOS refusal, whole in the journal and in Data Scout's row). The zone half moved to plan 023, completed.
 **Phase:** B
 **Depends on:** 018, 021
 
@@ -64,7 +59,7 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
 - [x] Docs: `api.md`, `smtp-classification.md`, `tech-debt.md`, `changelog.md`, `ROADMAP.md`
 - [x] Deploy through `deploy.yml` — 2026-09-15 13:23 UTC, run `34974628333`; `verifierd` active and
       the installed binary's hash matching the artefact CI tested
-- [ ] ~~Add `rbl.your-server.de` to `VERIFIERD_IP_HEALTH_ZONES` on the node~~ — **blocked 2026-09-16,
+- [x] ~~Add `rbl.your-server.de` to `VERIFIERD_IP_HEALTH_ZONES` on the node~~ — *superseded: done by plan 023 (completed)* — **blocked 2026-09-16,
       and not by the node.** Re-measured before writing the env file: `2.0.0.127` → `127.0.0.2`
       (TXT `"Local RBL"`, a static test point) and `1.0.0.127` → **`127.0.0.2`** as well (TXT
       `"Last seen 2026-09-16 08:30:03"` — a live listing of `127.0.0.1`, auto-populated from what
@@ -77,7 +72,19 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
 
 ## Definition of Done
 
-- [ ] **Manual gate, re-aimed 2026-09-16: the first multi-line reply of ladder day 6.** Any MX, not
+- [x] **Manual gate, re-aimed 2026-09-16: the first multi-line reply of ladder day 6.** — **passed,
+      verified 2026-10-01 from the record.** Days 6-8 produced no multi-line reply in a class the
+      journal logs (their multi-line replies were `5.1.1`s, which `smtp_reply` skips by design).
+      The first was day 9 (2026-09-19, `mail.web-revolution.cz`, a two-line `451-Greylisted`); the
+      clearest is day 10's IONOS quota refusal, matched to one row by its case id: the node's
+      journal at 2026-09-20T14:14:32Z, `mx00.ionos.de`, class `policy`, reply
+      `552-Requested mail action aborted: exceeded storage allocation 552-Quota exceeded. 552 For
+      explanation visit https://postmaster.1und1.de/en/case?c=r1503&…&r=1MBC3y-1wvbXY0cN4-003cBg`
+      — all three lines — and Data Scout's day-10 result for the same row (`status: risky`,
+      `smtp_class: policy`) carries the same three lines, newline-separated, same case id. No
+      address appears in either. The journal joins the lines with spaces; the API keeps the
+      newlines — same text.
+      Original wording of the gate: Any MX, not
       Hetzner's: the `smtp_reply` journal line shows every line of the reply, redacted, and Data
       Scout's `signals.smtp_reply` carries the same text for the same row. If day 6 produces no
       multi-line reply at all, that is itself the answer to record — and the `scriptedMX` tests,
@@ -97,7 +104,7 @@ Even whole, the reply would still have been `invalid`: it carries no RFC 3463 co
 - [x] `pr-checklist.md`: SSRF guard and fail-closed untouched; "us ≠ address" is the point of the
       change and is tested
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated — 2026-10-01
 
 ## Notes / decisions / deviations
 
