@@ -83,6 +83,8 @@ and the reply entirely (Data Scout tech-debt, 2026-10-01).
 
 ### Data Scout companion (its repo, its own plan number — listed here so neither half ships alone)
 
+**Numbered 2026-10-01:** the status mapping is Data Scout plan `112` (`112-be-a-non-answer-is-not-deliverable`, which also covers `risky` rows of the same shape — 109 in production); the not-connected branch is Data Scout plan `106`.
+
 - `scoring.status_of`: `block=True` (the server answered *us*, not the mailbox) → **`UNKNOWN`**, not
   `VALID`. `unknown` is outside `CONCLUSIVE`, so these rows also stop being billed. A deferred row
   keeps its `retry_after_seconds` and is rechecked as today.
