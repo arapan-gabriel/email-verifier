@@ -1,6 +1,6 @@
 # Plan 026 — Pace by provider, not by hostname
 
-**Status:** Code complete 2026-09-30 — deploy and the node gate pending (written 2026-09-21)
+**Status:** Complete — signed off 2026-10-01 (written 2026-09-21)
 **Phase:** B
 **Depends on:** 003 (central limiter), 012 (band promotion) — both complete
 
@@ -128,11 +128,11 @@ time and never met a tenant farm. Recorded here, not ported back.
 - [x] `docs/03-engineering/patterns/aimd-pacing.md` — families, and why the randomiser is not one
 - [x] `CLAUDE.md` + `docs/02-architecture/ARCHITECTURE.md` — invariant 4's wording: the receiving
       system, not the hostname
-- [ ] Deploy (016's button) and run the gate
+- [x] Deploy (016's button) and run the gate — `d328a7b` deployed 2026-09-30 13:57 UTC; `e775d6c` (`rcpt_paced`) 2026-10-01 05:06 UTC
 
 ## Definition of Done
 
-- [ ] **Manual-test gate:** from the node, one `POST /probe` sequence covering **≥ 20 distinct
+- [x] **Manual-test gate:** from the node, one `POST /probe` sequence covering **≥ 20 distinct
       `*.mail.protection.outlook.com` tenants** leaves exactly one `rt:mx:@microsoft-eop:bucket`, no
       new per-tenant `rt:mx:*` keys, and an aggregate `RCPT` rate within the `@microsoft-eop` band
       (read from the `smtp_reply` journal timestamps); a non-family host in the same run keeps its own
@@ -143,7 +143,15 @@ time and never met a tenant farm. Recorded here, not ported back.
       **The rate half could not be read**: `smtp_reply` skips `250`s, so there was no EOP line at all.
       `rcpt_paced` (one line per granted token, 2026-10-01) is added for exactly this; the rate is
       read from it on day 21's part 3 (2,176 addresses, ~455 tenants)
-- [ ] **Downstream gate (Data Scout plan 083):** the burst day of the hold week — one uninterrupted
+      — **PASSED 2026-10-01**, Data Scout day 21 part 3 (one job of 2,176 addresses, 05:07-06:28 UTC):
+      **481 distinct EOP tenants, 1,942 tokens, every one under `@microsoft-eop`**, zero per-tenant
+      EOP buckets touched. Aggregate rate from the `rcpt_paced` timestamps: **minimum gap between
+      EOP tokens 0.998 s, none under 0.9 s**; at most 10 in any 10 s, 57 in any 60 s, 220 in any
+      300 s; mean 0.40/s over 80 minutes — inside the 0.5-1.0/s band at its ceiling, burst 1. The
+      family ended `STEADY` at 1/s, never throttled or paused. Non-family hosts kept their own keys;
+      the other families drew under theirs (`@ionos` 1,116, `@google` 464, `@hornetsecurity` 345,
+      `@mimecast` 28, `@proofpoint` 24)
+- [x] **Downstream gate (Data Scout plan 083):** the burst day of the hold week — one uninterrupted — **passed 2026-10-01**: 2,176 addresses in one uninterrupted job, no stop rule fired, invalid 34 of 2,141 answered (1.59%); 10 policy replies (8 EOP `5.4.1`), none naming a list or our IP; 2,584 sessions; `/admin/ip-health` `burned: false` and the public zones clean afterwards. It survived two reboots of the Data Scout host mid-job
       batch of ~2,000 from the warm-up pool — runs clean on the ladder's stop rules with this deployed
 - [x] `go test -race -count=1 ./...` green — 2026-09-30, with `VERIFIERD_TEST_REDIS_ADDR` (make test-redis)
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean — 0 issues; `scripts/coverage-gate.sh` ok (pacer 96.7%, total 92.8%)
@@ -152,7 +160,7 @@ time and never met a tenant farm. Recorded here, not ported back.
       address" unaffected (no classification change)
       — confirmed 2026-09-30. us ≠ address, SSRF, IPv4: no classification or dial change. Fail-closed: `TestFamilyKeyFailsClosed`. Central bucket: the family bucket is the shared one. `policy` does not drive the pacer: `TestAPolicyAnswerFromOneTenantLeavesTheFamilyRate`. **One note on §2 "no package-level mutable state"**: `families` is package-level, parsed once from the embedded file and never written after — the same shape as the existing `seed embed.FS`; no `init()`
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added — redis-contract, metrics, aimd-pacing, CLAUDE.md + ARCHITECTURE invariant 4, changelog, ROADMAP
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated — 2026-10-01
 
 ## Notes / decisions / deviations
 
@@ -168,3 +176,9 @@ time and never met a tenant farm. Recorded here, not ported back.
   Its plan 083 records this plan as the precondition for customer bulk traffic.
 - **The M365 `5.4.1` cost** (a tenant that answers every `RCPT` with Access denied, so a session
   proves nothing) is a separate saving — skipping such tenants early — and is not in scope.
+
+- **What the run taught (2026-10-01).** Each EOP domain cost ~4 tokens (1,942 for 481 tenants):
+  the catch-all probes spend budget like real RCPTs, which they must. With one shared bucket
+  that is now the visible cost of a Microsoft-heavy list — about three quarters of EOP's budget
+  went to catch-all questions. Skipping the catch-all probe at tenants that answer `5.4.1` to
+  everything (the note above) is where the next minute of wall clock is.

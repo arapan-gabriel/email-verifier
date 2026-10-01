@@ -3,6 +3,20 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-10-01 — Plan 026 complete: 481 tenants, one bucket, never faster than one a second
+
+Data Scout's burst day (warm-up day 21, part 3: 2,176 addresses in one job, 05:07-06:28 UTC) is
+both of `026`'s gates. From the `rcpt_paced` journal: 1,942 tokens to 481 distinct EOP tenants, all
+under `@microsoft-eop`, minimum gap **0.998 s**, at most 57 in any minute — the family sat at its
+band ceiling of 1/s and was never throttled. No per-tenant bucket was touched. The burst ran with no
+stop rule firing (invalid 1.59% of answered, 10 policy replies, none about us) and the IP is clean
+afterwards. Before `026` the same job would have opened EOP sessions as fast as eight concurrent
+domains allowed.
+
+Cost seen for the first time: ~4 tokens per EOP domain, because catch-all probes spend budget like
+real questions. That is correct and now visible; skipping the probe at tenants that answer `5.4.1`
+to everything is the follow-up, noted in the plan, not scheduled.
+
 ## 2026-10-01 — Plan 026: a journal line per token, because the gate could not be read
 
 The node gate asks for a family's aggregate rate "read from the `smtp_reply` journal timestamps".
