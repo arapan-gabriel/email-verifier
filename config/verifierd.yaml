@@ -55,6 +55,14 @@ pacer:
   session_lease: 50s
   lease_wait: 60s
 
+# Stand a pace key down when refusals of us pile up in it (plan 032): `hosts`
+# distinct hosts of one key within `window`, or one reply naming a blocklist,
+# pause the key for `pause`. A lone host is its own key and can only pause itself.
+standdown:
+  hosts: 3
+  window: 30m
+  pause: 6h
+
 # Blocklist checking is OFF unless a resolver is named here, and there is no
 # fallback to the host's: on this node that is systemd-resolved on 127.0.0.53,
 # and a stub answers "listed" to every zone. Acting on that would pause the node

@@ -341,3 +341,32 @@ func FuzzBandNormalise(f *testing.F) {
 		}
 	})
 }
+
+// Plan 032: a stand-down is the persisted pause, so a restarted pacer (a second
+// node, or this one after a crash) refuses with an exact hint, and a resume lifts
+// it for everyone.
+func TestPauseKeySurvivesARestartAndResumeLiftsIt(t *testing.T) {
+	store := newStore(nil)
+	until := time.Now().Add(time.Hour).Truncate(time.Second)
+	first := New(store, &fakeTaker{}, Options{})
+	if err := first.PauseKey(t.Context(), "tenant-de.mail.protection.outlook.com", until, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.get("rt:mx:@microsoft-eop:pause_until"); got != strconv.FormatInt(until.Unix(), 10) {
+		t.Fatalf("persisted %q", got)
+	}
+	again := New(store, &fakeTaker{}, Options{})
+	var pe *PausedError
+	if err := again.Acquire(t.Context(), "other-de.mail.protection.outlook.com", "x.de"); !errors.As(err, &pe) {
+		t.Fatalf("restarted pacer Acquire = %v, want PausedError", err)
+	}
+	if !pe.Until.Equal(until) || pe.MXHost != "@microsoft-eop" {
+		t.Errorf("hint %v for %q, want %v for the family", pe.Until, pe.MXHost, until)
+	}
+	if err := again.ResumeKey(t.Context(), "@microsoft-eop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := again.Acquire(t.Context(), "other-de.mail.protection.outlook.com", "x.de"); err != nil {
+		t.Errorf("after resume Acquire = %v", err)
+	}
+}

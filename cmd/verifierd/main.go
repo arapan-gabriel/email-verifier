@@ -29,6 +29,7 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/redis"
 	"github.com/arapan-gabriel/email-verifier/internal/relay"
 	"github.com/arapan-gabriel/email-verifier/internal/resolver"
+	"github.com/arapan-gabriel/email-verifier/internal/standdown"
 	"github.com/arapan-gabriel/email-verifier/internal/suppress"
 	"time"
 )
@@ -95,6 +96,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	})
 	reg.SetPacer(pace)
 
+	// Plan 032: refusals of us counted per pace key in the central Redis; a key
+	// stands down on a named blocklist or on several distinct hosts refusing us.
+	guard := standdown.New(store, pace, reg, standdown.Options{
+		Hosts: cfg.StandDown.Hosts, Window: cfg.StandDown.Window, Pause: cfg.StandDown.Pause,
+		Log: func(msg string, args ...any) { logger.Warn(msg, args...) },
+	})
+	reg.SetStandDown(guard)
+
 	health := iphealth.New(iphealth.Options{
 		IP:                 cfg.Probe.SourceIP,
 		Zones:              cfg.IPHealth.Zones,
@@ -105,6 +114,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		ComplaintWindow:    cfg.IPHealth.ComplaintWindow,
 		ComplaintThreshold: cfg.IPHealth.ComplaintThreshold,
 	})
+	// The distinct-refusing-hosts count ip health has kept since plan 005 and
+	// nothing read: now a gauge, one source of truth beside the stand-down's.
+	reg.SetPolicyHosts(func() int { return health.PolicyHosts(time.Hour) })
 	if health.Enabled() {
 		selfTest, err := health.SelfTest(ctx)
 		// Logged whether or not the check survives: a zone we were asked to
@@ -212,6 +224,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		OnReply:       replyLogger(cfg.Log.Replies, logger),
 		OnPaced:       pacedLogger(cfg.Log.Replies, logger),
 		OnLease:       leaseLogger(cfg.Log.Replies, logger),
+		OnRefusal: func(mxHost, reply string) {
+			rctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			guard.Observe(rctx, mxHost, reply)
+		},
 	})
 
 	// Outbound mail (plan 014). Nil unless configured, which leaves POST /send
@@ -264,7 +281,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			Health:               health,
 			Suppression:          suppressionAdminOrNil(suppression),
 			MaxSuppressionHashes: cfg.Suppress.MaxHashesPerImport,
-			Bands:                bandsView{pace},
+			Bands:                bandsView{pace, guard},
 			Relay:                relayOrNil(outbound),
 		}),
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
@@ -526,7 +543,10 @@ func (s suppressAdmin) Status(ctx context.Context) api.SuppressionStatus {
 
 // bandsView adapts the pacer to the operator's band view, so neither package
 // depends on the other's shape.
-type bandsView struct{ p *pacer.Pacer }
+type bandsView struct {
+	p *pacer.Pacer
+	g *standdown.Guard
+}
 
 func (b bandsView) Snapshot() []api.BandRow {
 	snap := b.p.Snapshot()
@@ -543,6 +563,11 @@ func (b bandsView) Snapshot() []api.BandRow {
 
 func (b bandsView) Promote(ctx context.Context, mxHost string) (any, error) {
 	return b.p.Promote(ctx, mxHost)
+}
+
+// Resume lifts a stand-down early (plan 032) — the operator's call.
+func (b bandsView) Resume(ctx context.Context, mxHost string) error {
+	return b.g.Resume(ctx, mxHost)
 }
 
 func newLogger(cfg config.Log, w io.Writer) *slog.Logger {

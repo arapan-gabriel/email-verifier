@@ -3,6 +3,21 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+
+## 2026-10-02 — Plan 032: a family stands down when refusals of us pile up in it (code complete)
+
+Refusals of us (`ClassPolicy`) are now counted per pace key in Redis (`rt:mx:<key>:refusals`, distinct
+hosts in a 30-minute window). A reply naming a blocklist pauses its key at once (rule A); three distinct
+hosts of one key do so too (rule B); the pause is six hours, written into the pacer's own persisted
+`pause_until`, so a stood-down key answers `paused` with an exact retry hint and survives a restart. A
+lone host is its own key and can only pause itself, so no single server can stand a family down — the
+objection `ObservePolicy` was written around. Excluded as not about our reputation: Microsoft's `5.4.1`,
+TLS demands, relay refusals, full mailboxes. Rule A is a *named list* only: a Postfix refusal quoting
+our `client [ip]` counts toward rule B rather than pausing a family on one tenant. Resume is the
+operator's `POST /admin/bands/resume`. `verify_key_stood_down` is exactly the line Data Scout's
+`probe-standing.py` mails on; `iphealth.PolicyHosts`, kept since plan 005 with no reader, is now the
+`ip_health_policy_hosts` gauge.
+
 ## 2026-10-02 — Plan 031: STARTTLS on the probe (code complete)
 
 The prober had no STARTTLS step, so every server that demands encryption — `530 Must issue a

@@ -1,6 +1,6 @@
 # Plan 032 — Stand a family down on refusals of us
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy and the manual-test gate pending (written 2026-10-01)
 **Phase:** B
 **Depends on:** 026 (pace keys), 030 (refusals of us classed `policy` reliably — this plan is only
 as good as the class it counts)
@@ -89,20 +89,20 @@ private list and a week of feeding it.
 
 ## Tasks
 
-- [ ] `standdown` component: per-key distinct-host window in Redis, benign list, rule A / rule B
-- [ ] `beforeRCPT` policy replies reach it as well as RCPT-stage ones
-- [ ] `Pacer.PauseKey(ctx, key, until, reason)` writing the persisted pause; resume action on the
-      admin band endpoint
-- [ ] Config `standdown.hosts` / `.window` / `.pause` with validation; `PolicyHosts` wired or removed
-- [ ] Metrics `verify_key_stood_down`, `verify_refusals_of_us_total`; stand-down/resume log lines
-- [ ] Tests alongside: three EOP tenants refusing with a blocklist wording inside W → `@microsoft-eop`
+- [x] `standdown` component: per-key distinct-host window in Redis, benign list, rule A / rule B — `internal/standdown`
+- [x] `beforeRCPT` policy replies reach it as well as RCPT-stage ones — `Options.OnRefusal`, called at the banner, EHLO (both), MAIL FROM and RCPT
+- [x] `Pacer.PauseKey(ctx, key, until, reason)` writing the persisted pause; resume action on the
+      admin band endpoint — plus `ResumeKey`; `POST /admin/bands/resume`; `AcquireSession` refuses a stood-down key before asking for a lease
+- [x] Config `standdown.hosts` / `.window` / `.pause` with validation; `PolicyHosts` wired or removed — `PolicyHosts` wired to the `ip_health_policy_hosts` gauge
+- [x] Metrics `verify_key_stood_down`, `verify_refusals_of_us_total`; stand-down/resume log lines — `stood_down` / `stand_down_resumed` journal lines
+- [x] Tests alongside: three EOP tenants refusing with a blocklist wording inside W → `@microsoft-eop`
       paused, a Google request unaffected; three `5.4.1`s → nothing; one host at a non-family key
       → only that host; two nodes (two pacers over one real Redis) add their hosts together; the
       pause survives a restart; Redis down → fail closed as today, no stand-down state invented;
-      `paused` results carry an exact retry hint and no verdict
-- [ ] `docs/06-generated/redis-contract.md`, `metrics.md`, `api.md` (resume action);
-      `docs/07-references/RUNBOOK.md` — stand-down, resume, and the corrected health-check line
-- [ ] Data Scout companion: `probe-standing.py` finding
+      `paused` results carry an exact retry hint and no verdict — `internal/standdown/standdown_test.go` (rule A, rule B, the window, benign never counted, a lone host pauses only itself, T-Online never stands down, Redis down invents nothing, resume, expiry), `redis_integration_test.go::TestTwoNodesAddUp`, `pacer` (pause survives a restart with an exact hint; a stood-down key refuses before leasing), `prober/refusal_hook_test.go`, metrics, routes, config
+- [x] `docs/06-generated/redis-contract.md`, `metrics.md`, `api.md` (resume action);
+      `docs/07-references/RUNBOOK.md` — stand-down, resume, and the corrected health-check line — and `ARCHITECTURE.md`'s codemap
+- [x] Data Scout companion: `probe-standing.py` finding — Data Scout `27d05b7` parses `verify_key_stood_down{mx_host="<key>"} 1`; this repo emits exactly that line
 
 ## Definition of Done
 
@@ -112,8 +112,8 @@ private list and a week of feeding it.
       container, prints the finding; the key resumes at `pause_until` without an operator.
       And on live traffic, a week with zero false stand-downs (any stand-down is investigated and
       its evidence recorded here)
-- [ ] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok
-- [ ] `pr-checklist.md` — fail-closed and central confirmed; "us ≠ address" (paused is never a verdict)
+- [x] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok — 2026-10-02, with Redis; golangci-lint 0 issues; coverage gate ok (standdown 84.4%, new floor 84)
+- [x] `pr-checklist.md` — fail-closed and central confirmed; "us ≠ address" (paused is never a verdict) — fail-closed: Redis down → nothing counted, nothing paused (test); central: two nodes add up over one Redis (test); us ≠ address: a stood-down key answers `paused` with a retry hint, never a verdict
 - [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
 
 ## Notes / decisions / deviations
@@ -126,3 +126,15 @@ private list and a week of feeding it.
 - **Open question:** whether a family stand-down should also lower the family's band (AIMD floor)
   on resume. Invariant 6 says a policy refusal is not a rate signal, so the plan says no; recorded
   so the question is not re-asked as a fix.
+
+- **Implementation decisions, 2026-10-02.** *Rule A is a named blocklist only*, not "a reply naming
+  our IP": many Postfix access refusals quote `client [ip]` (the 2026-09-29 namemaster reply), and one
+  such reply from one EOP tenant pausing the whole family for six hours is the false stop this plan
+  must not create — those count toward rule B's distinct hosts instead. *T-Online's standing
+  `Dialup/transient IP not allowed`* is counted (it is a refusal of us) but names no list and is one
+  host, so it can never stand anything down — pinned by a test; no exclusion needed. *The benign list*
+  adds `5.7.64` / "relaying denied" for plan 033's relay refusals. *The refusal counter* labels family
+  keys only; every lone host shares `host`, so the series cannot grow with request input. *Cross-node:*
+  a node that already holds a key in memory sees another node's new pause only after the entry is
+  evicted (idle TTL) or the process restarts — fine on today's single node, a tech-debt line for the
+  second.

@@ -17,6 +17,8 @@ import (
 type Bands interface {
 	Snapshot() []BandRow
 	Promote(ctx context.Context, mxHost string) (any, error)
+	// Resume lifts a pace key's stand-down early (plan 032).
+	Resume(ctx context.Context, mxHost string) error
 }
 
 // BandRow is one tracked MX.
@@ -61,5 +63,28 @@ func handleBandPromote(b Bands) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"promoted": applied})
+	}
+}
+
+// handleBandResume lifts a stand-down (plan 032). Same body as promote: the host
+// or the family key (`@microsoft-eop`).
+func handleBandResume(b Bands) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req promoteRequest
+		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			WriteError(w, http.StatusBadRequest, "bad_request", "malformed JSON body: "+err.Error())
+			return
+		}
+		if req.MXHost == "" {
+			WriteError(w, http.StatusBadRequest, "bad_request", "mx_host is required")
+			return
+		}
+		if err := b.Resume(r.Context(), req.MXHost); err != nil {
+			WriteError(w, http.StatusServiceUnavailable, "resume_failed", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"resumed": req.MXHost})
 	}
 }

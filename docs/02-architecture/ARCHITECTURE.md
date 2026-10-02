@@ -66,6 +66,7 @@ internal/
   resolver/             MX/A lookup, cache, no-MX fallback, + SSRF guard (NEW — not in the lab)
   prober/               one RCPT session + catch-all probe + reply classification  ← from lab
   pacer/               per-MX AIMD over the CENTRAL Redis token bucket             ← from lab
+  standdown/           a pace key paused when refusals of us pile up in it (032)
                          keyed by PaceKey: provider families share one bucket (026)
   limiter/             the shared bucket (token_bucket.lua) as THE limiter          ← from lab contract
   suppress/             suppression-list check before any probe/send (NEW)

@@ -102,7 +102,17 @@ IPs — you do not need a domain per sending node).
    force, and `ip_health_listed` carries one series per zone. **Both print the zone as
    `<key>.combined.mail.abusix.zone`**: the key is redacted wherever a zone is *reported*
    (2026-09-14) and sent in full only on the query itself, because the same string also reaches
-   `GET /admin/ip-health`'s `reason`, which Data Scout's health check puts in an email.
+   `GET /admin/ip-health`'s `reason`. *(Corrected 2026-10-02: Data Scout's health check does not
+   read `reason` — `deploy/probe-standing.py` reads `/metrics`, `ip_health_listed` and, since plan
+   032, `verify_key_stood_down`.)*
+
+   **A pace key stood down for refusals of us (plan 032).** The journal has a `stood_down` warning
+   with the key, the rule (A — a reply named a blocklist; B — `standdown.hosts` distinct hosts in
+   `standdown.window`), the triggering host and the reply, redacted. The key answers `paused` with
+   an exact retry hint until `standdown.pause` runs out. Read the reply before anything else: rule A
+   with a real zone is a listing to look up; rule B on `@microsoft-eop` is worth a look at SNDS.
+   Lift it early only with a reason: `POST /admin/bands/resume {"mx_host":"@microsoft-eop"}` over
+   mTLS. The `verify_key_stood_down` gauge returns to 0 and Data Scout's mail stops.
 
    **Force IPv4 in every hand-run session from the node.** `swaks`, `curl`, `dig` — the host is
    dual-stack and prefers IPv6, and on 2026-09-16 the node's `2001:41d0:404:200::169b` was listed on

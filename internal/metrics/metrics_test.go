@@ -206,3 +206,32 @@ func TestLeaseMetrics(t *testing.T) {
 		}
 	}
 }
+
+type fakeStandDown map[string]bool
+
+func (f fakeStandDown) StoodDown() map[string]bool { return f }
+
+// Plan 032's gauge is what Data Scout's probe-standing.py reads, line for line.
+func TestStandDownGaugeAndRefusalCounter(t *testing.T) {
+	r := New(nil)
+	r.SetStandDown(fakeStandDown{"@microsoft-eop": true, "mx.lonely.de": false})
+	r.SetPolicyHosts(func() int { return 4 })
+	r.RefusalOfUs("@microsoft-eop")
+	r.RefusalOfUs("mx.a.de")
+	r.RefusalOfUs("mx.b.de")
+	out := r.Render()
+	for _, want := range []string{
+		`verify_key_stood_down{mx_host="@microsoft-eop"} 1`,
+		`verify_key_stood_down{mx_host="mx.lonely.de"} 0`,
+		`verify_refusals_of_us_total{mx_host="@microsoft-eop"} 1`,
+		`verify_refusals_of_us_total{mx_host="host"} 2`,
+		`ip_health_policy_hosts 4`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q", want)
+		}
+	}
+	if strings.Contains(out, `mx_host="mx.a.de"`) {
+		t.Error("a lone host became its own refusal series")
+	}
+}

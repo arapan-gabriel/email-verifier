@@ -89,6 +89,7 @@ func NewRouter(opts Options) http.Handler {
 	if opts.Bands != nil {
 		mux.Handle("GET /admin/bands", opts.Authenticated(handleBands(opts.Bands)))
 		mux.Handle("POST /admin/bands/promote", opts.Authenticated(handleBandPromote(opts.Bands)))
+		mux.Handle("POST /admin/bands/resume", opts.Authenticated(handleBandResume(opts.Bands)))
 	}
 
 	if opts.Prober != nil {

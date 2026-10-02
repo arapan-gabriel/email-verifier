@@ -28,17 +28,18 @@ const EnvPrefix = "VERIFIERD_"
 
 // Config is the fully resolved configuration.
 type Config struct {
-	HTTP     HTTP     `yaml:"http"`
-	TLS      TLS      `yaml:"tls"`
-	Redis    Redis    `yaml:"redis"`
-	DNS      DNS      `yaml:"dns"`
-	Pacer    Pacer    `yaml:"pacer"`
-	IPHealth IPHealth `yaml:"ip_health"`
-	Suppress Suppress `yaml:"suppress"`
-	Probe    Probe    `yaml:"probe"`
-	Auth     Auth     `yaml:"auth"`
-	Relay    Relay    `yaml:"relay"`
-	Log      Log      `yaml:"log"`
+	HTTP      HTTP      `yaml:"http"`
+	TLS       TLS       `yaml:"tls"`
+	Redis     Redis     `yaml:"redis"`
+	DNS       DNS       `yaml:"dns"`
+	Pacer     Pacer     `yaml:"pacer"`
+	StandDown StandDown `yaml:"standdown"`
+	IPHealth  IPHealth  `yaml:"ip_health"`
+	Suppress  Suppress  `yaml:"suppress"`
+	Probe     Probe     `yaml:"probe"`
+	Auth      Auth      `yaml:"auth"`
+	Relay     Relay     `yaml:"relay"`
+	Log       Log       `yaml:"log"`
 }
 
 // TLS configures the listener. ADR-006 settles the boundary as mTLS: the host
@@ -101,6 +102,16 @@ type Pacer struct {
 	// (DataScoutProbeTimeout), or a wait turns into a transport failure on the
 	// caller's side instead of a clean "retry later".
 	LeaseWait time.Duration `yaml:"lease_wait"`
+}
+
+// StandDown stands a pace key down when refusals of us pile up in it (plan 032).
+// Hosts distinct hosts of one key refusing us within Window pause that key for
+// Pause; a single refusal that names a blocklist pauses it at once. A lone host
+// is its own key, so it can only ever pause itself.
+type StandDown struct {
+	Hosts  int           `yaml:"hosts"`
+	Window time.Duration `yaml:"window"`
+	Pause  time.Duration `yaml:"pause"`
 }
 
 // DataScoutProbeTimeout is the caller's budget for one POST /probe
@@ -307,8 +318,9 @@ func defaults() Config {
 			PromoteAfter: 500, PromoteStep: 1.5, PromoteCeiling: 20,
 			SessionLease: 50 * time.Second, LeaseWait: 60 * time.Second,
 		},
-		IPHealth: IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
-		Suppress: Suppress{Stale: 24 * time.Hour, MaxHashesPerImport: 200_000},
+		StandDown: StandDown{Hosts: 3, Window: 30 * time.Minute, Pause: 6 * time.Hour},
+		IPHealth:  IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
+		Suppress:  Suppress{Stale: 24 * time.Hour, MaxHashesPerImport: 200_000},
 		Probe: Probe{
 			DialNetwork:         "tcp4",
 			Port:                "25",
@@ -470,6 +482,9 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return integer("PACER_MAX_TRACKED", &cfg.Pacer.MaxTracked) },
 		func() error { return dur("PACER_SESSION_LEASE", &cfg.Pacer.SessionLease) },
 		func() error { return dur("PACER_LEASE_WAIT", &cfg.Pacer.LeaseWait) },
+		func() error { return integer("STANDDOWN_HOSTS", &cfg.StandDown.Hosts) },
+		func() error { return dur("STANDDOWN_WINDOW", &cfg.StandDown.Window) },
+		func() error { return dur("STANDDOWN_PAUSE", &cfg.StandDown.Pause) },
 		func() error { return integer("PACER_PROMOTE_AFTER", &cfg.Pacer.PromoteAfter) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
@@ -582,6 +597,17 @@ func (c Config) Validate() error {
 	if c.Pacer.SessionLease <= c.Probe.Timeout {
 		add("pacer.session_lease (%s) must exceed probe.timeout (%s): a lease that expires under a live session hands its room out twice",
 			c.Pacer.SessionLease, c.Probe.Timeout)
+	}
+	// Two at the least: with one, any single strict server could stand a whole
+	// family down, which is the objection ObservePolicy was written around.
+	if c.StandDown.Hosts < 2 {
+		add("standdown.hosts must be at least 2, got %d", c.StandDown.Hosts)
+	}
+	if c.StandDown.Window <= 0 {
+		add("standdown.window must be positive, got %s", c.StandDown.Window)
+	}
+	if c.StandDown.Pause <= 0 {
+		add("standdown.pause must be positive, got %s", c.StandDown.Pause)
 	}
 	if c.Pacer.LeaseWait <= 0 {
 		add("pacer.lease_wait must be positive, got %s", c.Pacer.LeaseWait)

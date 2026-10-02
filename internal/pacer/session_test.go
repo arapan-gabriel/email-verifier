@@ -199,3 +199,31 @@ func TestEveryShippedBandAllowsOneConnection(t *testing.T) {
 		}
 	}
 }
+
+// A stood-down key (plan 032) refuses a session before any lease is asked for:
+// holding a lease for a key that will refuse the token anyway only delays a
+// sibling's refusal.
+func TestAStoodDownKeyRefusesBeforeLeasing(t *testing.T) {
+	l := &fakeLeaser{}
+	p := leasedPacer(l, &leaseCounter{}, time.Second)
+	host := "contoso-com.mail.protection.outlook.com"
+	// Known to the pacer first, then paused.
+	release, _, err := p.AcquireSession(t.Context(), host, "contoso.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	until := time.Now().Add(time.Hour)
+	if err := p.PauseKey(t.Context(), host, until, "test"); err != nil {
+		t.Fatal(err)
+	}
+	asked := len(l.keys)
+	_, _, err = p.AcquireSession(t.Context(), "fabrikam-de.mail.protection.outlook.com", "fabrikam.de")
+	var pe *PausedError
+	if !errors.As(err, &pe) || !pe.Until.Equal(until) {
+		t.Fatalf("AcquireSession = %v, want PausedError until %v", err, until)
+	}
+	if len(l.keys) != asked {
+		t.Errorf("a lease was requested for a stood-down key")
+	}
+}

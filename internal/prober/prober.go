@@ -147,6 +147,12 @@ type Options struct {
 	// listening.
 	OnReply func(ReplyEvent)
 
+	// OnRefusal is called with every ClassPolicy reply — at RCPT and before it —
+	// with the real MX host and the reply as read. It is how a stand-down
+	// (plan 032) sees refusals of us; the pacer never does (invariant 6). Nil
+	// means nobody is listening.
+	OnRefusal func(mxHost, reply string)
+
 	// OnLease is called once per session lease granted, with how long the
 	// session waited for it (plan 028). Nil means nobody is listening.
 	OnLease func(mxHost string, waited time.Duration)
@@ -668,6 +674,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		// is exactly the signal the pacer exists to react to.
 		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
+		p.refused(req.MXHost, class, text)
 		return fail(class, code, text, "")
 	}
 
@@ -681,6 +688,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	if code != 250 {
 		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
+		p.refused(req.MXHost, class, text)
 		return fail(class, code, text, "")
 	}
 
@@ -716,6 +724,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		if code != 250 {
 			class := p.beforeRCPT(code, text)
 			p.observe(ctx, req.MXHost, class)
+			p.refused(req.MXHost, class, text)
 			return fail(class, code, text, "")
 		}
 	}
@@ -731,6 +740,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		// Everything up to and including a failed MAIL FROM is about us.
 		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
+		p.refused(req.MXHost, class, text)
 		return fail(class, code, text, "")
 	}
 
@@ -763,6 +773,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		}
 		r := rcptResult(code, text, p.opts.deferralRetry(), p.identity())
 		p.observe(ctx, req.MXHost, r.Class)
+		p.refused(req.MXHost, r.Class, text)
 		if r.Class == ClassPolicy && p.opts.Health != nil {
 			// A policy reply is about our client. It never moves the pacer
 			// (invariant 6); it feeds IP health, and nothing else.
@@ -966,6 +977,16 @@ func (p *Prober) acquire(ctx context.Context, req Request) error {
 		p.opts.OnPaced(req.MXHost)
 	}
 	return nil
+}
+
+// refused passes a refusal of us to the stand-down hook. Only ClassPolicy:
+// throttles and deferrals are rate or recipient signals, and a TLS failure is
+// our gap (plan 031), none of them a reputation verdict.
+func (p *Prober) refused(mxHost string, class Class, reply string) {
+	if class != ClassPolicy || p.opts.OnRefusal == nil {
+		return
+	}
+	p.opts.OnRefusal(mxHost, reply)
 }
 
 // observe reports one answer to the pacer, reduced to the only question it is

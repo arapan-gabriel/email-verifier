@@ -65,7 +65,16 @@ func (f *fakeRelay) Accept(_ context.Context, m relay.Message) (string, error) {
 type fakeBands struct {
 	rows     []BandRow
 	promoted string
+	resumed  string
 	err      error
+}
+
+func (f *fakeBands) Resume(_ context.Context, mx string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.resumed = mx
+	return nil
 }
 
 func (f *fakeBands) Snapshot() []BandRow { return f.rows }
@@ -125,6 +134,7 @@ var everyRoute = []struct {
 	{http.MethodPost, "/admin/suppress", false},
 	{http.MethodGet, "/admin/bands", false},
 	{http.MethodPost, "/admin/bands/promote", false},
+	{http.MethodPost, "/admin/bands/resume", false},
 }
 
 func TestEveryRouteRequiresCredentials(t *testing.T) {
@@ -338,6 +348,19 @@ func TestBandRoutes(t *testing.T) {
 	}
 	if e.bands.promoted != "mx.test" {
 		t.Errorf("promoted %q, want mx.test", e.bands.promoted)
+	}
+
+	// Plan 032: the operator lifts a stand-down early.
+	e.bands.err = nil
+	if rec := send(t, h, http.MethodPost, "/admin/bands/resume", `{"mx_host":"@microsoft-eop"}`); rec.Code != 200 || e.bands.resumed != "@microsoft-eop" {
+		t.Errorf("resume = %d %s, resumed %q", rec.Code, rec.Body, e.bands.resumed)
+	}
+	if rec := send(t, h, http.MethodPost, "/admin/bands/resume", `{}`); rec.Code != 400 {
+		t.Errorf("resume without a key = %d", rec.Code)
+	}
+	e.bands.err = errors.New("redis down")
+	if rec := send(t, h, http.MethodPost, "/admin/bands/resume", `{"mx_host":"x"}`); rec.Code != 503 {
+		t.Errorf("resume with the store down = %d", rec.Code)
 	}
 }
 

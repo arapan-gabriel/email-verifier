@@ -264,6 +264,12 @@ func (p *Pacer) AcquireSession(ctx context.Context, mxHost, domain string) (rele
 	st := p.stateFor(ctx, key, domain)
 	p.mu.Lock()
 	limit := max(1, st.conc)
+	if until := st.pausedUntil; time.Now().Before(until) {
+		// A stood-down key (plan 032) or a floored one: no lease is worth
+		// waiting for, and holding one would only delay a sibling's refusal.
+		p.mu.Unlock()
+		return nil, 0, &PausedError{MXHost: key, Until: until}
+	}
 	p.mu.Unlock()
 
 	start := time.Now()
@@ -610,4 +616,36 @@ func (p *Pacer) persist(ctx context.Context, key string, st mxState) {
 	if !st.pausedUntil.IsZero() {
 		_ = p.store.Set(ctx, base+"pause_until", strconv.FormatInt(st.pausedUntil.Unix(), 10))
 	}
+}
+
+// PauseKey stands a pace key down until the given time, whatever the AIMD loop
+// thinks of it (plan 032): the evidence is refusals of us, which never move the
+// loop (invariant 6), so the pause has to be set from outside it. It is written
+// to the same `rt:mx:<key>:pause_until` the loop persists, so a restart keeps it
+// and Acquire/AcquireSession refuse with an exact retry hint until it passes.
+func (p *Pacer) PauseKey(ctx context.Context, mxHost string, until time.Time, reason string) error {
+	key := PaceKey(mxHost)
+	p.mu.Lock()
+	if st, ok := p.mx[key]; ok {
+		st.pausedUntil = until
+		st.state = StatePaused
+	}
+	p.mu.Unlock()
+	if p.metrics != nil {
+		p.metrics.Pause(key)
+	}
+	_ = reason // carried by the caller's log line; the pacer keeps no prose
+	return p.store.Set(ctx, "rt:mx:"+key+":pause_until", strconv.FormatInt(until.Unix(), 10))
+}
+
+// ResumeKey lifts a pause early — the operator's decision, never the loop's.
+func (p *Pacer) ResumeKey(ctx context.Context, mxHost string) error {
+	key := PaceKey(mxHost)
+	p.mu.Lock()
+	if st, ok := p.mx[key]; ok {
+		st.pausedUntil = time.Time{}
+		st.state = StateSteady
+	}
+	p.mu.Unlock()
+	return p.store.Set(ctx, "rt:mx:"+key+":pause_until", "0")
 }

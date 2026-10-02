@@ -217,6 +217,7 @@ bounce identifies its message without the body being parsed.
 | POST | `/admin/ip-health/resume` | 010 | clear the pause without a redeploy — the next scheduled check re-evaluates, so this overrides a verdict rather than disabling checking |
 | GET | `/admin/bands` | 012 | what the pacer has learned per MX, and any standing proposal to widen a band |
 | POST | `/admin/bands/promote` | 012 | apply a proposal: `{mx_host}` |
+| POST | `/admin/bands/resume` | 032 | lift a stand-down early: `{mx_host}` — a host or a family key (`@microsoft-eop`); clears the key's `pause_until` and its refusers. `200 {"resumed": …}`, `503` if Redis refuses |
 | GET | `/admin/suppress` | 011 | size, version and staleness of the local suppression copy |
 | POST | `/admin/suppress` | 011 | push an export: `{version, hashes[], mode}` where mode is `replace` or `add` |
 

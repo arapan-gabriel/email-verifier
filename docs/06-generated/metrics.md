@@ -30,6 +30,9 @@ it directly — as this repository already does for RESP and for SMTP.
 | `verify_tracked_mx` | gauge | — | pace keys the pacer holds state for (a family counts once) — **the cardinality canary** |
 | `go_goroutines` | gauge | — | a service that must not leak them should say how many it has |
 
+| `verify_key_stood_down` | gauge | `mx_host` (pace key) | 1 while a key is stood down for refusals of us (plan 032), 0 once it came back; only keys stood down since start appear. **Data Scout's `deploy/probe-standing.py` reads this exact line** and the hourly host check mails it |
+| `verify_refusals_of_us_total` | counter | `mx_host` | refusals of us that count toward a stand-down: a family key is its own label, every lone host shares `host` — bounded by construction |
+| `ip_health_policy_hosts` | gauge | — | distinct MX hosts that refused our client in the last hour (the `iphealth` count that had no reader until plan 032) |
 | `ip_health_listed` | gauge | `ip`, `list` | 1 if this sending address is on the named blocklist |
 
 `ip_health_listed` appears only once a check has run. Absent *altogether* means checking is off —

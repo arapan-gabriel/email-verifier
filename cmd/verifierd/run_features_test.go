@@ -345,7 +345,7 @@ func (allowAll) Take(context.Context, string, float64, float64) (limiter.Decisio
 
 func TestBandsViewAdaptsThePacer(t *testing.T) {
 	p := pacer.New(&mapStore{m: map[string]string{}}, allowAll{}, pacer.Options{})
-	v := bandsView{p}
+	v := bandsView{p: p}
 	if rows := v.Snapshot(); len(rows) != 0 {
 		t.Fatalf("fresh pacer rows = %v", rows)
 	}

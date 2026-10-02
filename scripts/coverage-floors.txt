@@ -26,5 +26,6 @@ internal/redis      90
 # will reshape the package (plan 027, open question 4, decided 2026-09-22).
 internal/relay      75
 internal/resolver   92
+internal/standdown  84
 internal/suppress   88
 total               85

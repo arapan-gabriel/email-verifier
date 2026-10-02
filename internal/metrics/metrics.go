@@ -57,6 +57,7 @@ type Registry struct {
 	leaseWaits  map[string]uint64  // session lease outcome (plan 028)
 	tlsSessions map[string]uint64  // STARTTLS outcome per session (plan 031)
 	pauses      map[string]uint64  // mx host
+	refusals    map[string]uint64  // refusals of us per pace key (plan 032)
 	listed      map[[2]string]bool // {ip, list} -> listed
 	sent        map[string]uint64  // relay delivery outcome (plan 014)
 	qDepth      [3]int             // relay queue: ready, later, dead
@@ -65,7 +66,14 @@ type Registry struct {
 	sum         float64
 	observed    uint64
 
-	pacer Pacer
+	pacer       Pacer
+	standDown   StandDownSource
+	policyHosts func() int
+}
+
+// StandDownSource reports the keys stood down for refusals of us (plan 032).
+type StandDownSource interface {
+	StoodDown() map[string]bool
 }
 
 // New returns a Registry. pacer may be nil, in which case the per-MX gauges are
@@ -79,6 +87,7 @@ func New(pacer Pacer) *Registry {
 		leaseWaits:  map[string]uint64{},
 		tlsSessions: map[string]uint64{},
 		pauses:      map[string]uint64{},
+		refusals:    map[string]uint64{},
 		listed:      map[[2]string]bool{},
 		sent:        map[string]uint64{},
 		counts:      make([]uint64, len(buckets)+1),
@@ -93,6 +102,32 @@ func (r *Registry) SetPacer(p Pacer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pacer = p
+}
+
+// SetStandDown attaches the stand-down gauge source (plan 032).
+func (r *Registry) SetStandDown(s StandDownSource) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.standDown = s
+}
+
+// SetPolicyHosts attaches the distinct-refusing-hosts gauge (ip health).
+func (r *Registry) SetPolicyHosts(f func() int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.policyHosts = f
+}
+
+// RefusalOfUs counts one refusal of us. A family key is its own label; every
+// lone host shares one, so the series cannot grow with request input.
+func (r *Registry) RefusalOfUs(key string) {
+	label := "host"
+	if strings.HasPrefix(key, "@") {
+		label = key
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.refusals[label]++
 }
 
 // Result records one address answered, by its class.
@@ -221,6 +256,8 @@ func (r *Registry) Render() string {
 	leaseWaits := maps.Clone(r.leaseWaits)
 	tlsSessions := maps.Clone(r.tlsSessions)
 	pauses := maps.Clone(r.pauses)
+	refusals := maps.Clone(r.refusals)
+	standDown, policyHosts := r.standDown, r.policyHosts
 	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
 	sum, observed := r.sum, r.observed
@@ -246,6 +283,25 @@ func (r *Registry) Render() string {
 		"How SMTP sessions were encrypted, by STARTTLS outcome (plan 031).", tlsSessions, "outcome")
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
+
+	counter(&b, "verify_refusals_of_us_total",
+		"Refusals of us that count toward a stand-down, per family key (lone hosts share one label).", refusals, "mx_host")
+	if standDown != nil {
+		writeGauge(&b, "verify_key_stood_down", "1 while a pace key is stood down for refusals of us (plan 032).")
+		sd := standDown.StoodDown()
+		keys := slices.Sorted(maps.Keys(sd))
+		for _, k := range keys {
+			v := 0
+			if sd[k] {
+				v = 1
+			}
+			fmt.Fprintf(&b, "verify_key_stood_down{mx_host=%q} %d\n", k, v)
+		}
+	}
+	if policyHosts != nil {
+		writeGauge(&b, "ip_health_policy_hosts", "Distinct MX hosts that refused our client in the last hour.")
+		fmt.Fprintf(&b, "ip_health_policy_hosts %d\n", policyHosts())
+	}
 
 	var tracked int
 	if pacer != nil {

@@ -59,6 +59,9 @@ func TestValidateEveryRule(t *testing.T) {
 		// Plan 028: a lease that dies under a live session hands its room out twice.
 		{"session lease not longer than the session", func(c *Config) { c.Pacer.SessionLease = c.Probe.Timeout }, "pacer.session_lease"},
 		{"lease wait zero", func(c *Config) { c.Pacer.LeaseWait = 0 }, "pacer.lease_wait"},
+		{"stand-down on one host", func(c *Config) { c.StandDown.Hosts = 1 }, "standdown.hosts"},
+		{"stand-down window zero", func(c *Config) { c.StandDown.Window = 0 }, "standdown.window"},
+		{"stand-down pause zero", func(c *Config) { c.StandDown.Pause = 0 }, "standdown.pause"},
 		// ...and a wait plus a session must still answer inside Data Scout's 90 s.
 		{"lease wait plus session past the caller", func(c *Config) { c.Pacer.LeaseWait = 75 * time.Second }, "pacer.lease_wait"},
 		{"catch-all audit above one", func(c *Config) { c.Probe.CatchAllAuditRate = 1.5 }, "probe.catch_all_audit_rate"},
