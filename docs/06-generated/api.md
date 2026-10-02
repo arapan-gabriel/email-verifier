@@ -75,17 +75,22 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 
 All three return `connected:false` and `accepted:null`.
 
-- `tls_failed` (plan 031) — the server advertised `STARTTLS` and the upgrade did not complete: a
-  non-`220` answer to `STARTTLS`, or a failed handshake. About the conversation, never about the
-  mailbox, and never a throttle — it does not move the pacer. `connected:false`, `accepted:null`,
-  a retry hint; no plaintext retry in that session.
+- `tls_failed` (plan 031) — the server advertised `STARTTLS`, the handshake failed, **and the one
+  plaintext retry on a fresh connection could not reach the server either** (`err` names both). About
+  the conversation, never about the mailbox, and never a throttle — it does not move the pacer.
+  `connected:false`, `accepted:null`, a retry hint. A refused `STARTTLS` or a failed handshake whose
+  plaintext retry answers is not `tls_failed`: the verdict stands, with `tls: fallback`.
 
 **`tls`** (plan 031) is how the session behind a result was encrypted, additive and omitted when no
 session was opened (our own refusals before the socket): `none` (the server did not offer `STARTTLS`,
 or `probe.starttls: off`), `verified` (upgraded; the certificate chains to a trusted root and names
 the MX), `unverified` (upgraded; the certificate was not trusted or not for this name — recorded,
-never enforced, as an opportunistic MTA does) or `failed` (offered, not completed — the class is
-`tls_failed`). Callers may ignore it; the classes they map are unchanged.
+never enforced, as an opportunistic MTA does), `fallback` (offered, but `STARTTLS` was refused or the
+handshake failed; the answer came in plaintext — on the same connection after a refusal, on one fresh
+connection after a failed handshake), `skipped` (the host is remembered as TLS-broken,
+`mx:<host>:tls_broken`, so the session went plaintext without asking) or `failed` (the handshake and
+the plaintext retry both failed — the class is `tls_failed`). Callers may ignore it; the classes they
+map are unchanged.
 
 **`retry_after_seconds`** is present only on classes that mean "come back later" — `deferred`,
 `throttled`, `no_budget`, `paused`, `tls_failed`. For `paused` it is exact, because the pacer knows when the

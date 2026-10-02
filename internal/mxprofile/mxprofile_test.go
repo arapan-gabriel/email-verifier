@@ -128,3 +128,47 @@ func TestRandomiserStaysPerTenant(t *testing.T) {
 		}
 	}
 }
+
+// A failed STARTTLS handshake is remembered per host, with the profile TTL,
+// under its own key (plan 031).
+func TestTLSBrokenIsRememberedPerHost(t *testing.T) {
+	f := newFake()
+	p := New(f, 90*time.Minute)
+	ctx := t.Context()
+	if p.TLSBroken(ctx, "mx1.jimdo.com") {
+		t.Fatal("an unknown host reported as TLS-broken")
+	}
+	p.MarkTLSBroken(ctx, "mx1.jimdo.com")
+	if got := strings.Join(f.lastCmd, " "); got != "SET mx:mx1.jimdo.com:tls_broken 1 EX 5400" {
+		t.Errorf("command = %q", got)
+	}
+	if !p.TLSBroken(ctx, "mx1.jimdo.com") {
+		t.Error("the failed handshake was not remembered")
+	}
+	if p.TLSBroken(ctx, "mx2.jimdo.com") {
+		t.Error("the memory leaked to a different host")
+	}
+	if p.IsRandomiser(ctx, "mx1.jimdo.com") {
+		t.Error("TLS-broken read as a randomiser verdict")
+	}
+}
+
+// A store failure reads as "not broken": the session tries TLS again and falls
+// back if it must. Nil and empty are safe.
+func TestTLSBrokenFailsOpen(t *testing.T) {
+	f := newFake()
+	p := New(f, time.Hour)
+	p.MarkTLSBroken(t.Context(), "mx.test")
+	f.getErr = errors.New("redis down")
+	if p.TLSBroken(t.Context(), "mx.test") {
+		t.Error("a store error reported the host TLS-broken")
+	}
+	var nilP *Profiles
+	if nilP.TLSBroken(t.Context(), "mx.test") || p.TLSBroken(t.Context(), "") {
+		t.Error("nil or empty reported TLS-broken")
+	}
+	nilP.MarkTLSBroken(t.Context(), "mx.test")
+	if TLSKey("a.b") != "mx:a.b:tls_broken" {
+		t.Errorf("TLSKey = %q", TLSKey("a.b"))
+	}
+}

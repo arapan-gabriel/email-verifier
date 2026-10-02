@@ -4,6 +4,33 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 031 regression: opportunistic TLS falls back like an MTA
+
+Within hours of 031's deploy (`a2037af`, 11:00 UTC) 33 sessions on the node were `tls_failed`, 32 of
+them Jimdo's `mx1.jimdo.com` — addresses that had been plaintext verdicts the day before. From the
+node, `openssl s_client -starttls smtp` shows why: Jimdo speaks **TLS 1.2 only, with
+`DHE-RSA-AES256-GCM-SHA384`** (1.3 → handshake-failure alert; 1.0/1.1 → none), and Go's
+`crypto/tls` has no finite-field DHE. No client setting fixes that; an MTA at `may` simply delivers
+in plaintext. 031's "no plaintext fallback" is reversed:
+
+- **Refused `STARTTLS`** (non-`220`): carry on in plaintext on the same connection (RFC 3207 §4). No
+  redial, no extra token, not remembered — a `454` is "not now".
+- **Failed handshake / timeout / dropped after `220`**: close, release the 028 lease (idempotent,
+  so a one-slot key never waits for itself), redial **once** in plaintext through the same SSRF
+  guard and `tcp4`, ask everything again. The rerun is flagged so it never tries STARTTLS; it draws
+  tokens and fires `OnPaced` like any session.
+- **Memory**: `mx:<host>:tls_broken` with the profile TTL (24 h), per host; later sessions skip the
+  attempt (`tls: skipped`). Fail-open: Redis down → try TLS.
+- **`tls_failed`** survives only for a handshake failure whose plaintext retry also failed.
+- New `tls` values and `verify_tls_sessions_total` outcomes `fallback` and `skipped`; each session
+  counted once (the abandoned attempt is not).
+
+Trade-off: a downgrade an attacker could force reveals only the RCPT questions the pre-031 probe
+already asked in plaintext — the probe sends no message. Mutation check: 8 mutants (no rerun, no
+memory, lease held through the rerun, memory ignored, `454` remembered, `454` treated as a failed
+handshake, no `failed` metric, failed retry not re-classed) all killed. Plan 031 stays code
+complete; its gate runs after the redeploy.
+
 ## 2026-10-02 — Plan 033: several domains per session (code complete)
 
 `POST /probe` accepts `domains: [{domain, emails, need_catch_all}]` in place of

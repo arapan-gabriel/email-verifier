@@ -92,6 +92,16 @@ type Profiles interface {
 	MarkRandomiser(ctx context.Context, mxHost string)
 }
 
+// TLSProfiles remembers hosts whose STARTTLS cannot be completed by this
+// client (plan 031). Optional on top of Profiles: a Profiles that does not
+// implement it means every session tries TLS, which is today's behaviour.
+// Both calls are best effort — a store failure reads as "not broken", so the
+// session tries TLS and falls back if it must.
+type TLSProfiles interface {
+	TLSBroken(ctx context.Context, mxHost string) bool
+	MarkTLSBroken(ctx context.Context, mxHost string)
+}
+
 // Dialer opens the connection to the recipient MX.
 //
 // Declared here, in the package that uses it, and holding the one method the
@@ -229,6 +239,14 @@ const (
 	TLSVerified   = "verified"
 	TLSUnverified = "unverified"
 	TLSFailed     = "failed"
+	// TLSFallback: the server offered STARTTLS and the upgrade failed — the
+	// handshake (Jimdo offers only DHE suites Go does not implement), a dropped
+	// connection, or a refusal of the command — and the session was answered in
+	// plaintext, as Postfix does at security level `may` (plan 031, 2026-10-02).
+	TLSFallback = "fallback"
+	// TLSSkipped: the host is remembered as TLS-broken (`mx:<host>:tls_broken`),
+	// so this session did not try and went plaintext from the start.
+	TLSSkipped = "skipped"
 )
 
 // TLSRecorder counts how sessions were encrypted (plan 031). Optional on top
@@ -398,6 +416,10 @@ type Request struct {
 	NeedCatchAll bool
 	Helo         string
 	MailFrom     string
+	// skipTLS is set on the one plaintext rerun after a failed upgrade, so the
+	// rerun cannot try TLS again and the fallback cannot loop. Unexported: it is
+	// never part of the HTTP contract.
+	skipTLS bool
 	// PolicyStop overrides the configured ceiling for this request only, and is
 	// clamped by the prober (plan 017).
 	//
@@ -452,9 +474,11 @@ type Result struct {
 	// 031): "none" (the server did not offer STARTTLS, or it is off),
 	// "verified" (upgraded, and the certificate chains to a trusted root for
 	// the MX name), "unverified" (upgraded, certificate not trusted or not for
-	// this name — recorded, never enforced, as an opportunistic MTA does) or
-	// "failed" (the upgrade was offered and did not complete). Empty when no
-	// session was opened at all.
+	// this name — recorded, never enforced, as an opportunistic MTA does),
+	// "fallback" (offered but refused or the handshake failed; answered in
+	// plaintext), "skipped" (host remembered as TLS-broken, plaintext without
+	// asking) or "failed" (handshake and plaintext retry both failed). Empty
+	// when no session was opened at all.
 	TLS string `json:"tls,omitempty"`
 }
 
@@ -879,12 +903,18 @@ func (p *Prober) session(ctx context.Context, req Request, groups []sessionGroup
 	// question alike. Taken after the resolve (a refusal we make ourselves is
 	// free) and before the token and the socket. Fails closed, and a wait past
 	// the bound comes back unattempted with a retry hint, never a verdict.
-	release, err := p.leaseSession(ctx, req)
+	leaseRelease, err := p.leaseSession(ctx, req)
 	if err != nil {
 		results, v, rest := fail(budgetClass(err), 0, "", err.Error())
 		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
 		return results, v, rest
 	}
+	// Idempotent: the TLS fallback below releases early, before it reruns the
+	// session under a lease of its own — with one session per receiving system
+	// (plan 028), holding this one while asking for the next would wait on
+	// ourselves until lease_wait ran out.
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(leaseRelease) }
 	defer release()
 
 	// Budget before the socket. A paused MX or an unreachable bucket means the
@@ -957,25 +987,71 @@ func (p *Prober) session(ctx context.Context, req Request, groups []sessionGroup
 	// STARTTLS when offered (plan 031). The upgrade runs over the connection
 	// already dialled to a vetted address — no new dial, no new lookup
 	// (invariant 2) — and the EHLO is repeated over TLS, because RFC 3207
-	// discards the pre-TLS extension list. A failed upgrade is ClassTLSFailed:
-	// about us, never a verdict, never a throttle, and never retried in
-	// plaintext in this session.
+	// discards the pre-TLS extension list. A refused STARTTLS carries on in
+	// plaintext; a failed handshake is answered by one plaintext rerun and the
+	// host is remembered (`mx:<host>:tls_broken`). Only a rerun that cannot
+	// reach the server is ClassTLSFailed: about us, never a verdict, never a
+	// throttle.
 	tlsOutcome = TLSNone
-	if p.opts.startTLS() && advertisesSTARTTLS(text) {
-		if code, text, ok = step("STARTTLS"); !ok || code != 220 {
-			tlsOutcome = TLSFailed
-			errText := ""
-			if !ok {
-				errText = netErr.Error()
+	switch {
+	case req.skipTLS:
+		tlsOutcome = TLSFallback
+	case !p.opts.startTLS() || !advertisesSTARTTLS(text):
+		// Not offered, or switched off: plaintext, as before plan 031.
+	case p.tlsBroken(ctx, req.MXHost):
+		tlsOutcome = TLSSkipped
+	default:
+		code, _, ok = step("STARTTLS")
+		if ok && code != 220 {
+			// Refused, and the connection is still in its plaintext state:
+			// RFC 3207 §4 lets the client carry on without TLS, and that is
+			// what an opportunistic MTA does. No reconnect, no memory — the
+			// next session asks again.
+			tlsOutcome = TLSFallback
+			break
+		}
+		var upgraded net.Conn
+		var verified bool
+		var upErr error
+		if ok {
+			upgraded, verified, upErr = p.upgrade(ctx, conn, req.MXHost)
+		} else {
+			upErr = netErr
+		}
+		if upErr != nil {
+			// The handshake failed or the connection went with it. The
+			// session is unusable either way, so — once — answer the request
+			// in plaintext on a fresh connection, and remember the host so
+			// the next session does not pay for the attempt (Jimdo, 2026-10-02:
+			// 32 sessions `tls_failed` that used to be verdicts). Only if that
+			// rerun cannot reach the server either does the request end
+			// `tls_failed`.
+			p.markTLSBroken(ctx, req.MXHost)
+			_ = conn.Close()
+			release()
+			tlsOutcome = "" // this session records nothing; the rerun does
+			plain := req
+			plain.skipTLS = true
+			res, vs, rest := p.session(ctx, plain, groups, grouped)
+			failed := false
+			for a, rr := range res {
+				if rr.Connected == nil || !*rr.Connected {
+					if rr.Class == "" || rr.Class == ClassConnError || rr.Class == ClassTimeout {
+						rr.Class = ClassTLSFailed
+						rr.Err = "tls handshake: " + upErr.Error() + "; plaintext retry: " + rr.Err
+						rr.TLS = TLSFailed
+						rr.RetryAfterSeconds = retryHint(ClassTLSFailed, "", p.opts.deferralRetry())
+						res[a] = rr
+						failed = true
+					}
+				}
 			}
-			return fail(ClassTLSFailed, code, text, errText)
+			if rec, ok := p.opts.Metrics.(TLSRecorder); ok && failed {
+				rec.TLSSession(TLSFailed)
+			}
+			return res, vs, rest
 		}
-		tlsConn, verified, err := p.upgrade(ctx, conn, req.MXHost)
-		if err != nil {
-			tlsOutcome = TLSFailed
-			return fail(ClassTLSFailed, 0, "", "tls handshake: "+err.Error())
-		}
-		conn, r = tlsConn, bufio.NewReader(tlsConn)
+		conn, r = upgraded, bufio.NewReader(upgraded)
 		tlsOutcome = TLSUnverified
 		if verified {
 			tlsOutcome = TLSVerified
@@ -1399,6 +1475,20 @@ func chunks[T any](s []T, n int) [][]T {
 		s = s[n:]
 	}
 	return append(out, s)
+}
+
+// tlsBroken reports whether this host is remembered as one our client cannot
+// complete STARTTLS with. Fail-open: no store, or a store error, means "try".
+func (p *Prober) tlsBroken(ctx context.Context, mxHost string) bool {
+	t, ok := p.opts.Profiles.(TLSProfiles)
+	return ok && t.TLSBroken(ctx, mxHost)
+}
+
+// markTLSBroken remembers the host; best effort.
+func (p *Prober) markTLSBroken(ctx context.Context, mxHost string) {
+	if t, ok := p.opts.Profiles.(TLSProfiles); ok {
+		t.MarkTLSBroken(ctx, mxHost)
+	}
 }
 
 func (o Options) startTLS() bool {

@@ -27,18 +27,40 @@ the warm-up ladder.
   `tls: verified | unverified`.
 - No client certificate.
 
-## When it fails
+## When it fails — fall back, like an MTA at `may`
 
-A non-`220` answer to `STARTTLS`, or a failed or timed-out handshake (`probe.tls_handshake_timeout`,
-default 10 s, inside `probe.timeout`), is class **`tls_failed`**:
+The first version (2026-10-02 morning) ended any failed upgrade as `tls_failed` with no plaintext
+retry. On the day it shipped, 32 of 33 `tls_failed` sessions were Jimdo's `mx1.jimdo.com`, which
+offers STARTTLS but speaks only TLS 1.2 with `DHE-RSA-AES256-GCM-SHA384` — a finite-field DHE suite
+Go's `crypto/tls` does not implement, so the handshake can never succeed from this client. Those were
+verdicts the day before. An opportunistic MTA (Postfix `smtp_tls_security_level = may`) delivers to
+such a server in plaintext; the probe now does the same:
 
-- never a verdict (invariant 1) — `accepted: null`, `connected: false`;
-- never a throttle (invariant 6) — `conn_error` would have halved the host's rate for what is a
-  TLS mismatch, not our pace;
-- a retry hint like any "come back later";
-- **no plaintext retry in that session.** A server that offered TLS and then failed it is likely to
-  refuse plaintext too, and a silent downgrade is the behaviour this plan exists to stop. The
-  `verify_tls_sessions_total{outcome="failed"}` count is the evidence a fallback would need.
+| What happened | What the prober does | `tls` | Remembered? |
+|---|---|---|---|
+| `STARTTLS` answered non-`220` (e.g. `454 4.7.0`) | carries on **in the same connection** in plaintext (RFC 3207 §4: the client may continue without TLS) | `fallback` | no — a `454` is "not now"; the next session asks again |
+| `220`, then the handshake fails, times out (`probe.tls_handshake_timeout`, 10 s), or the connection drops | closes, **once** redials the same vetted address set in plaintext and asks everything again | `fallback` | yes — `mx:<host>:tls_broken`, profile TTL (24 h) |
+| host remembered as TLS-broken | plaintext without sending `STARTTLS` | `skipped` | already |
+| the plaintext retry cannot connect either | class **`tls_failed`**: no verdict, `connected:false`, a retry hint, `err` names both failures | `failed` | yes |
+
+Rules the retry keeps:
+
+- **One retry, never a loop**: the rerun is marked and never tries STARTTLS.
+- **The lease is given back first** (plan 028): the failed session releases its lease before the
+  rerun takes its own, so a one-session pace key never waits for itself.
+- **Every token counts**: the rerun draws its tokens like any session, and each one fires `OnPaced`,
+  so the warm-up's `rcpt_paced` total includes the failed attempt's token.
+- **The redial is an ordinary dial**: through the SSRF guard (invariant 2) and over `tcp4`
+  (invariant 3), to the addresses the session already vetted.
+- **Memory fails open**: if Redis is down, `TLSBroken` reads false and the session tries TLS (and
+  falls back if it must); the failed write is ignored.
+- Still never a throttle (invariant 6) and never a verdict from the failed half (invariant 1).
+- `verify_tls_sessions_total` counts each session once: `fallback` for the retry that answered,
+  `failed` only when it did not; the abandoned TLS attempt is not counted.
+
+A silent downgrade is what an active attacker could force — but the probe sends no message and no
+secret, only the RCPT questions a plaintext probe asked before 031; the downgrade's cost is nil, and
+refusing it cost real answers.
 
 ## Not here
 

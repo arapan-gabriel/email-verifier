@@ -23,6 +23,11 @@ type Store interface {
 // Key returns the randomiser key for an MX host.
 func Key(mxHost string) string { return "mx:" + mxHost + ":randomiser" }
 
+// TLSKey returns the key that marks an MX host as one our client cannot
+// complete STARTTLS with (plan 031): set after a failed handshake, read before
+// the next session to that host so it goes plaintext without trying.
+func TLSKey(mxHost string) string { return "mx:" + mxHost + ":tls_broken" }
+
 // Profiles records per-server verdicts.
 type Profiles struct {
 	store Store
@@ -74,4 +79,23 @@ func itoa(n int64) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// TLSBroken reports whether this host is remembered as TLS-broken. A store
+// failure reads as false: the session tries TLS and falls back if it must.
+func (p *Profiles) TLSBroken(ctx context.Context, mxHost string) bool {
+	if p == nil || mxHost == "" {
+		return false
+	}
+	v, ok, err := p.store.Get(ctx, TLSKey(mxHost))
+	return err == nil && ok && v == "1"
+}
+
+// MarkTLSBroken remembers the host for the profile TTL. Best effort.
+func (p *Profiles) MarkTLSBroken(ctx context.Context, mxHost string) {
+	if p == nil || mxHost == "" {
+		return
+	}
+	seconds := int64(p.ttl / time.Second)
+	_, _ = p.store.Do(ctx, "SET", TLSKey(mxHost), "1", "EX", itoa(seconds))
 }

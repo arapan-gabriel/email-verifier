@@ -159,24 +159,27 @@ func TestARequiredUpgradeTurnsARefusalIntoAnAnswer(t *testing.T) {
 	}
 }
 
-// Agreed, then broken → tls_failed: no verdict, a retry hint, no throttle, and
-// no second plaintext session.
-func TestABrokenHandshakeIsTLSFailedAndNeverAVerdict(t *testing.T) {
+// Agreed, then broken → one plaintext retry, like an MTA at `may` (plan 031's
+// regression on Jimdo, 2026-10-02): both verdicts kept, tls=fallback, no
+// throttle, exactly two connections. With the plaintext retry failing too it
+// is tls_failed (prober unit tests); tls_failed itself stays temporary.
+func TestABrokenHandshakeFallsBackToPlaintextOnce(t *testing.T) {
 	host, port, _ := startMX(t, "gmail", withTLS("broken"))
 	resp, rig := probeTLS(t, port, gmailReq(host), nil)
+	want := map[string]prober.Class{"valid@gmail-sim.test": prober.ClassValid, "nope@gmail-sim.test": prober.ClassInvalid}
 	for addr, r := range resp.Results {
-		if r.Class != prober.ClassTLSFailed || r.Accepted != nil || r.TLS != prober.TLSFailed {
-			t.Errorf("%s: %+v, want tls_failed with no verdict", addr, r)
-		}
-		if r.RetryAfterSeconds <= 0 {
-			t.Errorf("%s: no retry hint on tls_failed", addr)
+		if r.Class != want[addr] || r.Accepted == nil || r.TLS != prober.TLSFallback {
+			t.Errorf("%s: %+v, want %s from the plaintext retry with tls=fallback", addr, r, want[addr])
 		}
 	}
 	if rig.pacer.throttled != 0 {
-		t.Errorf("tls_failed reached the pacer as %d throttle signals", rig.pacer.throttled)
+		t.Errorf("a broken handshake reached the pacer as %d throttle signals", rig.pacer.throttled)
 	}
-	if n := rig.dialer.n.Load(); n != 1 {
-		t.Errorf("dialled %d times: a failed upgrade must not retry in plaintext", n)
+	if n := rig.dialer.n.Load(); n != 2 {
+		t.Errorf("dialled %d times, want the session plus exactly one plaintext retry", n)
+	}
+	if o := rig.metrics.outcomes; len(o) != 1 || o[prober.TLSFallback] != 1 {
+		t.Errorf("tls outcomes = %v, want one fallback session and nothing for the failed attempt", o)
 	}
 	if prober.ClassTLSFailed.IsThrottle() || !prober.ClassTLSFailed.IsTemp() {
 		t.Error("tls_failed must be temporary and never a throttle")

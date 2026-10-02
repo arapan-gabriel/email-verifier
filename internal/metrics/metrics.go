@@ -185,7 +185,7 @@ func (r *Registry) LeaseWait(outcome string) {
 }
 
 // TLSSession records how one SMTP session was encrypted (plan 031): none,
-// verified, unverified or failed. Bounded.
+// verified, unverified, fallback, skipped or failed. Bounded.
 func (r *Registry) TLSSession(outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
