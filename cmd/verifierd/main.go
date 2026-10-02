@@ -230,10 +230,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			guard.Observe(rctx, mxHost, reply)
 		},
 		// Plan 033: several domains per session for the families cleared in
-		// families.json, until a receiver refuses a foreign domain as relay.
+		// families.json, one transaction each, until a receiver refuses that.
 		MultiDomain: pacer.MultiDomain,
-		OnFallback: func(family, mxHost, reply string) {
-			logger.Warn("multi_domain_fallback", "family", family, "mx_host", mxHost, "reply", reply)
+		OnFallback: func(family, mxHost, reason, reply string) {
+			logger.Warn("multi_domain_fallback", "family", family, "mx_host", mxHost, "reason", reason, "reply", reply)
 		},
 	})
 

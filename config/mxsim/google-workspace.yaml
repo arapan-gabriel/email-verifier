@@ -3,6 +3,12 @@
 # same server, so per-domain catch-all verdicts can be told apart. With
 # relay_denied set (a test tweak) it becomes a receiver that answers for its own
 # domains only and refuses the rest as relay.
+#
+# One destination domain per transaction, as Google enforces it: on 2026-10-02
+# (Data Scout job 766) every RCPT for a second domain in one transaction was
+# answered "451-4.3.0 Multiple destination domains per transaction is
+# unsupported. Please try again." (the default domain_limit_reply). After RSET
+# and a new MAIL FROM, the next domain is answered on the same connection.
 name: google-workspace
 domains: [ws-a.test, ws-b.test, ws-c.test]
 listen: ["127.0.0.1:2531"]
@@ -15,6 +21,7 @@ behaviour:
   catch_all_domains: [ws-c.test]
   accept: "250 2.1.5 OK"
   reject_unknown: "550 5.1.1 The email account that you tried to reach does not exist"
+  domains_per_transaction: 1
 
 recipients:
   exists: [valid@, ceo@]

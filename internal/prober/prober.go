@@ -176,10 +176,12 @@ type Options struct {
 	MultiDomain func(mxHost string) (family string, ok bool)
 
 	// OnFallback is called once per family, the first time a receiver refuses
-	// a foreign domain as relay and grouping is switched off for that family on
-	// this node until restart (plan 033). The reply arrives redacted. Nil means
-	// nobody is listening.
-	OnFallback func(family, mxHost, reply string)
+	// grouping — a foreign domain as relay, several domains in one transaction,
+	// or a second transaction in one connection — and grouping is switched off
+	// for that family on this node until restart (plan 033). reason is one of
+	// the Fallback* constants; the reply arrives redacted. Nil means nobody is
+	// listening.
+	OnFallback func(family, mxHost, reason, reply string)
 
 	// OnPaced is called once per token the pacer granted — one per question
 	// asked, real or catch-all — with the real MX host. A 250 is never logged
@@ -260,8 +262,25 @@ type TLSRecorder interface {
 // on top of Recorder, like TLSRecorder.
 type MultiDomainRecorder interface {
 	SessionDomains(n int)
-	MultiDomainFallback(family string)
+	MultiDomainFallback(family, reason string)
 }
+
+// Why a family fell back to one domain per session (plan 033). Bounded: they
+// are the metric's reason label.
+const (
+	// FallbackRelay: a receiver refused a domain other than the session's
+	// first as relay — it does not host it.
+	FallbackRelay = "relay"
+	// FallbackDomainLimit: a receiver refused a further domain's RCPT as one
+	// domain too many — Google's "451 4.3.0 Multiple destination domains per
+	// transaction is unsupported", met on 2026-10-02 with every domain in one
+	// transaction, and a guard should it ever say so about a connection.
+	FallbackDomainLimit = "domain_limit"
+	// FallbackMailFrom: a receiver refused the RSET or the second MAIL FROM
+	// that opens the next domain's transaction — one transaction per
+	// connection.
+	FallbackMailFrom = "mail_from"
+)
 
 // auditProbes is the sequence an audit sample asks: the length every domain
 // was asked before plan 029, so audited outcomes compare with the old record.
@@ -513,7 +532,9 @@ func ptrBool(b bool) *bool { return &b }
 // Probe asks one MX about every address in the request.
 //
 // The session is connect → EHLO → MAIL FROM → RCPT × N → (one bogus RCPT when
-// catch-all detection is asked for) → RSET → QUIT. **DATA is never sent**
+// catch-all detection is asked for) → RSET → QUIT; a grouped session (plan
+// 033) repeats RSET → MAIL FROM → RCPTs for each further domain before the
+// final RSET. **DATA is never sent**
 // (invariant 8): the probe asks the question and disconnects.
 func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 	if req.MXHost == "" {
@@ -650,8 +671,13 @@ func (p *Prober) probeDomains(ctx context.Context, req Request) (Response, error
 
 	known := p.opts.Profiles != nil && p.opts.Profiles.IsRandomiser(ctx, req.MXHost)
 	verdicts := map[string]catchAllVerdict{}
+	// refused is set once a receiver refused grouping in this request. The
+	// family's fallback normally says so already; this also holds when the
+	// family has no name to remember it by, so a refusal can never loop.
+	refused := false
 	for len(queue) > 0 {
 		_, grouped := p.grouping(req.MXHost)
+		grouped = grouped && !refused
 		var batch []sessionGroup
 		batch, queue = takeSession(queue, p.opts.maxRCPT(), grouped)
 		for i := range batch {
@@ -669,8 +695,11 @@ func (p *Prober) probeDomains(ctx context.Context, req Request) (Response, error
 				verdicts[d] = v
 			}
 		}
-		// What a receiver refused to relay goes again, one domain per session:
+		// What a receiver refused to group goes again, one domain per session:
 		// the fallback is already in force.
+		if len(rest) > 0 {
+			refused = true
+		}
 		queue = append(regroup(rest, domainOf), queue...)
 	}
 
@@ -779,7 +808,7 @@ func (p *Prober) grouping(mxHost string) (string, bool) {
 }
 
 // fallBack switches grouping off for mxHost's family on this node, once.
-func (p *Prober) fallBack(mxHost, reply string) {
+func (p *Prober) fallBack(mxHost, reason, reply string) {
 	family, _ := p.grouping(mxHost)
 	if family == "" {
 		return
@@ -788,14 +817,14 @@ func (p *Prober) fallBack(mxHost, reply string) {
 		return
 	}
 	if rec, ok := p.opts.Metrics.(MultiDomainRecorder); ok {
-		rec.MultiDomainFallback(family)
+		rec.MultiDomainFallback(family, reason)
 	}
 	if p.opts.OnFallback != nil {
 		limit := p.opts.ReplyMaxChars
 		if limit == 0 {
 			limit = DefaultReplyMaxChars
 		}
-		p.opts.OnFallback(family, mxHost, redactReply(reply, limit))
+		p.opts.OnFallback(family, mxHost, reason, redactReply(reply, limit))
 	}
 }
 
@@ -810,6 +839,23 @@ func relayRefusal(code int, text string) bool {
 	return code >= 400 && relayRe.MatchString(text)
 }
 
+// domainLimitRe matches a receiver refusing a further destination domain in one
+// transaction or session: Google's "451-4.3.0 Multiple destination domains per
+// transaction is unsupported. Please try again." and the "too many domains"
+// wording others use.
+var domainLimitRe = regexp.MustCompile(`(?i)multiple destination domains|too many (destination |recipient )?domains`)
+
+// domainLimitRefusal reports whether a RCPT reply to a domain other than the
+// session's first refused it as one domain too many rather than answering it.
+// A bare 4.3.0 counts too: on that RCPT the receiver has given no answer about
+// the mailbox either way, and asking it again alone costs one session at worst.
+func domainLimitRefusal(code int, text string) bool {
+	if code < 400 {
+		return false
+	}
+	return domainLimitRe.MatchString(text) || (code < 500 && EnhancedCode(text) == "4.3.0")
+}
+
 // catchAllVerdict is what the bogus probes established about this domain and
 // the server behind it.
 type catchAllVerdict struct {
@@ -818,18 +864,15 @@ type catchAllVerdict struct {
 }
 
 // session runs one SMTP dialogue over one connection, about one domain's
-// addresses or — grouped, plan 033 — several domains' in turn. It returns the
-// results, each asked domain's catch-all verdict, and the addresses it left
-// unasked because the receiver refused a foreign domain as relay; those go
-// again in sessions of their own.
+// addresses or — grouped, plan 033 — several domains' in turn, each in a
+// transaction of its own. It returns the results, each asked domain's catch-all
+// verdict, and the addresses it left unasked because the receiver refused
+// grouping (a foreign domain as relay, a second domain in a transaction, a
+// second transaction); those go again in sessions of their own.
 func (p *Prober) session(ctx context.Context, req Request, groups []sessionGroup, grouped bool) (map[string]Result, map[string]catchAllVerdict, []string) {
 	var addrs []string
-	var groupOf []int
-	for gi, g := range groups {
+	for _, g := range groups {
 		addrs = append(addrs, g.addrs...)
-		for range g.addrs {
-			groupOf = append(groupOf, gi)
-		}
 	}
 	out := make(map[string]Result, len(addrs))
 
@@ -1083,109 +1126,158 @@ func (p *Prober) session(ctx context.Context, req Request, groups []sessionGroup
 	}
 
 	// Only past this point may a 5xx mean "no such mailbox" (invariant 1).
-	policyRun, stopped := 0, false
-	var relayed []string
-	relayStop := false
-	for i, addr := range addrs {
-		// One token per recipient: the band is a rate of questions asked, and
-		// batching many RCPTs down one connection must not spend less budget
-		// than asking them one at a time would.
-		if i > 0 {
-			if err := p.acquire(ctx, req); err != nil {
-				for _, rest := range addrs[i:] {
-					out[rest] = Result{Connected: ptrBool(false), Class: budgetClass(err), Err: err.Error()}
+	//
+	// One transaction per domain (plan 033, reworked 2026-10-02). Google
+	// answers every RCPT for a second domain in one transaction with "451-4.3.0
+	// Multiple destination domains per transaction is unsupported", so each
+	// domain after the first gets RSET and a fresh MAIL FROM before its RCPTs
+	// and its catch-all question: one connection, one lease, one TLS
+	// handshake, several transactions.
+	policyRun := 0
+	asked := 0 // RCPTs sent; the first used the token taken before the socket
+	verdicts := map[string]catchAllVerdict{}
+	// unattempted ends the session early: every address from addrs[from:] on
+	// comes back with no answer, never a verdict.
+	unattempted := func(from int, r Result) (map[string]Result, map[string]catchAllVerdict, []string) {
+		for _, rest := range addrs[from:] {
+			out[rest] = r
+		}
+		return out, verdicts, nil
+	}
+	// regroupFrom hands addrs[from:] back to be asked one domain per session,
+	// grouping now being off for this family.
+	regroupFrom := func(from int, reason, reply string) (map[string]Result, map[string]catchAllVerdict, []string) {
+		p.fallBack(req.MXHost, reason, reply)
+		p.teardown(conn)
+		return out, verdicts, addrs[from:]
+	}
+	i := 0 // index into addrs of the next address to ask
+	for gi, g := range groups {
+		if gi > 0 {
+			// The next domain's transaction. A receiver that will not open a
+			// second one in this connection has refused grouping, not anything
+			// about us or a mailbox: the rest go again one domain per session.
+			// A dropped connection or a throttle is the session failing, and
+			// leaves the rest unattempted.
+			for _, cmd := range []string{"RSET", "MAIL FROM:<" + from + ">"} {
+				code, text, ok = step(cmd)
+				if !ok {
+					return unattempted(i, Result{Connected: ptrBool(false), Class: classifyNetErr(netErr), Err: netErr.Error()})
 				}
-				return out, nil, nil
+				if code == 250 {
+					continue
+				}
+				if class := p.beforeRCPT(code, text); code == 421 || class.IsThrottle() {
+					p.observe(ctx, req.MXHost, class)
+					return unattempted(i, Result{
+						Connected:         ptrBool(false),
+						Class:             class,
+						SMTPCode:          code,
+						EnhancedCode:      EnhancedCode(text),
+						Reply:             text,
+						RetryAfterSeconds: retryHint(class, text, p.opts.deferralRetry()),
+					})
+				}
+				return regroupFrom(i, FallbackMailFrom, text)
 			}
 		}
-		code, text, ok = step("RCPT TO:<" + addr + ">")
-		if !ok {
-			// The connection died mid-batch: the addresses already answered
-			// keep their answers, the rest are unattempted.
-			for _, rest := range addrs[i:] {
-				out[rest] = Result{
-					Connected: ptrBool(false),
-					Class:     classifyNetErr(netErr),
-					Err:       netErr.Error(),
+		for range g.addrs {
+			addr := addrs[i]
+			// One token per recipient: the band is a rate of questions asked,
+			// and batching many RCPTs down one connection must not spend less
+			// budget than asking them one at a time would.
+			if asked > 0 {
+				if err := p.acquire(ctx, req); err != nil {
+					return unattempted(i, Result{Connected: ptrBool(false), Class: budgetClass(err), Err: err.Error()})
 				}
 			}
-			return out, nil, nil
-		}
-		r := rcptResult(code, text, p.opts.deferralRetry(), p.identity())
-		// A receiver refusing a domain other than the session's first as relay
-		// answered about our question, not the mailbox (invariant 1): policy,
-		// never invalid — and not about our IP either, so not IP health.
-		relay := grouped && groupOf[i] > 0 && relayRefusal(code, text)
-		if relay {
-			r.Class, r.Accepted, r.RetryAfterSeconds = ClassPolicy, nil, 0
-		}
-		p.observe(ctx, req.MXHost, r.Class)
-		if r.Class == ClassPolicy && !relay {
-			// A policy reply is about our client. It never moves the pacer
-			// (invariant 6); it feeds IP health and the stand-down, and
-			// nothing else.
-			p.refused(req.MXHost, r.Class, text)
-			if p.opts.Health != nil {
-				p.opts.Health.ObservePolicy(req.MXHost)
+			asked++
+			code, text, ok = step("RCPT TO:<" + addr + ">")
+			if !ok {
+				// The connection died mid-batch: the addresses already answered
+				// keep their answers, the rest are unattempted.
+				return unattempted(i, Result{Connected: ptrBool(false), Class: classifyNetErr(netErr), Err: netErr.Error()})
 			}
-		}
-		out[addr] = r
-		if relay {
-			// Asked once: grouping is off for this family from here on, and
-			// what is left of this session goes again one domain at a time.
-			p.fallBack(req.MXHost, text)
-			relayed, relayStop = addrs[i+1:], true
-			break
-		}
+			if grouped && gi > 0 && !relayRefusal(code, text) && domainLimitRefusal(code, text) {
+				// Not an answer about this mailbox at all: the receiver will not
+				// take this domain beside the others. This address and the rest
+				// go again one domain per session, inside this request.
+				return regroupFrom(i, FallbackDomainLimit, text)
+			}
+			r := rcptResult(code, text, p.opts.deferralRetry(), p.identity())
+			// A receiver refusing a domain other than the session's first as
+			// relay answered about our question, not the mailbox (invariant 1):
+			// policy, never invalid — and not about our IP either, so not IP
+			// health.
+			relay := grouped && gi > 0 && relayRefusal(code, text)
+			if relay {
+				r.Class, r.Accepted, r.RetryAfterSeconds = ClassPolicy, nil, 0
+			}
+			p.observe(ctx, req.MXHost, r.Class)
+			if r.Class == ClassPolicy && !relay {
+				// A policy reply is about our client. It never moves the pacer
+				// (invariant 6); it feeds IP health and the stand-down, and
+				// nothing else.
+				p.refused(req.MXHost, r.Class, text)
+				if p.opts.Health != nil {
+					p.opts.Health.ObservePolicy(req.MXHost)
+				}
+			}
+			out[addr] = r
+			i++
+			if relay {
+				// Asked once: grouping is off for this family from here on, and
+				// what is left of this session goes again one domain at a time.
+				// The refused domain is not asked again — the receiver does not
+				// host it.
+				return regroupFrom(i, FallbackRelay, text)
+			}
 
-		// Consecutive, not cumulative: one policy reply among ordinary answers
-		// is a per-recipient quirk — a distribution list rejecting external
-		// senders, say — not the server refusing the client.
-		if r.Class == ClassPolicy {
-			policyRun++
-		} else {
-			policyRun = 0
-		}
-		if stop := p.opts.policyStopFor(req); stop > 0 && policyRun >= stop {
-			reason := fmt.Sprintf("not attempted: %d consecutive policy replies from this server", policyRun)
-			for _, rest := range addrs[i+1:] {
-				out[rest] = Result{
+			// Consecutive, not cumulative: one policy reply among ordinary
+			// answers is a per-recipient quirk — a distribution list rejecting
+			// external senders, say — not the server refusing the client.
+			if r.Class == ClassPolicy {
+				policyRun++
+			} else {
+				policyRun = 0
+			}
+			if stop := p.opts.policyStopFor(req); stop > 0 && policyRun >= stop {
+				// A server refusing us cannot tell us which local parts exist,
+				// so the catch-all probes are pointless too — for every domain
+				// left in the session.
+				p.teardown(conn)
+				return unattempted(i, Result{
 					Connected: ptrBool(false),
 					Class:     ClassPolicy,
-					Err:       reason,
-				}
+					Err:       fmt.Sprintf("not attempted: %d consecutive policy replies from this server", policyRun),
+				})
 			}
-			// A server refusing us cannot tell us which local parts exist, so
-			// the catch-all probes are pointless too.
-			stopped = true
-			break
+		}
+
+		// The catch-all question for this domain (plan 029), inside its own
+		// transaction, after its real RCPTs.
+		if g.askCatchAll {
+			verdicts[g.domain] = p.askCatchAll(ctx, req, g.domain, g.addrs, out, func(rcpt string) (int, string, bool) {
+				return step("RCPT TO:<" + rcpt + ">")
+			})
 		}
 	}
 
-	// The catch-all question per domain (plan 029), after every real RCPT.
-	// After a relay refusal only the first domain is asked: the receiver has
-	// just said it does not answer for the others.
-	verdicts := map[string]catchAllVerdict{}
-	for gi, g := range groups {
-		if !g.askCatchAll || stopped || (relayStop && gi > 0) {
-			continue
-		}
-		verdicts[g.domain] = p.askCatchAll(ctx, req, g.domain, g.addrs, out, func(rcpt string) (int, string, bool) {
-			return step("RCPT TO:<" + rcpt + ">")
-		})
-	}
+	p.teardown(conn)
+	return out, verdicts, nil
+}
 
-	// RSET abandons the transaction explicitly rather than leaving a bare QUIT
-	// after RCPTs, which reads as an aborted delivery attempt in a server log.
-	//
-	// Both writes are best-effort and get their own short deadline: the answers
-	// are already in hand, and a tarpitting server that stops reading must not
-	// be able to hold the session — and its slot in the rate budget — open for
-	// the remainder of the session timeout.
+// teardown abandons the transaction with RSET rather than a bare QUIT after
+// RCPTs, which reads as an aborted delivery attempt in a server log.
+//
+// Both writes are best-effort and get their own short deadline: the answers are
+// already in hand, and a tarpitting server that stops reading must not be able
+// to hold the session — and its slot in the rate budget — open for the
+// remainder of the session timeout.
+func (p *Prober) teardown(conn net.Conn) {
 	_ = conn.SetWriteDeadline(time.Now().Add(teardownTimeout))
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
-	return out, verdicts, relayed
 }
 
 // askCatchAll settles whether this session's 250s mean anything (plan 029).

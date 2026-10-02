@@ -175,15 +175,24 @@ every domain in the request).
 Whether the domains share an SMTP session is **this service's decision, per receiving system**:
 only a family with `multi_domain: true` in `internal/pacer/families.json` (`@google` today) is
 asked about several domains in one session — whole domains packed up to
-`probe.max_rcpt_per_session`, then each asked domain's catch-all question after the real `RCPT`s.
+`probe.max_rcpt_per_session`, **each domain in a transaction of its own**: the first after the
+session's `MAIL FROM`, every further one after `RSET` and a new `MAIL FROM` (same sender), each
+followed by its own catch-all question. Google refuses a second destination domain in one
+transaction (`451-4.3.0 Multiple destination domains per transaction is unsupported`, 2026-10-02).
 Any other host is served one session per domain: the same answers, leases and tokens as separate
 requests. One lease per session and one token per `RCPT` either way. A policy-stop ends the session
 for every domain in it. A receiver refusing a domain other than the session's first **as relay**
 (`relay access denied`, `relaying denied`, `5.7.64`, `not permitted to relay`, …) gets that address
 `class:policy` — never `invalid` — the rest of the session is asked again one domain per session,
 and grouping is switched off for that family on this node until restart (counter
-`verify_multi_domain_fallbacks_total`, log `multi_domain_fallback`). A relay refusal does not feed
-IP health or the stand-down: it is about the question, not our reputation.
+`verify_multi_domain_fallbacks_total{reason="relay"}`, log `multi_domain_fallback`). Two more refusals
+of grouping switch it off the same way, but lose nothing: a `RCPT` for a further domain answered as
+one domain too many (`4.3.0`, "multiple destination domains", "too many domains" — `reason="domain_limit"`)
+and a refused `RSET`/`MAIL FROM` opening the next transaction (`reason="mail_from"`) send that address
+and the rest of the session to be asked again one domain per session **inside the same request**.
+None of the three feeds IP health or the stand-down: they are about the question, not our
+reputation. A session lost mid-way (a dropped connection, a `421`) leaves the domains it had not
+reached unattempted — no verdict, a retry hint where there is one.
 
 A caller must not send `domains` to a service older than plan 033 — `DisallowUnknownFields` makes it
 a `400` — which is why Data Scout gates it behind `VERIFY_MULTI_DOMAIN_SESSIONS`.

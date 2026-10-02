@@ -88,6 +88,22 @@ type Behaviour struct {
 	// refuses to relay for the rest (plan 033). Empty accepts every domain,
 	// which is how mxsim behaved before.
 	RelayDenied string `yaml:"relay_denied" json:"relay_denied"`
+	// DomainsPerTransaction, when positive, caps the distinct recipient
+	// domains one transaction (MAIL FROM to RSET/DATA) may name; a RCPT for
+	// one more gets DomainLimitReply. Google allows one: on 2026-10-02 it
+	// answered every second domain in a transaction with "451-4.3.0 Multiple
+	// destination domains per transaction is unsupported" (plan 033). Zero is
+	// unlimited, as mxsim was before.
+	DomainsPerTransaction int `yaml:"domains_per_transaction" json:"domains_per_transaction"`
+	// DomainLimitReply is that refusal; "\n" separates the lines of a
+	// multi-line reply. Empty uses Google's.
+	DomainLimitReply string `yaml:"domain_limit_reply" json:"domain_limit_reply"`
+	// TransactionsPerConnection, when positive, caps the MAIL FROMs one
+	// connection may open; one more gets TransactionLimitReply (plan 033).
+	// Zero is unlimited.
+	TransactionsPerConnection int `yaml:"transactions_per_connection" json:"transactions_per_connection"`
+	// TransactionLimitReply is that refusal. Empty uses a generic 452.
+	TransactionLimitReply string `yaml:"transaction_limit_reply" json:"transaction_limit_reply"`
 	// TimeoutHold is how long a "timeout" recipient is left hanging before the
 	// server gives up on the connection. The client should time out first.
 	TimeoutHold Duration `yaml:"timeout_hold" json:"timeout_hold"`

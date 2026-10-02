@@ -55,6 +55,8 @@ type Stats struct {
 	Accepted          int64             `json:"accepted"`
 	Rejected          int64             `json:"rejected"`
 	RelayDenied       int64             `json:"relay_denied"`
+	DomainLimited     int64             `json:"domain_limited"`
+	MailRefused       int64             `json:"mail_refused"`
 	Throttled         int64             `json:"throttled"`
 	TempErrors        int64             `json:"temp_errors"`
 	Greylisted        int64             `json:"greylisted"`
@@ -479,6 +481,44 @@ func (e *Engine) OnRcpt(ip, addr string, perConn int) Verdict {
 		e.countCode(v)
 		return v
 	}
+}
+
+// DefaultDomainLimitReply is Google's refusal of a second destination domain
+// in one transaction, as the node read it on 2026-10-02 (plan 033).
+const DefaultDomainLimitReply = "451-4.3.0 Multiple destination domains per transaction is unsupported. Please\n" +
+	"451 4.3.0 try again. mxsim - gsmtp"
+
+// DefaultTransactionLimitReply refuses one MAIL FROM too many in a connection.
+const DefaultTransactionLimitReply = "452 4.3.2 Only one transaction per connection, please reconnect"
+
+// OnDomainLimit answers a RCPT for one destination domain too many in the
+// current transaction. It is counted as a RCPT the server saw.
+func (e *Engine) OnDomainLimit() Verdict {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.st.Rcpt++
+	e.st.DomainLimited++
+	r := e.prof.Behaviour.DomainLimitReply
+	if r == "" {
+		r = DefaultDomainLimitReply
+	}
+	v := Verdict{Action: ActionReply, Reply: r, Reason: "domain_limit"}
+	e.countCode(v)
+	return v
+}
+
+// OnTransactionLimit answers one MAIL FROM too many in a connection.
+func (e *Engine) OnTransactionLimit() Verdict {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.st.MailRefused++
+	r := e.prof.Behaviour.TransactionLimitReply
+	if r == "" {
+		r = DefaultTransactionLimitReply
+	}
+	v := Verdict{Action: ActionReply, Reply: r, Reason: "transaction_limit"}
+	e.countCode(v)
+	return v
 }
 
 func (e *Engine) CountBadSequence() {

@@ -2,6 +2,7 @@ package prober_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -17,11 +18,18 @@ import (
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 )
 
-// startWorkspace runs mxsim's Google-like profile (one system, many domains)
-// and returns its port and engine, whose Stats are what the server really saw.
+// startWorkspace runs mxsim's Google-like profile (one system, many domains,
+// one domain per transaction) and returns its port and engine, whose Stats are
+// what the server really saw.
 func startWorkspace(t *testing.T, tweak ...func(*policy.Profile)) (string, *policy.Engine) {
 	t.Helper()
-	p, err := policy.LoadProfile(filepath.Join("..", "..", "config", "mxsim", "google-workspace.yaml"))
+	return startProfile(t, "google-workspace", tweak...)
+}
+
+// startProfile runs the named profile from config/mxsim.
+func startProfile(t *testing.T, name string, tweak ...func(*policy.Profile)) (string, *policy.Engine) {
+	t.Helper()
+	p, err := policy.LoadProfile(filepath.Join("..", "..", "config", "mxsim", name+".yaml"))
 	if err != nil {
 		t.Fatalf("load profile: %v", err)
 	}
@@ -91,13 +99,13 @@ func (m *mdRecorder) SessionDomains(n int) {
 	m.domains = append(m.domains, n)
 }
 
-func (m *mdRecorder) MultiDomainFallback(family string) {
+func (m *mdRecorder) MultiDomainFallback(family, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.fallbacks = append(m.fallbacks, family)
+	m.fallbacks = append(m.fallbacks, family+"/"+reason)
 }
 
-type fallback struct{ family, host, reply string }
+type fallback struct{ family, host, reason, reply string }
 
 type rig struct {
 	p         *prober.Prober
@@ -121,8 +129,8 @@ func newRig(port string, multi bool, extra ...func(*prober.Options)) *rig {
 		Pacer:       r.pacer,
 		Metrics:     r.rec,
 		MultiDomain: func(string) (string, bool) { return "@google", multi },
-		OnFallback: func(family, host, reply string) {
-			r.fallbacks = append(r.fallbacks, fallback{family, host, reply})
+		OnFallback: func(family, host, reason, reply string) {
+			r.fallbacks = append(r.fallbacks, fallback{family, host, reason, reply})
 		},
 		OnRefusal: func(_, reply string) { r.refusals = append(r.refusals, reply) },
 	}
@@ -203,6 +211,87 @@ func TestThreeWorkspaceDomainsShareOneSession(t *testing.T) {
 	if !reflect.DeepEqual(r.rec.domains, []int{3}) {
 		t.Errorf("session_domains observed %v, want [3]", r.rec.domains)
 	}
+	if st := eng.Stats(); st.DomainLimited != 0 || len(r.fallbacks) != 0 {
+		t.Errorf("domain-limit refusals %d, fallbacks %+v — want none", st.DomainLimited, r.fallbacks)
+	}
+}
+
+// The production failure of 2026-10-02 (Data Scout job 766, flag on): 83
+// Google Workspace domains went into 31 sessions with every domain in one
+// transaction, and Google answered each RCPT for a second domain "451-4.3.0
+// Multiple destination domains per transaction is unsupported. Please try
+// again." — 52 of 83 addresses came back unknown, and the relay fallback never
+// fired because a 4xx deferral is not a relay refusal. The same shape against
+// a server enforcing Google's rule: every address answered, in one connection,
+// and never once the refusal.
+func TestGoogleDomainPerTransactionRuleIsHonoured(t *testing.T) {
+	port, eng := startWorkspace(t, func(p *policy.Profile) {
+		p.Domains = nil // every domain is Google's, as Workspace's are
+		p.Behaviour.CatchAllDomains = nil
+	})
+	r := newRig(port, true)
+	req := prober.Request{MXHost: "aspmx.l.google.com"}
+	want := map[string][3]any{}
+	for i := range 6 {
+		d := fmt.Sprintf("ws-%d.test", i)
+		req.Domains = append(req.Domains, prober.DomainGroup{
+			Domain: d, Emails: []string{"valid@" + d, "nope@" + d}, NeedCatchAll: true,
+		})
+		want["valid@"+d] = [3]any{prober.ClassValid, true, false}
+		want["nope@"+d] = [3]any{prober.ClassInvalid, false, false}
+	}
+	resp := probe(t, r.p, req)
+	if got := verdicts(resp); !reflect.DeepEqual(got, want) {
+		t.Errorf("verdicts\n got %v\nwant %v", got, want)
+	}
+	st := eng.Stats()
+	if st.DomainLimited != 0 {
+		t.Errorf("Google refused %d RCPTs as a second domain in a transaction, want 0", st.DomainLimited)
+	}
+	if st.Conns != 1 || r.pacer.leases != 1 || !reflect.DeepEqual(r.rec.domains, []int{6}) {
+		t.Errorf("connections %d, leases %d, session_domains %v — want 1, 1, [6]", st.Conns, r.pacer.leases, r.rec.domains)
+	}
+	if len(r.fallbacks) != 0 {
+		t.Errorf("fallbacks %+v, want none", r.fallbacks)
+	}
+	if int64(len(r.pacer.tokens)) != st.Rcpt {
+		t.Errorf("tokens %d for %d RCPTs the server saw", len(r.pacer.tokens), st.Rcpt)
+	}
+}
+
+// A system that takes one transaction per connection refuses the second MAIL
+// FROM: grouping falls back for the family (reason mail_from) and the rest are
+// answered one domain per session inside the same request — no address lost.
+func TestASecondTransactionRefusedFallsBackAndAnswersEverything(t *testing.T) {
+	port, eng := startProfile(t, "one-transaction")
+	r := newRig(port, true)
+	resp := probe(t, r.p, threeDomains())
+
+	want := map[string][3]any{
+		"valid@ws-a.test":  {prober.ClassValid, true, false},
+		"nope@ws-a.test":   {prober.ClassInvalid, false, false},
+		"ceo@ws-b.test":    {prober.ClassValid, true, false},
+		"ghost@ws-b.test":  {prober.ClassInvalid, false, false},
+		"anyone@ws-c.test": {prober.ClassValid, true, true},
+	}
+	if got := verdicts(resp); !reflect.DeepEqual(got, want) {
+		t.Errorf("verdicts\n got %v\nwant %v", got, want)
+	}
+	if len(r.fallbacks) != 1 || r.fallbacks[0].reason != prober.FallbackMailFrom ||
+		!reflect.DeepEqual(r.rec.fallbacks, []string{"@google/mail_from"}) {
+		t.Fatalf("fallbacks %+v / counted %v, want one @google mail_from", r.fallbacks, r.rec.fallbacks)
+	}
+	// Refusing a second transaction is not a refusal of our IP.
+	if len(r.refusals) != 0 {
+		t.Errorf("the stand-down saw %v", r.refusals)
+	}
+	// The grouped session (ws-a answered), then ws-b and ws-c alone.
+	if st := eng.Stats(); st.Conns != 3 || st.MailRefused != 1 {
+		t.Errorf("connections %d, refused MAIL FROMs %d — want 3 and 1", st.Conns, st.MailRefused)
+	}
+	if int64(len(r.pacer.tokens)) != eng.Stats().Rcpt {
+		t.Errorf("tokens %d for %d RCPTs the server saw", len(r.pacer.tokens), eng.Stats().Rcpt)
+	}
 }
 
 // A family without multi_domain gets one session per domain — the same answers.
@@ -272,8 +361,8 @@ func TestARelayRefusalIsPolicyAndEndsGrouping(t *testing.T) {
 			t.Errorf("%s = %s catch_all %v, want %s and an honest server", addr, got.Class, got.CatchAll, want)
 		}
 	}
-	if len(r.fallbacks) != 1 || r.fallbacks[0].family != "@google" ||
-		!reflect.DeepEqual(r.rec.fallbacks, []string{"@google"}) {
+	if len(r.fallbacks) != 1 || r.fallbacks[0].family != "@google" || r.fallbacks[0].reason != prober.FallbackRelay ||
+		!reflect.DeepEqual(r.rec.fallbacks, []string{"@google/relay"}) {
 		t.Fatalf("fallbacks %+v / counted %v, want one for @google", r.fallbacks, r.rec.fallbacks)
 	}
 	if r.fallbacks[0].reply == "" || r.fallbacks[0].reply == "550 <valid@ws-b.test>: relay not permitted" {

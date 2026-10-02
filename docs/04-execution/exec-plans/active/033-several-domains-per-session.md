@@ -1,6 +1,6 @@
 # Plan 033 — Several domains per session
 
-**Status:** Code complete 2026-10-02 — deploy, the EOP measurement (Design 4) and the manual-test gate pending (written 2026-10-01)
+**Status:** Reworked after its production failure — code complete 2026-10-02 (one transaction per domain); redeploy and the manual-test gate pending, then Data Scout's flag back on. EOP measurement (Design 4) still pending (written 2026-10-01)
 **Phase:** B
 **Depends on:** 026 (pace keys), 028 (one connection per pace key), 029 (catch-all asked once) —
 026 complete, 028 and 029 planned. Has a **Data Scout companion** (below).
@@ -60,14 +60,23 @@ stays per host.
    `mx_host` maps to a family without it is served as **one session per domain** on the same
    connection budget — correct, just not faster — so Data Scout can group optimistically without
    knowing the table.
-3. **The session.** One connect/EHLO/`MAIL FROM`; then for each domain its real `RCPT`s; then
-   plan 029's catch-all sequence for each domain that had a `250`, with `bogusAddress(domain)`.
+3. **The session.** *(Reworked 2026-10-02 — see "Production failure" below; the original text put
+   every domain in one transaction.)* One connect/EHLO (and STARTTLS, plan 031); then **one
+   transaction per domain**: the first domain after the session's `MAIL FROM`, every further one
+   after `RSET` and a new `MAIL FROM` with the same sender; each transaction holds that domain's real
+   `RCPT`s and then plan 029's catch-all sequence for it, with `bogusAddress(domain)`.
    Total `RCPT`s per session stay ≤ `max_rcpt_per_session`; the batch is split across sessions
    by whole domains where possible. Policy-stop still ends the session — for every domain in it —
    since a refusal of our client is not per domain. A relay-shaped refusal (`5.7.1 relay`,
    `5.7.64`, "not permitted to relay") on a foreign-domain `RCPT` is `ClassPolicy` for that
    address and **stops grouping for that family on this node** (counter + log), falling back to
    one domain per session until restart: a receiver that does not accept it gets asked once.
+   Two more **grouping refusals** fall back the same way (same mechanism, same counter, a `reason`
+   label): a further domain's `RCPT` answered as one domain too many (`4.3.0`, "multiple destination
+   domains", "too many domains") and a refused `RSET`/`MAIL FROM` opening the next transaction. For
+   both, that address and the rest are **re-asked one domain per session within the same request** —
+   neither is an answer about a mailbox. A session lost mid-way (connection dropped, `421`) leaves the
+   domains it had not reached unattempted, never verdicts.
 4. **EOP measurement step (no customer traffic).** From the node, with the same tooling plan 026's
    gate used: one session opened to a tenant MX of a domain we control or one already answered
    cleanly, `RCPT` an address at a *second* tenant whose answer is known from Data Scout's
@@ -75,7 +84,7 @@ stays per host.
    `multi_domain: true` in a follow-up change; relay refusal → EOP stays one domain per session,
    closed; anything else → closed and noted.
 5. **Observability.** `verify_session_domains` histogram (domains per session), counter
-   `verify_multi_domain_fallbacks_total{family}`; the session debug line lists domain count, not
+   `verify_multi_domain_fallbacks_total{family, reason}` (`relay`, `domain_limit`, `mail_from`); the session debug line lists domain count, not
    domains.
 
 ## Data Scout companion
@@ -114,12 +123,27 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
   - old-shape request byte-for-byte unchanged; both shapes at once → 400
 - [x] `docs/06-generated/api.md` — the `domains` shape and its rules
 - [x] `docs/06-generated/metrics.md`; ADR-006 note (the seam stays one MX per request)
-- [ ] Deploy, then the Data Scout companion with its flag off → on — the companion is built
-      (data-scout `27d05b7`, `VERIFY_MULTI_DOMAIN_SESSIONS`, default off); deploy not done here
+- [x] Deploy, then the Data Scout companion with its flag off → on — deployed 2026-10-02 13:18 UTC,
+      flag on for job 766: **failed** (below), flag off again
+- [x] **Rework (2026-10-02): one transaction per domain** — `RSET` + `MAIL FROM` before each further
+      domain; grouping refusals `domain_limit` / `mail_from` re-asked singly in the same request and
+      falling back the family with a `reason` label; mid-session loss → unattempted
+- [x] mxsim: `behaviour.domains_per_transaction` (+ `domain_limit_reply`, default Google's 451, two
+      lines) on in `google-workspace.yaml`; `behaviour.transactions_per_connection` (+
+      `transaction_limit_reply`) and profile `config/mxsim/one-transaction.yaml`; stats
+      `domain_limited`, `mail_refused`
+- [x] Tests for the rework: the production failure reproduced (`TestGoogleDomainPerTransactionRuleIsHonoured`
+      — 6 domains, one connection, zero 451s, every verdict), second transaction refused → `mail_from`
+      fallback with every address answered, a per-connection domain limit → re-asked alone, connection
+      lost at `RSET` and `421` at the second `MAIL FROM` → unattempted, the exact dialogue
+      (`RSET`, `MAIL FROM` per domain), `domainLimitRefusal` table, mxsim's two limits
+- [ ] Redeploy the rework, then Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` back on (no Data Scout change
+      needed: the HTTP contract is unchanged, `27d05b7` works as is)
 
 ## Definition of Done
 
-- [ ] **Manual-test gate:** with the Data Scout companion on, a run containing ≥ 30 Google
+- [ ] **Manual-test gate** (first attempt failed 2026-10-02, job 766 — below; to be re-run after the
+      rework deploys)**:** with the Data Scout companion on, a run containing ≥ 30 Google
       Workspace domains: `rcpt_paced` shows those `RCPT`s in ≤ ⌈30 × 2 / 10⌉ sessions rather than
       30, every Google domain's verdict matches what a one-domain session gives (re-probe a sample
       of 10 the old way), and Google's wall clock per domain before/after is recorded. The EOP
@@ -136,9 +160,11 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
 - **Why the verifier decides grouping, not Data Scout.** Whether a receiver accepts foreign-domain
   `RCPT`s is a property of the receiver, measured here; Data Scout grouping "too much" degrades to
   today's behaviour instead of to wrong answers.
-- **Why not one transaction per domain with `RSET` between.** It would be safer on paper, but a
+- ~~**Why not one transaction per domain with `RSET` between.** It would be safer on paper, but a
   `RSET` between recipients is itself an unusual pattern for inbound MX and buys nothing a
-  per-address `RCPT` answer does not already give; kept as a fallback if a receiver needs it.
+  per-address `RCPT` answer does not already give; kept as a fallback if a receiver needs it.~~
+  **Wrong, and it was the first receiver:** Google refuses a second destination domain in one
+  transaction. One transaction per domain is now the only grouped shape (rework below).
 - **Harvesting shape.** Many domains in one session is ordinary for a relay delivering a
   newsletter, not for a harvester — but it is still more `RCPT`s per connection, so the existing
   `max_rcpt_per_session` cap is the ceiling and is not raised by this plan.
@@ -174,3 +200,53 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
   defect this exists to prevent.
 - **Enabling:** nothing on the node (`@google` ships cleared; no config key). Turn on Data Scout's
   `VERIFY_MULTI_DOMAIN_SESSIONS` only after this deploys. Turning it off again is the kill switch.
+
+### Production failure (2026-10-02)
+
+Deployed 13:18 UTC; Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` on for **job 766 (13:29-13:32 UTC)**.
+Grouping worked mechanically — **83 Google Workspace domains in 31 sessions** — but Google answered
+every `RCPT` for a second domain in the same transaction with:
+
+```
+451-4.3.0 Multiple destination domains per transaction is unsupported. Please try again.
+```
+
+**52 of the 83 addresses came back unknown/deferred.** The relay fallback did not fire: the reply is a
+4xx deferral, not a relay refusal, so nothing stopped the next session from doing the same. No
+verdict was wrong (a 4xx is never `invalid`, invariant 1) — the cost was answers, not correctness.
+Data Scout's flag was turned off again.
+
+### Rework (2026-10-02)
+
+- **One connection, one transaction per domain.** For each domain after the first: `RSET`, `MAIL
+  FROM` (same sender), that domain's `RCPT`s, then its 029 catch-all probes — the catch-all question
+  moved from after every domain's `RCPT`s into each domain's own transaction. Still one lease per
+  connection (028), one token per `RCPT` with `OnPaced` for each (026/029), one STARTTLS per
+  connection including the `tls_broken` skip (031). A single-domain session is byte for byte what it
+  was (the `TestEachDomainGetsItsOwnTransaction` dialogue pins the grouped one).
+- **Grouping refusals.** `domainLimitRefusal`: code ≥ 400 and "multiple destination domains" / "too
+  many (destination|recipient) domains", or a 4xx with enhanced code `4.3.0`, on a non-first domain's
+  `RCPT` in a grouped session (a relay refusal is checked first and keeps its old handling). A bare
+  `4.3.0` counts because on that `RCPT` the receiver has answered nothing about the mailbox either
+  way; the cost of a false match is one family ungrouped until restart. A refused `RSET` or `MAIL
+  FROM` opening the next transaction is the other refusal — unless it is a `421` or a throttle class,
+  which is the session failing (pacer told, rest unattempted with a retry hint). Both refusals call
+  the existing `fallBack` with `FallbackDomainLimit` / `FallbackMailFrom`; the address and the rest of
+  the session return to `probeDomains`' queue and are asked one domain per session in the same
+  request. `probeDomains` also stops grouping for the rest of the request after any refusal, so a
+  family with no name to remember cannot loop.
+- **Relay refusals unchanged** (the refused address `policy`, not re-asked — the receiver does not
+  host it), now counted `reason="relay"`.
+- **Mid-session loss.** A dropped connection at `RSET`/`MAIL FROM`/`RCPT` or a budget refusal leaves
+  every address not yet asked unattempted (`Connected:false`, no `accepted`); domains already finished
+  keep their answers *and* their catch-all verdicts (before, an early return dropped the verdicts).
+- **Hooks/metrics.** `OnFallback(family, mxHost, reason, reply)`; `MultiDomainRecorder.MultiDomainFallback(family, reason)`;
+  `verify_multi_domain_fallbacks_total{family, reason}`; the log line gains `reason`.
+- **HTTP contract unchanged**, so Data Scout `27d05b7` needs no change; only its flag goes back on
+  after the redeploy.
+- **Mutation checks.** Skipping the `RSET` + new `MAIL FROM` fails
+  `TestGoogleDomainPerTransactionRuleIsHonoured` (1 domain-limit refusal seen by mxsim, 6 connections
+  instead of 1, a `domain_limit` fallback) and eight other grouped tests. Keeping `RSET` but skipping
+  the new `MAIL FROM` fails it too (every later domain `bad_sequence`).
+- **Known imprecision.** `verify_session_domains` observes the domains a session was *given*; a
+  session that falls back after its first domain still counts them all.

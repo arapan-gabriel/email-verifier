@@ -406,3 +406,48 @@ func TestConcurrentSessionsAreIsolated(t *testing.T) {
 		t.Fatalf("connections leaked: %d still active after 2s", st.CurrentConcurrent)
 	}
 }
+
+// Google's rule (plan 033): one destination domain per transaction. A second
+// domain in the same transaction gets the multi-line 451; after RSET and a new
+// MAIL FROM it is answered on the same connection.
+func TestDomainsPerTransaction(t *testing.T) {
+	p := base("gws")
+	p.Domains = nil
+	p.Behaviour.DomainsPerTransaction = 1
+	l := newLab(t, p)
+
+	c := l.dial(t)
+	c.hello()
+	c.mail()
+	mustCode(t, c.cmd("RCPT TO:<valid@a.test>"), "250", "first domain")
+	mustCode(t, c.cmd("RCPT TO:<nope@a.test>"), "550", "same domain again")
+	got := c.cmd("RCPT TO:<valid@b.test>")
+	if got != "451 4.3.0 try again. mxsim - gsmtp" {
+		t.Fatalf("second domain in one transaction: %q", got)
+	}
+	mustCode(t, c.cmd("RSET"), "250", "rset")
+	c.mail()
+	mustCode(t, c.cmd("RCPT TO:<valid@b.test>"), "250", "second domain, own transaction")
+
+	if st := l.eng.Stats(); st.DomainLimited != 1 || st.Rcpt != 4 {
+		t.Fatalf("stats: %+v", st)
+	}
+}
+
+// One transaction per connection (plan 033): the second MAIL FROM is refused.
+func TestTransactionsPerConnection(t *testing.T) {
+	p := base("onetx")
+	p.Behaviour.TransactionsPerConnection = 1
+	l := newLab(t, p)
+
+	c := l.dial(t)
+	c.hello()
+	mustCode(t, c.cmd("MAIL FROM:<probe@ds-testing.test>"), "250", "first transaction")
+	mustCode(t, c.cmd("RCPT TO:<valid@onetx-sim.test>"), "250", "rcpt")
+	mustCode(t, c.cmd("RSET"), "250", "rset")
+	mustCode(t, c.cmd("MAIL FROM:<probe@ds-testing.test>"), "452", "second transaction")
+
+	if st := l.eng.Stats(); st.MailRefused != 1 {
+		t.Fatalf("stats: %+v", st)
+	}
+}

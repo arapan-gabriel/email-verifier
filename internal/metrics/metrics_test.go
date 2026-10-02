@@ -242,7 +242,8 @@ func TestSessionDomainsAndFallbacks(t *testing.T) {
 	r.SessionDomains(1)
 	r.SessionDomains(3)
 	r.SessionDomains(12)
-	r.MultiDomainFallback("@google")
+	r.MultiDomainFallback("@google", "domain_limit")
+	r.MultiDomainFallback("@google", "relay")
 	out := r.Render()
 	for _, want := range []string{
 		`verify_session_domains_bucket{le="1"} 2`,
@@ -253,7 +254,8 @@ func TestSessionDomainsAndFallbacks(t *testing.T) {
 		`verify_session_domains_bucket{le="+Inf"} 4`,
 		`verify_session_domains_sum 17`,
 		`verify_session_domains_count 4`,
-		`verify_multi_domain_fallbacks_total{family="@google"} 1`,
+		`verify_multi_domain_fallbacks_total{family="@google",reason="domain_limit"} 1`,
+		`verify_multi_domain_fallbacks_total{family="@google",reason="relay"} 1`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render lacks %q", want)

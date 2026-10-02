@@ -1,0 +1,25 @@
+# A receiving system that hosts many domains but takes one transaction per
+# connection: a second MAIL FROM after RSET is refused (plan 033). Grouping at
+# such a system cannot work, so the prober must fall back to one domain per
+# session and still answer every address.
+name: one-transaction
+domains: [ws-a.test, ws-b.test, ws-c.test]
+listen: ["127.0.0.1:2532"]
+banner: "220 mx.one-transaction.test ESMTP mxsim"
+ehlo_caps: [PIPELINING, "SIZE 35882577", 8BITMIME]
+
+behaviour:
+  greylist: false
+  catch_all: false
+  catch_all_domains: [ws-c.test]
+  accept: "250 2.1.5 OK"
+  reject_unknown: "550 5.1.1 The email account that you tried to reach does not exist"
+  transactions_per_connection: 1
+  transaction_limit_reply: "452 4.3.2 Only one transaction per connection, please reconnect"
+
+recipients:
+  exists: [valid@, ceo@]
+  bounce: [nope@, ghost@]
+
+chaos:
+  seed: 1337

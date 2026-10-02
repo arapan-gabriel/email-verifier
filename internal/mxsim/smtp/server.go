@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +94,10 @@ type session struct {
 	mail  bool
 	rcpts int
 	tls   bool
+	// txDomains are the recipient domains this transaction has named, and
+	// txns the MAIL FROMs this connection has opened (plan 033's limits).
+	txDomains []string
+	txns      int
 }
 
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
@@ -162,6 +167,13 @@ func (ses *session) write(s string) {
 	if s == "" {
 		return
 	}
+	// A multi-line reply is configured with "\n" between its lines.
+	if strings.Contains(s, "\n") {
+		for _, line := range strings.Split(s, "\n") {
+			ses.write(line)
+		}
+		return
+	}
 	_ = ses.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	if _, err := io.WriteString(ses.conn, s+"\r\n"); err != nil {
 		return
@@ -181,7 +193,7 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 			ses.write("501 5.5.4 Syntax: " + cmd + " hostname")
 			return true
 		}
-		ses.helo, ses.mail, ses.rcpts = true, false, 0
+		ses.helo, ses.mail, ses.rcpts, ses.txDomains = true, false, 0, nil
 		host := hostFromBanner(prof.Banner, prof.Name)
 		if cmd == "HELO" {
 			ses.write("250 " + host)
@@ -215,7 +227,12 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 			ses.write("530 5.7.0 Must issue a STARTTLS command first")
 			return true
 		}
-		ses.mail, ses.rcpts = true, 0
+		if l := prof.Behaviour.TransactionsPerConnection; l > 0 && ses.txns >= l {
+			ses.write(eng.OnTransactionLimit().Reply)
+			return true
+		}
+		ses.txns++
+		ses.mail, ses.rcpts, ses.txDomains = true, 0, nil
 		ses.write("250 2.1.0 Ok")
 		return true
 
@@ -235,6 +252,16 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 		if addr == "" {
 			ses.write("501 5.1.3 Bad recipient address syntax")
 			return true
+		}
+		if l := prof.Behaviour.DomainsPerTransaction; l > 0 {
+			d := domainOf(addr)
+			if !slices.Contains(ses.txDomains, d) {
+				if len(ses.txDomains) >= l {
+					ses.write(eng.OnDomainLimit().Reply)
+					return true
+				}
+				ses.txDomains = append(ses.txDomains, d)
+			}
 		}
 		ses.rcpts++
 		if d := eng.TarpitRcpt(); d > 0 {
@@ -260,7 +287,7 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 		}
 
 	case "RSET":
-		ses.mail, ses.rcpts = false, 0
+		ses.mail, ses.rcpts, ses.txDomains = false, 0, nil
 		ses.write("250 2.0.0 Ok")
 		return true
 
@@ -297,7 +324,7 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 		_ = ses.conn.SetDeadline(time.Time{})
 		// RFC 3207 §4.2: everything learned before TLS is forgotten.
 		ses.conn, ses.r = tc, bufio.NewReaderSize(tc, maxLineBytes)
-		ses.tls, ses.helo, ses.mail, ses.rcpts = true, false, false, 0
+		ses.tls, ses.helo, ses.mail, ses.rcpts, ses.txDomains = true, false, false, 0, nil
 		return true
 
 	case "DATA":
@@ -317,7 +344,7 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 				break
 			}
 		}
-		ses.mail, ses.rcpts = false, 0
+		ses.mail, ses.rcpts, ses.txDomains = false, 0, nil
 		ses.write("250 2.0.0 Ok: queued as SIMULATED")
 		return true
 
@@ -448,4 +475,10 @@ func Certificate() (*x509.Certificate, error) {
 		return nil, err
 	}
 	return x509.ParseCertificate(c.Certificate[0])
+}
+
+// domainOf is the lower-cased domain of a recipient address.
+func domainOf(addr string) string {
+	addr = strings.ToLower(addr)
+	return strings.TrimSuffix(addr[strings.LastIndex(addr, "@")+1:], ".")
 }

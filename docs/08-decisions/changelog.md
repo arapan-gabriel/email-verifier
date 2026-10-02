@@ -4,6 +4,29 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 033 reworked: one transaction per domain, after Google refused the first design
+
+The first grouped run (Data Scout job 766, 13:29-13:32 UTC) put 83 Google Workspace domains into 31
+sessions with every domain in one transaction. Google answers a second destination domain in a
+transaction with `451-4.3.0 Multiple destination domains per transaction is unsupported. Please try
+again.`; 52 of the 83 addresses came back unknown, and the relay fallback never fired because the reply
+is a deferral. No verdict was wrong. Data Scout's flag went off.
+
+Decisions:
+- **One connection, one transaction per domain** (`RSET`, a new `MAIL FROM`, the domain's `RCPT`s and
+  its catch-all probes). The plan had rejected this as "unusual"; the receiver it was written for
+  requires it. The handshake — the cost the plan exists to save — is still paid once.
+- **Refusing grouping loses nothing.** A further domain refused as one domain too many, or a refused
+  `RSET`/`MAIL FROM`, switches grouping off for the family on the node (the relay fallback's mechanism;
+  the counter gains a `reason` label) and re-asks the address and the rest one domain per session in the
+  same request. A bare `4.3.0` counts as such a refusal: a false match costs one ungrouped family until
+  restart, a miss costs answers.
+- **A `421` or a dropped connection between transactions is the session failing, not a refusal** —
+  the rest come back unattempted, as they would from any other session.
+- **The contract did not change**, so the Data Scout companion stands as built.
+- mxsim gained `domains_per_transaction` (on in `google-workspace.yaml`, with Google's reply) and
+  `transactions_per_connection` (profile `one-transaction.yaml`).
+
 ## 2026-10-02 — Plan 031 complete: TLS when offered, plaintext when it cannot be had
 
 The first production run with STARTTLS (Data Scout day 22, 11:16-11:46 UTC) ended 33 sessions `tls_failed`,

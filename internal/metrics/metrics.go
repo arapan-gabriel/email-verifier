@@ -56,14 +56,14 @@ type Registry struct {
 
 	results     map[string]uint64 // class
 	replies     map[[2]string]uint64
-	blocked     map[string]uint64 // reason
-	catchAll    map[string]uint64 // catch-all probe outcome (plan 029)
-	leaseWaits  map[string]uint64 // session lease outcome (plan 028)
-	tlsSessions map[string]uint64 // STARTTLS outcome per session (plan 031)
-	pauses      map[string]uint64 // mx host
-	refusals    map[string]uint64 // refusals of us per pace key (plan 032)
-	fallbacks   map[string]uint64 // multi-domain fallbacks per family (plan 033)
-	domCounts   []uint64          // domains-per-session histogram, cumulative, plus +Inf
+	blocked     map[string]uint64    // reason
+	catchAll    map[string]uint64    // catch-all probe outcome (plan 029)
+	leaseWaits  map[string]uint64    // session lease outcome (plan 028)
+	tlsSessions map[string]uint64    // STARTTLS outcome per session (plan 031)
+	pauses      map[string]uint64    // mx host
+	refusals    map[string]uint64    // refusals of us per pace key (plan 032)
+	fallbacks   map[[2]string]uint64 // multi-domain fallbacks per family and reason (plan 033)
+	domCounts   []uint64             // domains-per-session histogram, cumulative, plus +Inf
 	domSum      uint64
 	listed      map[[2]string]bool // {ip, list} -> listed
 	sent        map[string]uint64  // relay delivery outcome (plan 014)
@@ -95,7 +95,7 @@ func New(pacer Pacer) *Registry {
 		tlsSessions: map[string]uint64{},
 		pauses:      map[string]uint64{},
 		refusals:    map[string]uint64{},
-		fallbacks:   map[string]uint64{},
+		fallbacks:   map[[2]string]uint64{},
 		domCounts:   make([]uint64, len(domainBuckets)+1),
 		listed:      map[[2]string]bool{},
 		sent:        map[string]uint64{},
@@ -207,12 +207,15 @@ func (r *Registry) SessionDomains(n int) {
 }
 
 // MultiDomainFallback records a family switched to one domain per session on
-// this node after a relay refusal (plan 033). Only cleared families can fall
-// back, so the label is bounded by families.json.
-func (r *Registry) MultiDomainFallback(family string) {
+// this node (plan 033), and why: "relay" (a foreign domain refused as relay),
+// "domain_limit" (several domains refused in one transaction) or "mail_from"
+// (a second transaction refused in one connection). Only cleared families can
+// fall back and the reasons are the prober's constants, so both labels are
+// bounded.
+func (r *Registry) MultiDomainFallback(family, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.fallbacks[family]++
+	r.fallbacks[[2]string{family, reason}]++
 }
 
 // Pause records the pacer standing an MX down.
@@ -318,8 +321,7 @@ func (r *Registry) Render() string {
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
 
-	counter(&b, "verify_multi_domain_fallbacks_total",
-		"Families switched to one domain per session after a relay refusal (plan 033).", fallbacks, "family")
+	writeFallbacks(&b, fallbacks)
 	fmt.Fprint(&b, "# HELP verify_session_domains Domains asked about per SMTP session (plan 033).\n")
 	fmt.Fprint(&b, "# TYPE verify_session_domains histogram\n")
 	for i, bound := range domainBuckets {
@@ -441,6 +443,21 @@ func counter(b *strings.Builder, name, help string, values map[string]uint64, la
 	fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s counter\n", name, help, name)
 	for _, k := range slices.Sorted(maps.Keys(values)) {
 		fmt.Fprintf(b, "%s{%s=%q} %d\n", name, label, k, values[k])
+	}
+}
+
+func writeFallbacks(b *strings.Builder, fallbacks map[[2]string]uint64) {
+	const name = "verify_multi_domain_fallbacks_total"
+	fmt.Fprintf(b, "# HELP %s Families switched to one domain per session, by reason (plan 033).\n# TYPE %s counter\n", name, name)
+	keys := slices.Collect(maps.Keys(fallbacks))
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i][0] != keys[j][0] {
+			return keys[i][0] < keys[j][0]
+		}
+		return keys[i][1] < keys[j][1]
+	})
+	for _, k := range keys {
+		fmt.Fprintf(b, "%s{family=%q,reason=%q} %d\n", name, k[0], k[1], fallbacks[k])
 	}
 }
 
