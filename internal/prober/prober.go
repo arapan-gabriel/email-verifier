@@ -70,6 +70,14 @@ type Pacer interface {
 	Observe(ctx context.Context, mxHost string, throttled bool)
 }
 
+// SessionLeaser bounds how many SMTP sessions are open at once per receiving
+// system (plan 028). *pacer.Pacer implements it; a Pacer that does not is
+// unbounded in concurrency, which only a unit test may accept — main asserts
+// the production pacer satisfies it at compile time.
+type SessionLeaser interface {
+	AcquireSession(ctx context.Context, mxHost, domain string) (release func(), waited time.Duration, err error)
+}
+
 // Profiles remembers per-server facts across requests.
 //
 // A store failure must degrade to "probe again", never to a failed request:
@@ -136,6 +144,10 @@ type Options struct {
 	// wiring cannot put a recipient into a log line. Nil means nobody is
 	// listening.
 	OnReply func(ReplyEvent)
+
+	// OnLease is called once per session lease granted, with how long the
+	// session waited for it (plan 028). Nil means nobody is listening.
+	OnLease func(mxHost string, waited time.Duration)
 
 	// OnPaced is called once per token the pacer granted — one per question
 	// asked, real or catch-all — with the real MX host. A 250 is never logged
@@ -538,6 +550,19 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return fail(classifyNetErr(err), 0, "", err.Error())
 	}
 
+	// One session per receiving system at a time (plan 028), counted centrally
+	// and held for the whole session — the real RCPTs and plan 029's catch-all
+	// question alike. Taken after the resolve (a refusal we make ourselves is
+	// free) and before the token and the socket. Fails closed, and a wait past
+	// the bound comes back unattempted with a retry hint, never a verdict.
+	release, err := p.leaseSession(ctx, req)
+	if err != nil {
+		results, v := fail(budgetClass(err), 0, "", err.Error())
+		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
+		return results, v
+	}
+	defer release()
+
 	// Budget before the socket. A paused MX or an unreachable bucket means the
 	// probe is not sent at all (invariant 5) — the addresses come back
 	// unattempted, never as a verdict.
@@ -817,6 +842,23 @@ func decideCatchAll(accepted, answered int) catchAllVerdict {
 	default:
 		return catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
 	}
+}
+
+// leaseSession takes the session lease when the pacer enforces one. A pacer
+// that does not implement SessionLeaser (a unit-test fake) is unbounded.
+func (p *Prober) leaseSession(ctx context.Context, req Request) (func(), error) {
+	l, ok := p.opts.Pacer.(SessionLeaser)
+	if !ok || p.opts.Pacer == nil {
+		return func() {}, nil
+	}
+	release, waited, err := l.AcquireSession(ctx, req.MXHost, req.Domain)
+	if err != nil {
+		return nil, err
+	}
+	if p.opts.OnLease != nil {
+		p.opts.OnLease(req.MXHost, waited)
+	}
+	return release, nil
 }
 
 // acquire asks the pacer for budget. A nil pacer means unpaced, which only a

@@ -38,6 +38,7 @@ below **stays per host** on purpose.
 | `rt:mx:<pace_key>:bucket` | limiter | token bucket hash — `internal/limiter/token_bucket.lua`, embedded |
 | `rt:mx:<pace_key>:state` | pacer | `PROBING` / `STEADY` / `BACKOFF` / `PAUSED` |
 | `rt:mx:<pace_key>:pause_until` | pacer | epoch seconds; only this pace key pauses — a whole family when the key is one |
+| `rt:mx:<pace_key>:inflight` | limiter (plan 028) | sorted set of open-session leases: member = random lease id, score = expiry in unix ms. Acquire is one Lua round trip (`internal/limiter/lease.lua`: drop expired → count → add if under the limit, else return the earliest expiry); release is a `ZREM` of the id. The limit is the pacer's working `conc` (1 for every shipped band). A holder that dies loses its lease at expiry (`pacer.session_lease`, 50 s), so a crash can delay a family by one TTL and never wedge it. Central, like the bucket: every node counts against the same set |
 | `mx:<mx_host>:randomiser` | prober (005) | `1` with a TTL: this host answers inconsistently, so no `250` from it is trustworthy for **any** domain it serves |
 | `suppress:hashes` | suppression (011) | set of **salted digests** — never addresses. See `api.md`; an entry that is not a digest is refused rather than stored |
 | `suppress:version` / `suppress:updated_at` | suppression (011) | which export this copy is, and when it landed — the staleness check reads them |

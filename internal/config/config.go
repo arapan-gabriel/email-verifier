@@ -92,7 +92,21 @@ type Pacer struct {
 	PromoteAfter   int     `yaml:"promote_after"`
 	PromoteStep    float64 `yaml:"promote_step"`
 	PromoteCeiling float64 `yaml:"promote_ceiling"`
+	// SessionLease is how long a session lease lives if its holder never gives
+	// it back — a crash (plan 028). It must outlive probe.timeout, or a live
+	// session's lease expires under it and a second session opens beside it.
+	SessionLease time.Duration `yaml:"session_lease"`
+	// LeaseWait bounds how long a session waits for a lease. Together with the
+	// session itself it must fit inside Data Scout's probe timeout
+	// (DataScoutProbeTimeout), or a wait turns into a transport failure on the
+	// caller's side instead of a clean "retry later".
+	LeaseWait time.Duration `yaml:"lease_wait"`
 }
+
+// DataScoutProbeTimeout is the caller's budget for one POST /probe
+// (`verify_probe_timeout_seconds` in Data Scout). lease_wait + probe.timeout must
+// stay under it so a session that waited and then ran still answers in time.
+const DataScoutProbeTimeout = 90 * time.Second
 
 // IPHealth watches whether the sending IP is still usable.
 //
@@ -285,6 +299,7 @@ func defaults() Config {
 		Pacer: Pacer{
 			IdleTTL: 30 * time.Minute, MaxTracked: 512,
 			PromoteAfter: 500, PromoteStep: 1.5, PromoteCeiling: 20,
+			SessionLease: 50 * time.Second, LeaseWait: 60 * time.Second,
 		},
 		IPHealth: IPHealth{Interval: 15 * time.Minute, Timeout: 5 * time.Second},
 		Suppress: Suppress{Stale: 24 * time.Hour, MaxHashesPerImport: 200_000},
@@ -444,6 +459,8 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("IP_HEALTH_TIMEOUT", &cfg.IPHealth.Timeout) },
 		func() error { return dur("PACER_IDLE_TTL", &cfg.Pacer.IdleTTL) },
 		func() error { return integer("PACER_MAX_TRACKED", &cfg.Pacer.MaxTracked) },
+		func() error { return dur("PACER_SESSION_LEASE", &cfg.Pacer.SessionLease) },
+		func() error { return dur("PACER_LEASE_WAIT", &cfg.Pacer.LeaseWait) },
 		func() error { return integer("PACER_PROMOTE_AFTER", &cfg.Pacer.PromoteAfter) },
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
@@ -551,6 +568,16 @@ func (c Config) Validate() error {
 	}
 	if c.Pacer.PromoteStep <= 1 || c.Pacer.PromoteCeiling <= 0 {
 		add("pacer.promote_step must exceed 1 and pacer.promote_ceiling must be positive")
+	}
+	if c.Pacer.SessionLease <= c.Probe.Timeout {
+		add("pacer.session_lease (%s) must exceed probe.timeout (%s): a lease that expires under a live session hands its room out twice",
+			c.Pacer.SessionLease, c.Probe.Timeout)
+	}
+	if c.Pacer.LeaseWait <= 0 {
+		add("pacer.lease_wait must be positive, got %s", c.Pacer.LeaseWait)
+	} else if c.Pacer.LeaseWait+c.Probe.Timeout >= DataScoutProbeTimeout {
+		add("pacer.lease_wait (%s) + probe.timeout (%s) must stay under Data Scout's probe timeout (%s)",
+			c.Pacer.LeaseWait, c.Probe.Timeout, DataScoutProbeTimeout)
 	}
 	if c.DNS.Timeout <= 0 {
 		add("dns.timeout must be positive, got %s", c.DNS.Timeout)

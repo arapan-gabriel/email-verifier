@@ -56,6 +56,11 @@ func TestValidateEveryRule(t *testing.T) {
 		{"probe port", func(c *Config) { c.Probe.Port = "" }, "probe.port"},
 		{"catch-all probes", func(c *Config) { c.Probe.CatchAllProbes = 1 }, "probe.catch_all_probes"},
 		{"catch-all audit negative", func(c *Config) { c.Probe.CatchAllAuditRate = -0.1 }, "probe.catch_all_audit_rate"},
+		// Plan 028: a lease that dies under a live session hands its room out twice.
+		{"session lease not longer than the session", func(c *Config) { c.Pacer.SessionLease = c.Probe.Timeout }, "pacer.session_lease"},
+		{"lease wait zero", func(c *Config) { c.Pacer.LeaseWait = 0 }, "pacer.lease_wait"},
+		// ...and a wait plus a session must still answer inside Data Scout's 90 s.
+		{"lease wait plus session past the caller", func(c *Config) { c.Pacer.LeaseWait = 75 * time.Second }, "pacer.lease_wait"},
 		{"catch-all audit above one", func(c *Config) { c.Probe.CatchAllAuditRate = 1.5 }, "probe.catch_all_audit_rate"},
 		{"randomiser ttl", func(c *Config) { c.Probe.RandomiserTTL = 0 }, "probe.randomiser_ttl"},
 		{"policy stop one", func(c *Config) { c.Probe.PolicyStop = 1 }, "probe.policy_stop must"},
@@ -169,6 +174,8 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		EnvPrefix + "PACER_IDLE_TTL":               "12s",
 		EnvPrefix + "PACER_MAX_TRACKED":            "13",
 		EnvPrefix + "PACER_PROMOTE_AFTER":          "14",
+		EnvPrefix + "PACER_SESSION_LEASE":          "45s",
+		EnvPrefix + "PACER_LEASE_WAIT":             "40s",
 		EnvPrefix + "PROBE_TIMEOUT":                "15s",
 		EnvPrefix + "PROBE_MAX_RCPT_PER_SESSION":   "16",
 		EnvPrefix + "PROBE_CATCH_ALL_PROBES":       "4",
@@ -197,6 +204,7 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		"probe timings": cfg.Probe.RandomiserTTL == 17*time.Second && cfg.Probe.DeferralRetry == 18*time.Second,
 		"catch-all":     cfg.Probe.CatchAllProbes == 4 && cfg.Probe.CatchAllAuditRate == 0.25,
 		"pacer":         cfg.Pacer.MaxTracked == 13 && cfg.Pacer.PromoteAfter == 14 && cfg.Pacer.IdleTTL == 12*time.Second,
+		"pacer leases":  cfg.Pacer.SessionLease == 45*time.Second && cfg.Pacer.LeaseWait == 40*time.Second,
 		"log":           cfg.Log.Level == "warn" && cfg.Log.Format == "text",
 		"http timings":  cfg.HTTP.ShutdownTimeout == 4*time.Second && cfg.HTTP.IdleTimeout == 3*time.Second,
 	} {

@@ -32,6 +32,9 @@ type MXState struct {
 	MaxRate float64
 	Conc    int
 	State   string
+	// Inflight is how many session leases this process holds for the key
+	// (plan 028). The authoritative count is the central lease set.
+	Inflight int
 }
 
 // Pacer is the gauge source. Gauges are pulled at scrape time rather than
@@ -51,6 +54,7 @@ type Registry struct {
 	replies    map[[2]string]uint64
 	blocked    map[string]uint64  // reason
 	catchAll   map[string]uint64  // catch-all probe outcome (plan 029)
+	leaseWaits map[string]uint64  // session lease outcome (plan 028)
 	pauses     map[string]uint64  // mx host
 	listed     map[[2]string]bool // {ip, list} -> listed
 	sent       map[string]uint64  // relay delivery outcome (plan 014)
@@ -67,15 +71,16 @@ type Registry struct {
 // simply absent rather than wrong.
 func New(pacer Pacer) *Registry {
 	return &Registry{
-		results:  map[string]uint64{},
-		replies:  map[[2]string]uint64{},
-		blocked:  map[string]uint64{},
-		catchAll: map[string]uint64{},
-		pauses:   map[string]uint64{},
-		listed:   map[[2]string]bool{},
-		sent:     map[string]uint64{},
-		counts:   make([]uint64, len(buckets)+1),
-		pacer:    pacer,
+		results:    map[string]uint64{},
+		replies:    map[[2]string]uint64{},
+		blocked:    map[string]uint64{},
+		catchAll:   map[string]uint64{},
+		leaseWaits: map[string]uint64{},
+		pauses:     map[string]uint64{},
+		listed:     map[[2]string]bool{},
+		sent:       map[string]uint64{},
+		counts:     make([]uint64, len(buckets)+1),
+		pacer:      pacer,
 	}
 }
 
@@ -123,6 +128,14 @@ func (r *Registry) CatchAllProbes(outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.catchAll[outcome]++
+}
+
+// LeaseWait records how a session lease was obtained (plan 028): immediate,
+// granted_after_wait or timed_out. Bounded.
+func (r *Registry) LeaseWait(outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.leaseWaits[outcome]++
 }
 
 // Pause records the pacer standing an MX down.
@@ -195,6 +208,7 @@ func (r *Registry) Render() string {
 	replies := maps.Clone(r.replies)
 	blocked := maps.Clone(r.blocked)
 	catchAll := maps.Clone(r.catchAll)
+	leaseWaits := maps.Clone(r.leaseWaits)
 	pauses := maps.Clone(r.pauses)
 	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
@@ -215,6 +229,8 @@ func (r *Registry) Render() string {
 		"Probes this service declined to send, by reason.", blocked, "reason")
 	counter(&b, "verify_catch_all_probes_total",
 		"How each domain's catch-all question was settled, by outcome.", catchAll, "outcome")
+	counter(&b, "verify_lease_waits_total",
+		"How session leases were obtained, by outcome (plan 028).", leaseWaits, "outcome")
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
 
@@ -230,6 +246,10 @@ func (r *Registry) Render() string {
 		writeGauge(&b, "verify_concurrency", "Concurrency the AIMD loop has settled on, per MX.")
 		for _, s := range snap {
 			fmt.Fprintf(&b, "verify_concurrency{mx_host=%q} %d\n", s.Host, s.Conc)
+		}
+		writeGauge(&b, "verify_inflight", "Session leases this process holds, per pace key (plan 028).")
+		for _, s := range snap {
+			fmt.Fprintf(&b, "verify_inflight{mx_host=%q} %d\n", s.Host, s.Inflight)
 		}
 		writeGauge(&b, "verify_mx_state", "1 for the MX's current pacer state.")
 		for _, s := range snap {

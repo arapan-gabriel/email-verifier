@@ -3,7 +3,41 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
-## 2026-10-02 — Plan 030: a refusal that names us is about us
+## 2026-10-02 — Plan 028: one session per receiving system, enforced
+
+Every band carried `min/max_concurrency` and the AIMD loop moved a working `conc`, but nothing read
+it: `Acquire` took a rate token and returned, and on Data Scout's burst day up to eight EOP tenants were
+in session at once while the family band said one. Sessions now take a **lease** in a central sorted set
+per pace key (`rt:mx:<pace_key>:inflight`, one Lua round trip, expiring leases) before the dial, and
+release it in a `defer` on every exit; the limit is `conc`, 1 for every shipped band by the operator's
+decision.
+
+Decisions and one deviation:
+- **`lease_wait` defaults to 60 s, not the 75 s the plan named.** The plan bounded the wait alone by
+  Data Scout's 90 s probe timeout, but the caller's clock also covers the session after the wait
+  (`probe.timeout`, 20 s): 75 + 20 = 95 s would turn a long wait into a transport failure on Data
+  Scout's side. The validator now checks `lease_wait + probe.timeout < 90 s`
+  (`config.DataScoutProbeTimeout`) and `session_lease > probe.timeout`.
+- **Leases are an optional interface on the prober's pacer** (`SessionLeaser`), with a compile-time
+  assertion in `main` that the production pacer implements it — so test fakes stay small and
+  production cannot silently lose the bound.
+- **A lease is polled every 250 ms** rather than slept to the earliest expiry: holders normally release
+  long before expiry.
+- **The wait outcome is classified by whether the first ask was refused**, not by a duration
+  threshold.
+- **The relay** (outbound mail, disabled) still takes rate tokens only; bounding its sessions is for
+  when it is enabled.
+
+Tests: real Redis — 32 goroutines on one key never see `ZCARD` above 1 and all get their turn; a
+crashed holder's lease expires and the refused caller is told when; two keys are independent; release
+frees the room. Pacer — family key and `conc` limit, waits, the bounded wait becoming a pause, fail
+closed, cancellation, every shipped band at 1. Prober — one lease covers a session including plan
+029's bogus `RCPT`s with every token taken under it; every exit (dial failure, banner refusal, `MAIL`
+refusal, hang-up) releases; no lease → no dial; a lease timeout is `paused` with a retry hint; a
+guarded MX takes no lease. Mutations: prober not leasing → 5 tests fail; the Lua admitting one over
+the limit → the real-Redis test sees two held.
+
+
 
 Invariant 1 had been mended one phrase at a time (022, 024, 027). This adds a structural check: the
 classifier is given the node's own identity — source IP, HELO, MAIL FROM domain — and a permanent reply

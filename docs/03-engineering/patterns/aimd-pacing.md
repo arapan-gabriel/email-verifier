@@ -50,6 +50,25 @@ table `internal/pacer/families.json`; anything else keys by its own hostname, ex
   `@gmail.com` — instead of however fast our concurrency allowed. Raising a family band is plan 012's
   promotion, on evidence.
 
+## One session per receiving system at a time (plan 028)
+
+The bucket bounds the *rate* of questions; until plan 028 nothing bounded the *connections*. The
+band's `min/max_concurrency` and the AIMD working value `conc` were computed and persisted and never
+read, so a family could hold as many sessions open as Data Scout had domains in flight. Now every
+session takes a **lease** under its pace key before the dial (`rt:mx:<pace_key>:inflight`, a central
+sorted set, `internal/limiter/lease.lua`) and gives it back in a `defer` on every path; the limit is
+`conc`, so the back-off half of AIMD finally moves something real.
+
+- **One connection per key, for every key** (operator, 2026-10-01): every shipped band and
+  `conservative()` say `max_concurrency: 1`, pinned by a test. The rate is the bucket's job; a second
+  connection would only overlap the first one's handshake.
+- **Waiting is bounded:** `pacer.lease_wait` (60 s), validated so that `lease_wait + probe.timeout`
+  stays under Data Scout's 90 s probe timeout. Past it the addresses come back `paused` with a retry
+  hint from the earliest lease expiry — never a verdict.
+- **Fail closed:** a lease set that cannot be read means no session (`no_budget`).
+- **Plan 029's catch-all question runs inside the same session**, so under the same lease; every
+  bogus `RCPT` still takes a token and logs `rcpt_paced`.
+
 ## The bucket is central (invariant 4, ADR-004)
 
 Pacing goes through the shared Redis token bucket (`token_bucket.lua`), take+refill in one round

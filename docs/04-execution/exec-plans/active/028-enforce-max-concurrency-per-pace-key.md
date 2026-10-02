@@ -1,6 +1,6 @@
 # Plan 028 — Enforce `max_concurrency` per pace key
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy and gate pending
 **Phase:** B
 **Depends on:** 003 (central limiter), 026 (pace keys) — both complete
 
@@ -96,16 +96,16 @@ there.
 
 ## Tasks
 
-- [ ] `internal/limiter/lease.lua` + `Lease` / `Release` on the limiter, one round trip each
-- [ ] Pacer: `AcquireSession(ctx, mxHost, domain) (release func(), err error)` — pace key,
+- [x] `internal/limiter/lease.lua` + `Lease` / `Release` on the limiter, one round trip each — `internal/limiter/lease.go`; release is a one-line `ZREM` script
+- [x] Pacer: `AcquireSession(ctx, mxHost, domain) (release func(), err error)` — pace key,
       `conc` as the limit, fail closed, waits up to `lease_wait`, `PausedError` with the
-      earliest expiry past it
-- [ ] Prober: take the lease before the dial, release in `defer`; every early-return path
-- [ ] Config: `pacer.session_lease`, `pacer.lease_wait` (75 s); start-up checks that the lease
-      outlives the session timeout and that `lease_wait` stays under Data Scout's 90 s probe timeout
-- [ ] Seeds: unchanged — every key `1..1`; a test pins that every shipped seed and `conservative()` say `max_concurrency: 1`
-- [ ] Metrics `verify_inflight`, `verify_lease_waits_total`; `lease_wait_ms` on the session log
-- [ ] Tests alongside:
+      earliest expiry past it — returns `(release, waited, err)`: the wait goes to the `session_leased` line
+- [x] Prober: take the lease before the dial, release in `defer`; every early-return path — after the resolve (a guarded MX takes no lease), before the token; `SessionLeaser` interface + a compile-time assertion in `main`
+- [x] Config: `pacer.session_lease`, `pacer.lease_wait` (75 s); start-up checks that the lease
+      outlives the session timeout and that `lease_wait` stays under Data Scout's 90 s probe timeout — **deviation: `lease_wait` defaults to 60 s** and the check is `lease_wait + probe.timeout < 90 s` (`config.DataScoutProbeTimeout`): 75 s + the 20 s session would overrun Data Scout's timeout; `session_lease` 50 s > `probe.timeout`
+- [x] Seeds: unchanged — every key `1..1`; a test pins that every shipped seed and `conservative()` say `max_concurrency: 1` — `TestEveryShippedBandAllowsOneConnection`
+- [x] Metrics `verify_inflight`, `verify_lease_waits_total`; `lease_wait_ms` on the session log — the session log is a new `session_leased` line (`mx_host`, `pace_key`, `lease_wait_ms`); there was no per-session line to extend
+- [x] Tests alongside: — `internal/limiter/lease_integration_test.go` + `lease_test.go`, `internal/pacer/session_test.go`, `internal/prober/session_lease_test.go`, config rows, metrics, `cmd/verifierd` logger. The mxsim `max_concurrent_conns` test became the real-Redis ZCARD test: the set is where concurrency is enforced, and mxsim exposes no concurrency counter to the prober tests
   - real Redis: 32 goroutines over one family key never hold more than `conc` leases at once
     (sampled with `ZCARD` under the race), and a lease from a "crashed" holder expires
   - two pace keys do not share leases (an EOP lease does not block a Google session)
@@ -115,9 +115,9 @@ there.
   - `lease_wait` exceeded → unattempted with a retry hint, never a verdict (invariant 1)
   - mxsim with `max_concurrent_conns: 1`: N concurrent probes to one profile never trip its
     `TooManyConns` once the band's `conc` is 1
-- [ ] `docs/06-generated/redis-contract.md` — `rt:mx:<pace_key>:inflight`
-- [ ] `docs/06-generated/metrics.md` — the two metrics
-- [ ] `docs/03-engineering/patterns/aimd-pacing.md` — concurrency is enforced, and how
+- [x] `docs/06-generated/redis-contract.md` — `rt:mx:<pace_key>:inflight`
+- [x] `docs/06-generated/metrics.md` — the two metrics
+- [x] `docs/03-engineering/patterns/aimd-pacing.md` — concurrency is enforced, and how
 - [ ] Deploy (016's button), between Data Scout warm-up or customer bulk peaks
 
 ## Definition of Done
@@ -129,12 +129,12 @@ there.
       throughput before/after in tokens per minute (day 21's baseline: 0.40/s mean, 57 in the
       busiest minute), the share of requests that hit `lease_wait` and came back as rechecks,
       and the longest single EOP session — so the cost of one connection is on record
-- [ ] `go test -race -count=1 ./...` green, including the real-Redis tests
-- [ ] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean, coverage gate ok
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed and central
+- [x] `go test -race -count=1 ./...` green, including the real-Redis tests — 2026-10-02, `VERIFIERD_TEST_REDIS_ADDR=127.0.0.1:56379`
+- [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean, coverage gate ok — 0 issues; limiter 95.2%, pacer 96.9%, prober 97.2%, total 93.1%
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed and central
       bucket mandatory; SSRF guard unaffected (the lease is taken before the vetted dial and
-      changes nothing about it)
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+      changes nothing about it) — fail-closed: `TestNoLeaseSetMeansNoSession`, `TestNoLeaseNoDial`; central: the lease set is in the shared Redis; SSRF: the lease is taken after the vetted resolve and changes nothing about the dial; us ≠ address: a lease timeout is `paused`, never a verdict
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added — redis-contract, metrics, observability, aimd-pacing, changelog, ROADMAP
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations

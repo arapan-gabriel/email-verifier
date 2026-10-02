@@ -22,6 +22,9 @@
   of the rate a receiving system actually saw, because `smtp_reply` skips the `250`s: a family's
   aggregate rate is read from these timestamps (`journalctl -u verifierd -o cat | grep rcpt_paced |
   grep '"pace_key":"@microsoft-eop"'`). Same switch as the reply log; no address, by construction.
+- **How long a session waited for its connection** (plan 028). One `session_leased` line per session
+  lease, with `mx_host`, `pace_key` and `lease_wait_ms` — the cost of one connection per receiving
+  system, read per family. Same switch; no address.
 - **No address at info level.** The domain and a count are enough to find a problem; the local part
   is the customer's data. Full SMTP transcripts stay at debug. A test asserts it.
 

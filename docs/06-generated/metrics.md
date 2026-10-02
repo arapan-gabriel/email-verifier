@@ -21,7 +21,9 @@ it directly — as this repository already does for RESP and for SMTP.
 | `verify_catch_all_probes_total` | counter | `outcome` | how each domain's catch-all question was settled (plan 029): `skipped_no_accept` (no real `250` in the session — nothing to qualify), `clean_after_1`, `catch_all`, `randomiser`, `audit_full` (the audit sample's full sequence of 3), `unanswered` (the session died or budget was refused mid-sequence). Bounded. A rising `randomiser` or `audit_full` share with a non-clean result means hosts the early stop could misread |
 | `verify_pause_events_total` | counter | `mx_host` | the pacer standing a pace key down at the floor of its band — the label is the **pace key** (plan 026): `@microsoft-eop` for every EOP tenant |
 | `verify_rate_per_sec` | gauge | `mx_host` | rate the AIMD loop has settled on |
-| `verify_concurrency` | gauge | `mx_host` | concurrency it has settled on |
+| `verify_concurrency` | gauge | `mx_host` | concurrency it has settled on — since plan 028 also the number of sessions the pace key may hold open at once |
+| `verify_inflight` | gauge | `mx_host` | session leases **this process** holds for the pace key (plan 028); the authoritative count across nodes is `ZCARD rt:mx:<pace_key>:inflight`. Bounded like the other per-key gauges |
+| `verify_lease_waits_total` | counter | `outcome` | how a session got its lease (plan 028): `immediate`, `granted_after_wait`, `timed_out` (past `pacer.lease_wait` — the addresses came back `paused` with a retry hint). A rising `timed_out` share means a family's single connection is the bottleneck |
 | `verify_mx_state` | gauge | `mx_host`, `state` | 1 for the MX's current state |
 | `verify_request_duration_seconds` | histogram | — | end-to-end `POST /probe` |
 | `verify_tracked_mx` | gauge | — | pace keys the pacer holds state for (a family counts once) — **the cardinality canary** |

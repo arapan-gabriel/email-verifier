@@ -86,6 +86,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			Step:    cfg.Pacer.PromoteStep,
 			Ceiling: cfg.Pacer.PromoteCeiling,
 		},
+		// One session per receiving system at a time, counted in the same Redis
+		// as the bucket (plan 028).
+		Leases:       limiter.NewLeases(store),
+		LeaseTTL:     cfg.Pacer.SessionLease,
+		LeaseWait:    cfg.Pacer.LeaseWait,
+		LeaseMetrics: reg,
 	})
 	reg.SetPacer(pace)
 
@@ -203,6 +209,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		ReplyMaxChars: cfg.Log.ReplyMaxChars,
 		OnReply:       replyLogger(cfg.Log.Replies, logger),
 		OnPaced:       pacedLogger(cfg.Log.Replies, logger),
+		OnLease:       leaseLogger(cfg.Log.Replies, logger),
 	})
 
 	// Outbound mail (plan 014). Nil unless configured, which leaves POST /send
@@ -368,6 +375,23 @@ func pacedLogger(enabled bool, logger *slog.Logger) func(string) {
 		logger.Info("rcpt_paced", "mx_host", mxHost, "pace_key", pacer.PaceKey(mxHost))
 	}
 }
+
+// leaseLogger writes one line per session lease granted: which host, under which
+// pace key, and how long the session waited for its room (plan 028). The wait is
+// the cost of one connection per receiving system, and the gate reads it here.
+func leaseLogger(enabled bool, logger *slog.Logger) func(string, time.Duration) {
+	if !enabled {
+		return nil
+	}
+	return func(mxHost string, waited time.Duration) {
+		logger.Info("session_leased", "mx_host", mxHost, "pace_key", pacer.PaceKey(mxHost),
+			"lease_wait_ms", waited.Milliseconds())
+	}
+}
+
+// The production pacer must enforce sessions; a pacer that does not would be
+// silently unbounded in concurrency (plan 028).
+var _ prober.SessionLeaser = (*pacer.Pacer)(nil)
 
 // drain empties the outbound queue, one message at a time.
 //

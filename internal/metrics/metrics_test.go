@@ -168,3 +168,23 @@ func TestCatchAllProbesCounter(t *testing.T) {
 		}
 	}
 }
+
+// Plan 028: the lease gauge per pace key and the wait counter by outcome.
+func TestLeaseMetrics(t *testing.T) {
+	r := New(fakePacer{states: []MXState{{Host: "@microsoft-eop", Rate: 1, Conc: 1, State: "STEADY", Inflight: 1}}})
+	r.LeaseWait("immediate")
+	r.LeaseWait("timed_out")
+	r.LeaseWait("timed_out")
+	out := r.Render()
+	for _, want := range []string{
+		"# TYPE verify_inflight gauge",
+		`verify_inflight{mx_host="@microsoft-eop"} 1`,
+		"# TYPE verify_lease_waits_total counter",
+		`verify_lease_waits_total{outcome="immediate"} 1`,
+		`verify_lease_waits_total{outcome="timed_out"} 2`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q", want)
+		}
+	}
+}

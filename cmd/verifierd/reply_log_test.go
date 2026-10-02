@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/arapan-gabriel/email-verifier/internal/prober"
 )
@@ -68,5 +69,19 @@ func TestPacedLoggerWritesHostAndPaceKey(t *testing.T) {
 	}
 	if strings.Contains(line, "@example") || strings.Count(line, "@") != 1 {
 		t.Errorf("line carries more than the family key's @: %s", line)
+	}
+}
+
+// Plan 028: one line per session lease, with the family key and the wait.
+func TestLeaseLoggerWritesTheWait(t *testing.T) {
+	if leaseLogger(false, slog.Default()) != nil {
+		t.Fatal("leaseLogger(false) should be nil")
+	}
+	var buf bytes.Buffer
+	leaseLogger(true, slog.New(slog.NewJSONHandler(&buf, nil)))("contoso-com.mail.protection.outlook.com", 1500*time.Millisecond)
+	for _, want := range []string{`"msg":"session_leased"`, `"pace_key":"@microsoft-eop"`, `"lease_wait_ms":1500`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("line %s lacks %s", buf.String(), want)
+		}
 	}
 }

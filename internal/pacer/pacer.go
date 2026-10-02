@@ -71,6 +71,28 @@ type PauseRecorder interface {
 	Pause(mxHost string)
 }
 
+// Leaser hands out central session leases (plan 028). Declared here, in the
+// consumer; *limiter.Leases implements it.
+type Leaser interface {
+	Lease(ctx context.Context, paceKey string, limit int, ttl time.Duration) (limiter.LeaseDecision, error)
+	Release(ctx context.Context, paceKey, id string) error
+}
+
+// LeaseRecorder counts lease waits by outcome. Optional.
+type LeaseRecorder interface {
+	LeaseWait(outcome string)
+}
+
+// Lease-wait outcomes, bounded for the metric.
+const (
+	LeaseImmediate    = "immediate"
+	LeaseAfterWait    = "granted_after_wait"
+	LeaseTimedOut     = "timed_out"
+	defaultLeaseWait  = 60 * time.Second
+	defaultLeaseTTL   = 50 * time.Second
+	leaseReleaseGrace = 5 * time.Second
+)
+
 // Promotion controls how evidence that a band's ceiling is too low becomes a
 // proposal to raise it.
 //
@@ -100,6 +122,20 @@ type Options struct {
 	Metrics PauseRecorder
 	// Promote turns clean answers at the ceiling into a band proposal.
 	Promote Promotion
+
+	// Leases enforces the band's concurrency (plan 028): at most `conc`
+	// sessions open at once per pace key, counted centrally. Nil means
+	// AcquireSession grants without counting — acceptable only in a unit test.
+	Leases Leaser
+	// LeaseTTL is how long a lease lives if its holder never releases it (a
+	// crash). It must outlive the longest session, or a live holder's lease is
+	// handed out twice; config validates that.
+	LeaseTTL time.Duration
+	// LeaseWait bounds how long a session waits for a lease before its addresses
+	// come back unattempted with a retry hint.
+	LeaseWait time.Duration
+	// LeaseMetrics counts waits. Optional.
+	LeaseMetrics LeaseRecorder
 }
 
 // Pacer holds each MX to a rate. Safe for concurrent use.
@@ -111,6 +147,9 @@ type Pacer struct {
 
 	mu sync.Mutex
 	mx map[string]*mxState
+	// inflight counts the leases this process holds, per pace key, for the
+	// verify_inflight gauge. The authoritative count is the central set.
+	inflight map[string]int
 }
 
 type mxState struct {
@@ -146,7 +185,16 @@ func New(store Store, take Taker, opts Options) *Pacer {
 	if opts.Promote.Ceiling <= 0 {
 		opts.Promote.Ceiling = 20
 	}
-	return &Pacer{store: store, take: take, opts: opts, metrics: opts.Metrics, mx: make(map[string]*mxState)}
+	if opts.LeaseTTL <= 0 {
+		opts.LeaseTTL = defaultLeaseTTL
+	}
+	if opts.LeaseWait <= 0 {
+		opts.LeaseWait = defaultLeaseWait
+	}
+	return &Pacer{
+		store: store, take: take, opts: opts, metrics: opts.Metrics,
+		mx: make(map[string]*mxState), inflight: make(map[string]int),
+	}
 }
 
 // Snapshot reports what the pacer is currently tracking, for the scrape.
@@ -159,6 +207,7 @@ func (p *Pacer) Snapshot() []metrics.MXState {
 	for host, st := range p.mx {
 		out = append(out, metrics.MXState{
 			Host: host, Rate: st.rate, MaxRate: st.band.MaxRate, Conc: st.conc, State: st.state,
+			Inflight: p.inflight[host],
 		})
 	}
 	return out
@@ -194,6 +243,93 @@ func (p *Pacer) evictLocked() {
 		}
 		delete(p.mx, oldest)
 	}
+}
+
+// AcquireSession blocks until this MX's receiving system has room for one more
+// open SMTP session, and returns the function that gives the room back (plan
+// 028). The limit is the AIMD working `conc` — bounded by the band's
+// `[min_concurrency, max_concurrency]`, which every shipped band sets to 1 — so
+// a throttle that lowers `conc` lowers the sessions too.
+//
+// The room is a lease in a central set under the host's pace key, so every node
+// and every tenant hostname of one system share it. It fails closed (invariant
+// 5): a lease set that cannot be read means no session. Past LeaseWait the
+// caller gets a *PausedError naming when the earliest lease expires, which the
+// prober reports as unattempted with a retry hint — never a verdict.
+func (p *Pacer) AcquireSession(ctx context.Context, mxHost, domain string) (release func(), waited time.Duration, err error) {
+	key := PaceKey(mxHost)
+	if p.opts.Leases == nil {
+		return func() {}, 0, nil
+	}
+	st := p.stateFor(ctx, key, domain)
+	p.mu.Lock()
+	limit := max(1, st.conc)
+	p.mu.Unlock()
+
+	start := time.Now()
+	deadline := start.Add(p.opts.LeaseWait)
+	refused := false
+	for {
+		d, err := p.opts.Leases.Lease(ctx, key, limit, p.opts.LeaseTTL)
+		if err != nil {
+			return nil, time.Since(start), fmt.Errorf("pacer: no session lease for %s: %w", key, err)
+		}
+		if d.Granted {
+			waited = time.Since(start)
+			p.recordLease(refused)
+			p.mu.Lock()
+			p.inflight[key]++
+			p.mu.Unlock()
+			id := d.ID
+			return func() {
+				p.mu.Lock()
+				if p.inflight[key] > 0 {
+					p.inflight[key]--
+				}
+				p.mu.Unlock()
+				// A fresh context: the session's may already be cancelled, and the
+				// lease must still go back. A failed release expires on its own.
+				rctx, cancel := context.WithTimeout(context.Background(), leaseReleaseGrace)
+				defer cancel()
+				_ = p.opts.Leases.Release(rctx, key, id)
+			}, waited, nil
+		}
+		refused = true
+		wait := d.RetryAfter
+		if wait <= 0 || wait > 250*time.Millisecond {
+			// Poll rather than sleep to the earliest expiry: a holder normally
+			// releases long before its lease would expire.
+			wait = 250 * time.Millisecond
+		}
+		if time.Now().Add(wait).After(deadline) {
+			if p.opts.LeaseMetrics != nil {
+				p.opts.LeaseMetrics.LeaseWait(LeaseTimedOut)
+			}
+			retry := d.RetryAfter
+			if retry <= 0 {
+				retry = time.Second
+			}
+			return nil, time.Since(start), &PausedError{MXHost: key, Until: time.Now().Add(retry)}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, time.Since(start), ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
+// recordLease counts how a granted lease was obtained: at the first ask, or
+// after at least one refusal.
+func (p *Pacer) recordLease(afterRefusal bool) {
+	if p.opts.LeaseMetrics == nil {
+		return
+	}
+	if afterRefusal {
+		p.opts.LeaseMetrics.LeaseWait(LeaseAfterWait)
+		return
+	}
+	p.opts.LeaseMetrics.LeaseWait(LeaseImmediate)
 }
 
 // Acquire blocks a probe until this MX has budget for it.
