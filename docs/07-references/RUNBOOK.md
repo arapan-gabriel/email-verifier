@@ -14,6 +14,27 @@ The one idea the whole runbook rests on:
 > throttled *after* you are accepted. Fix identity first; a rate run against a
 > blocked IP measures nothing.
 
+> ⚠ **Never open an SMTP session to a real MX from the verifier node by hand** — not `openssl
+> s_client -starttls smtp`, not `swaks`, `telnet`, `nc`, `curl smtp://`, not a one-off script, not
+> to "just look at the TLS offer". Every session from `92.222.87.97` is judged as the node's own
+> traffic, and a hand-run tool does not carry the node's identity: `openssl`'s default greeting is
+> `EHLO mail.example.com`. On 2026-10-02 one such diagnostic (Jimdo's TLS, plan 031) got the IP
+> listed on **Spamhaus CSS within the hour**, and the node stood itself down until it was delisted.
+> Spamhaus warns that a relisting is ticket-only.
+>
+> **The host firewall now refuses it** (since 2026-10-02): `25`/`465`/`587` leave the node only as
+> user `verifierd`; anyone else gets a TCP reset (`smtp-egress-only-verifierd`,
+> `docs/03-engineering/operations/deployment.md`). Do not work around it. Instead:
+> - **TLS offers, banners, reply wording** — ask from a host that does not probe (a laptop on a line
+>   whose `:25` is open, a throwaway VM), or reproduce against `mxsim`. What a receiver says about a
+>   *different* IP is still what it says about its TLS stack.
+> - **If it truly must come from this IP** (a reply about *our* standing), use the service itself: a
+>   `POST /probe` through Data Scout or over mTLS, which carries the real HELO, `MAIL FROM` and the
+>   pacing — and lands in the journal like every other session.
+>
+> The lab commands below (`ratecheck`, the `/dev/tcp` checks) date from before the node existed
+> and describe setting up *an* IP; on this node they are refused by the same rule.
+
 ---
 
 ## Phase 0 — The sending IP
@@ -114,7 +135,9 @@ IPs — you do not need a domain per sending node).
    Lift it early only with a reason: `POST /admin/bands/resume {"mx_host":"@microsoft-eop"}` over
    mTLS. The `verify_key_stood_down` gauge returns to 0 and Data Scout's mail stops.
 
-   **Force IPv4 in every hand-run session from the node.** `swaks`, `curl`, `dig` — the host is
+   **Force IPv4 in every hand-run lookup from the node** *(since 2026-10-02 SMTP tools are refused
+   from the node outright — see the warning at the top; this still holds for `dig`/`curl`, and for an
+   SMTP session run from another host about that host's address)*. `swaks`, `curl`, `dig` — the host is
    dual-stack and prefers IPv6, and on 2026-09-16 the node's `2001:41d0:404:200::169b` was listed on
    Spamhaus CSS and `rbl.your-server.de` while `92.222.87.97` was clean on both. A session that
    leaves over IPv6 is answered about an address the service never sends from (it dials `tcp4`,
@@ -144,6 +167,33 @@ IPs — you do not need a domain per sending node).
 > DNSBL lookups from a public/open resolver (`1.1.1.1`) are refused — they
 > answer `127.255.255.254` regardless. Trust the web checker, or the provider's
 > own `550` text, over a raw `dig`.
+
+### IP listed on Spamhaus CSS
+
+What it looks like: the node stands down on its own (`ip:health` = `burned:listed on
+zen.spamhaus.org`, the journal's blocklist line, `ip_health_listed{zone="zen.spamhaus.org"} 1`), and
+Data Scout's jobs come back `unknown` with no SMTP traffic — free, and correct. The 2026-10-02 case:
+zen answered `127.0.0.3` (CSS) for `92.222.87.97`.
+
+1. **Read the listing page** — `https://check.spamhaus.org/results?query=92.222.87.97`. CSS shows the
+   most recent offending connection's time and **the HELO it used**. That HELO is the cause: if it is
+   not `mail.datascoutmail.com`, the session was not the service (2026-10-02: `HELO
+   mail.example.com`, 13:05 UTC — a hand-run `openssl s_client` 20 minutes earlier). Find it and stop
+   it before asking for anything; the firewall rule above should make this case impossible now.
+2. **Request removal** — the page offers self-service "Immediate removal" for CSS. Use it once.
+   Spamhaus warns that after a relisting removal is **ticket-only**, so do not delist while the cause
+   could still be running.
+3. **Confirm from a resolver that will answer.** Public resolvers do not: `1.1.1.1` returns
+   `127.255.255.254` (query refused) and `8.8.8.8` returns nothing, which means nothing. Quad9 or the
+   node's own `unbound` do:
+   ```bash
+   dig +short 97.87.222.92.zen.spamhaus.org A @9.9.9.9      # empty = delisted; 127.0.0.3 = CSS
+   dig +short 97.87.222.92.zen.spamhaus.org A @127.0.0.1    # on the node: what iphealth sees
+   ```
+   (2026-10-02: removal requested ~14:35, Quad9 empty at 14:39:42.)
+4. **Do nothing on the node.** `iphealth` re-checks every 15 minutes and clears itself on the first
+   clean round (2026-10-02: cleared 14:48) — no restart, no resume call. Data Scout's next job runs
+   normally.
 
 ---
 

@@ -4,6 +4,35 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — A hand-run `openssl` got the IP listed; SMTP now leaves the node only as `verifierd`
+
+At 13:04:48 UTC an agent diagnosing plan 031's Jimdo TLS failure ran `openssl s_client -starttls
+smtp -connect mx00.jimdo.com:25` (and `mx1.jimdo.com:25`) over ssh **on the node**. openssl greets
+with `EHLO mail.example.com`. Spamhaus CSS listed `92.222.87.97` ("most recent connection October 2
+2026, 13:05 UTC, HELO mail.example.com"; zen answered `127.0.0.3`). `iphealth` saw it and stood the
+node down at 13:45 (`ip:health` = `burned:listed on zen.spamhaus.org`) — correct: Data Scout's job 768
+at 14:23 came back 160 `unknown`, free, with no SMTP traffic. The owner used the self-service
+"Immediate removal" ~14:35; Quad9 answered empty at 14:39:42; the node cleared itself at its 14:48
+round with no restart. Cost: about an hour of the node and one Google gate run (plan 033). Spamhaus
+warns that a relisting is ticket-only, so the next one would cost far more.
+
+Decisions:
+- **The node's IP is spent by whoever dials from it, so only the service may.** `/etc/nftables.conf`,
+  output chain: `tcp dport { 25, 465, 587 } meta skuid != "verifierd" counter reject with tcp reset
+  comment "smtp-egress-only-verifierd"`. `verifierd-preflight` runs as `User=verifierd`, so the start
+  gate is unaffected. A reset rather than a drop, so a tool fails at once instead of looking like a
+  dead MX; the counter shows attempts. Output otherwise stays open, as before. Applied by the owner
+  from a script; verified (verification: pending).
+- **A rule, not just a filter.** RUNBOOK (a warning at the top, and an "IP listed on Spamhaus CSS"
+  recovery section), `AGENTS.md` (agents never run manual SMTP tools on the node; same rule in Data
+  Scout's `AGENTS.md`, which routes agents here), `deployment.md` and `SECURITY.md` (the rule and
+  why). The RUNBOOK's "force IPv4 in every hand-run session" note now applies to lookups only.
+- **What to do instead:** diagnose TLS offers and reply wording from a host that does not probe, or
+  against `mxsim`; anything that must come from this IP goes through `POST /probe`, which carries the
+  real HELO, `MAIL FROM` and pacing.
+- **The stand-down worked as designed** (plans 010/020/021): listing seen within one round, no SMTP
+  sent while listed, cleared on its own. Nothing to change there.
+
 ## 2026-10-02 — Plan 033 complete: Google answered 160 domains in 68 sessions
 
 The rework (`ecaeb90`, one transaction per domain) deployed 14:18 UTC. Data Scout job 801

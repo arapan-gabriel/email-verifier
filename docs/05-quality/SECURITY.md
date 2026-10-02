@@ -51,7 +51,12 @@ highest-severity class here.
 - **The API port is closed at the firewall — `nftables`, since 2026-09-05.** `/etc/nftables.conf`,
   table `inet filter`, input `policy drop`: established/related, loopback, ICMP, `22/tcp` from
   anywhere, and `8443/tcp` from Data Scout's caller alone. Output stays `accept` — this host exists
-  to open outbound SMTP sessions, and the established rule is what keeps their replies flowing.
+  to open outbound SMTP sessions, and the established rule is what keeps their replies flowing —
+  **except SMTP (`25`, `465`, `587`) from any user but `verifierd`, since 2026-10-02**: `meta skuid
+  != "verifierd"` → `reject with tcp reset`, comment `smtp-egress-only-verifierd`. A hand-run
+  `openssl s_client` from the node got the IP listed on Spamhaus CSS under openssl's default HELO;
+  the IP's reputation is spent by whoever dials from it, so only the service may
+  (`docs/03-engineering/operations/deployment.md`, RUNBOOK).
   `nftables.service` is enabled, so the ruleset survives a reboot. Verified after applying:
   outbound `:25` still reaches Gmail, a fresh SSH connection still lands, and the policy counter is
   already collecting scanner traffic.

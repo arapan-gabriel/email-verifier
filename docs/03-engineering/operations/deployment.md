@@ -133,6 +133,37 @@ who may reach it is not yet settled: the caller is a Pi on the consumer line who
 so its address is probably dynamic, and an allow-rule pinned to it would fail silently the day it
 rotates.
 
+*(Since 2026-09-05 the filter is `nftables`, not `ufw` — `/etc/nftables.conf`, table `inet filter`,
+input `policy drop`, `8443/tcp` from Data Scout's caller alone; how `ufw` reported a filter it never
+installed is in `docs/05-quality/SECURITY.md`.)*
+
+### Outbound SMTP leaves only as `verifierd` (2026-10-02)
+
+The output chain was left open on purpose: this host exists to open outbound SMTP sessions. Open to
+*whom* was the mistake. On 2026-10-02 a hand-run `openssl s_client -starttls smtp` to Jimdo's MX
+from an ssh session announced itself with openssl's default `EHLO mail.example.com`; Spamhaus CSS
+listed `92.222.87.97` within the hour and the node stood itself down. The service's identity (PTR,
+HELO, `MAIL FROM`) is what keeps the IP clean, and any other process on the box can spend it. So
+output stays open **except SMTP from anything that is not the service**:
+
+```
+# /etc/nftables.conf, table inet filter, chain output
+    # SMTP leaves this host only as verifierd (2026-10-02). …
+    tcp dport { 25, 465, 587 } meta skuid != "verifierd" counter reject with tcp reset comment "smtp-egress-only-verifierd"
+```
+
+- **Who is unaffected.** `verifierd` itself, and `verifierd-preflight` — the `ExecStartPre` gate runs
+  as `User=verifierd` too, so the start gate still dials. Everything else on the box (root included,
+  `openssl`, `swaks`, `telnet`, `nc`, `curl smtp://`) gets a TCP reset at once instead of a session.
+- **`reject with tcp reset`, not `drop`,** so a hand-run tool fails in milliseconds with "connection
+  refused" rather than hanging to its timeout and looking like a dead MX. The `counter` shows whether
+  anyone tried: `nft list chain inet filter output`.
+- **465/587 too.** The probe never uses them, but a relay test or a tool's default would, and a
+  submission session under the wrong identity is the same leak.
+- **Phase C (plan 014)** sends from this host as `verifierd`, so the rule stays as it is; a relay
+  run as a different user would have to be named here — deliberately, in this file.
+- The RUNBOOK says what to do instead when a hand-run SMTP diagnostic seems necessary.
+
 ## It survives a reboot — checked, not assumed (2026-09-11)
 
 The node ran two weeks without one, so everything on it was `enabled` and nothing had been *seen*

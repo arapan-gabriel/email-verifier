@@ -30,6 +30,16 @@ before doing anything. This file is the short orientation; `CLAUDE.md` is the la
 These numbers are the ones every other doc cites. They are defined in `CLAUDE.md`; this list only
 mirrors them, so the two must be renumbered together.
 
+## Agent rules
+
+**No hand-run SMTP from the node.** Never open an SMTP connection to a real MX from
+the verifier node (`92.222.87.97`) yourself: no `openssl s_client -starttls smtp`, `swaks`,
+`telnet`, `nc`, `curl smtp://` or ad-hoc script, over ssh or otherwise, even "just to read the TLS
+offer". On 2026-10-02 an agent's diagnostic did exactly that, under openssl's default HELO, and got
+the IP listed on Spamhaus CSS within the hour. The host firewall now refuses SMTP from any user but
+`verifierd`; do not work around it. Diagnose from `mxsim` or a host that does not probe, or ask the
+owner to run a `POST /probe` through the service — `docs/07-references/RUNBOOK.md`.
+
 ## Where to look
 
 | You want to… | Go to |
