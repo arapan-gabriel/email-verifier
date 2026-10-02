@@ -4,6 +4,31 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 033 complete: Google answered 160 domains in 68 sessions
+
+The rework (`ecaeb90`, one transaction per domain) deployed 14:18 UTC. Data Scout job 801
+(14:56-15:03 UTC, `use_cache=false`, flag on): 160 addresses, one per Google Workspace domain,
+**160/160 conclusive** (74 risky, 51 accept_all, 31 verified, 4 invalid, 0 unknown) in **68 sessions**
+(−57%), 373 `rcpt_paced` (2.33 per address), zero `451 4.3.0`, zero `multi_domain_fallback`. Job 802
+re-probed 10 of them with the flag off, one domain per session: 10/10 identical `status`,
+`smtp_check` and `accept_all`. Data Scout's flag stays on.
+
+Decisions:
+- **Gate amended, not waived.** The plan asked for ⌈30 × 2 / 10⌉ sessions per 30 domains (32 for
+  160). The verifier put every request it got into one session; the shortfall is in how Data Scout
+  forms requests — a group is only the domains that queued while the previous request to the same
+  host was in flight, under a per-job window of 8 (so ≤ 7 per group: 39 groups of 2-7, 29 singles),
+  and its queue is per exact host, so `aspmx.l.google.com` and `smtp.google.com` never meet. The
+  owner accepted "sessions ≤ half the domains" (68 ≤ 80) and moved the rest to Data Scout plan 114.
+  The original text stays in the plan, struck through.
+- **Wall clock recorded after-only** (~2.5 s per domain): no comparable single-domain Google run
+  existed that day, and inventing a "before" from a different mix would be worse than none.
+- **EOP (Design 4) not run** — residual, not a blocker. `@microsoft-eop` has no `multi_domain` and is
+  served one tenant per session as before.
+- The first retest (job 768, 14:23) was 160 `unknown` with no SMTP traffic: the node had stood down
+  at 13:45 on a Spamhaus CSS listing caused by a hand-run `openssl s_client` (entry above). Correct
+  behaviour, and no cost but the run.
+
 ## 2026-10-02 — Plan 033 reworked: one transaction per domain, after Google refused the first design
 
 The first grouped run (Data Scout job 766, 13:29-13:32 UTC) put 83 Google Workspace domains into 31

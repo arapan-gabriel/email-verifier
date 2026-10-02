@@ -1,6 +1,6 @@
 # Plan 033 — Several domains per session
 
-**Status:** Reworked after its production failure — code complete 2026-10-02 (one transaction per domain); redeploy and the manual-test gate pending, then Data Scout's flag back on. EOP measurement (Design 4) still pending (written 2026-10-01)
+**Status:** Complete 2026-10-02 — the rework (`ecaeb90`, deployed 14:18 UTC) passed the amended gate on Data Scout job 801: 160 Google Workspace domains in 68 sessions, 160/160 conclusive, zero `451 4.3.0`, a 10-address sample identical one domain per session. Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` stays on. Residuals: the original ⌈30 × 2 / 10⌉ bound is Data Scout's to reach (its plan 114); the EOP measurement (Design 4) was not run, so `@microsoft-eop` stays ungrouped (written 2026-10-01)
 **Phase:** B
 **Depends on:** 026 (pace keys), 028 (one connection per pace key), 029 (catch-all asked once) —
 026 complete, 028 and 029 planned. Has a **Data Scout companion** (below).
@@ -112,8 +112,11 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
 - [x] `families.json` + `PaceKey` companion — `multi_domain` flag; `@google` true
 - [x] Relay-refusal detection on a foreign-domain `RCPT` → `ClassPolicy` + node-local fallback
 - [x] Metrics: `verify_session_domains`, `verify_multi_domain_fallbacks_total`
-- [ ] EOP measurement (Design 4), recorded here; follow-up change only if it passes — **pending: a node
-      step, not done in this change** (needs the node and a known second-tenant answer)
+- [ ] EOP measurement (Design 4), recorded here; follow-up change only if it passes — **not run;
+      carried as a residual, not a blocker** (2026-10-02): `@microsoft-eop` ships without
+      `multi_domain`, so it is served one tenant per session exactly as before. Needs the node and a
+      known second-tenant answer — and, since 2026-10-02, a way to ask that does not dial by hand from
+      the node (the host firewall lets only `verifierd` out on `:25`; RUNBOOK)
 - [x] Tests alongside:
   - mxsim: one session, three domains, each domain's results and catch-all verdict correct
   - a family without `multi_domain`: one session per domain, results identical
@@ -137,23 +140,27 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
       fallback with every address answered, a per-connection domain limit → re-asked alone, connection
       lost at `RSET` and `421` at the second `MAIL FROM` → unattempted, the exact dialogue
       (`RSET`, `MAIL FROM` per domain), `domainLimitRefusal` table, mxsim's two limits
-- [ ] Redeploy the rework, then Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` back on (no Data Scout change
-      needed: the HTTP contract is unchanged, `27d05b7` works as is)
+- [x] Redeploy the rework, then Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` back on (no Data Scout change
+      needed: the HTTP contract is unchanged, `27d05b7` works as is) — `ecaeb90` deployed 2026-10-02
+      14:18 UTC; flag on for job 801, off for the job 802 sample, **on again and left on**
 
 ## Definition of Done
 
-- [ ] **Manual-test gate** (first attempt failed 2026-10-02, job 766 — below; to be re-run after the
-      rework deploys)**:** with the Data Scout companion on, a run containing ≥ 30 Google
-      Workspace domains: `rcpt_paced` shows those `RCPT`s in ≤ ⌈30 × 2 / 10⌉ sessions rather than
-      30, every Google domain's verdict matches what a one-domain session gives (re-probe a sample
-      of 10 the old way), and Google's wall clock per domain before/after is recorded. The EOP
-      measurement's outcome is recorded either way
+- [x] **Manual-test gate** (first attempt failed 2026-10-02, job 766 — below; **passed on the rework,
+      job 801, with the session bound amended by the owner** — see "Gate run")**:** with the Data
+      Scout companion on, a run containing ≥ 30 Google Workspace domains: `rcpt_paced` shows those
+      `RCPT`s in ~~≤ ⌈30 × 2 / 10⌉ sessions rather than 30~~ **≤ half as many sessions as domains**
+      (68 for 160 — met; the original bound, 32 for 160, was not, for reasons on Data Scout's side,
+      moved to Data Scout plan 114), every Google domain's verdict matches what a one-domain session
+      gives (re-probe a sample of 10 the old way — 10/10 identical, job 802), and Google's wall clock
+      per domain before/after is recorded (after: ~2.5 s/domain; no comparable before — recorded as
+      such). The EOP measurement's outcome is recorded either way (not run — residual)
 - [x] `go test -race -count=1 ./...` green, including real-Redis tests
 - [x] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok
 - [x] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address (relay refusal), SSRF (one vetted
       host), fail-closed, central bucket
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
 
@@ -250,3 +257,38 @@ Data Scout's flag was turned off again.
   the new `MAIL FROM` fails it too (every later domain `bad_sequence`).
 - **Known imprecision.** `verify_session_domains` observes the domains a session was *given*; a
   session that falls back after its first domain still counts them all.
+
+### Gate run (2026-10-02)
+
+`ecaeb90` deployed 14:18 UTC; Data Scout's `VERIFY_MULTI_DOMAIN_SESSIONS` on.
+
+- **The first retest never reached Google.** Job 768 (14:23 UTC) came back 160 `unknown`, free, with
+  no SMTP traffic: the node had stood itself down at 13:45 on a Spamhaus CSS listing of
+  `92.222.87.97` (`ip:health` = `burned:listed on zen.spamhaus.org`). The listing was caused by a
+  hand-run `openssl s_client -starttls smtp` from the node at 13:04 (plan 031's Jimdo diagnosis;
+  openssl's default EHLO is `mail.example.com`), not by the service. The stand-down behaved exactly
+  as designed. Delisted by self-service at ~14:35, cleared by the node at its 14:48 round; the host
+  firewall now refuses SMTP from anyone but `verifierd` (changelog, RUNBOOK).
+- **Job 801 (14:56:11-15:02:57 UTC, `use_cache=false`).** 160 addresses, one per domain, all Google
+  Workspace (MX `aspmx.l.google.com` / `smtp.google.com`). **160/160 conclusive**: 74 risky, 51
+  accept_all, 31 verified, 4 invalid (2.5%), 0 unknown. **68 sessions** (`session_leased`) for 160
+  domains (−57%); 373 `rcpt_paced` (2.33 per address). Zero `451 4.3.0` / "multiple destination
+  domains" replies, zero `multi_domain_fallback`.
+- **What Data Scout sent.** Its worker's `verify.probe_grouped`: 39 grouped requests of 2-7 domains
+  (sizes 2×11, 3×14, 4×6, 5×6, 6×1, 7×1), 34 to `aspmx.l.google.com` and 5 to `smtp.google.com`; 29
+  requests went out single.
+- **Verdict equivalence.** Job 802 (15:08:56 UTC) re-probed 10 of job 801's addresses with the flag
+  **off** (10 sessions, 10 `RCPT`s): 4 invalid, 3 verified, 2 accept_all, 1 risky — **10/10
+  identical** `status`, `smtp_check` and `accept_all`.
+- **Wall clock.** 160 domains in 6 m 46 s, ~2.5 s per domain. There was no single-domain Google run of
+  comparable size that day, so there is no honest "before"; recorded as after-only.
+- **Why the session bound was amended rather than met.** ⌈30 × 2 / 10⌉ scales to 32 sessions for 160
+  domains; 68 is the verifier serving every request it was given in one session. The gap is in how
+  Data Scout forms requests: (1) a group forms only from domains queued while the previous request
+  for the same host is in flight, and one job keeps at most 8 domains in flight
+  (`verify_job_window`), so a group tops out at 7; (2) Data Scout queues per exact MX host, so
+  `aspmx.l.google.com` and `smtp.google.com` queue apart although both are `@google` here. Neither
+  is this repository's to fix. The owner accepted **"sessions ≤ half the domains"** as the gate (68 ≤
+  80) and moved the improvement to **Data Scout plan 114** (group a verify run by receiving system).
+- **EOP (Design 4) not run.** `@microsoft-eop` has no `multi_domain` and keeps one tenant per
+  session; the measurement is a follow-up, not a blocker for the Google half.
