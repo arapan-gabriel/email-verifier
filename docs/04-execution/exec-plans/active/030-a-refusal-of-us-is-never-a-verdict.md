@@ -1,6 +1,6 @@
 # Plan 030 — A refusal of us is never a verdict
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy and the manual-test gate pending
 **Phase:** B
 **Depends on:** 022 (whole reply), 024 (TLS prose, active), 027 (`beforeRCPT`) — and a Data Scout
 companion change, below, without which half of the defect stays
@@ -97,15 +97,15 @@ and the reply entirely (Data Scout tech-debt, 2026-10-01).
 
 ## Tasks
 
-- [ ] Export the ladder's `invalid` and `policy` replies (redacted) → `internal/prober/testdata/corpus.tsv`
-- [ ] Count the no-code, no-hint `invalid`s; record the number and the decision on the default (step 5)
-- [ ] `Identity` on `Options` (source IP, HELO, MAIL FROM domain); `classifyPermanent` treats a token-bounded match as a sender hint
-- [ ] TLS and blocklist prose (steps 2-3); 421 + TLS wording → policy (step 4)
-- [ ] Tests alongside: the table above verbatim; IONOS r1601 stays `invalid`; `5.4.1` stays `policy`;
+- [x] Export the ladder's `invalid` and `policy` replies (redacted) → `internal/prober/testdata/corpus.tsv` — 394 distinct from 710 rows (days 1-22), addresses redacted, our identity kept
+- [x] Count the no-code, no-hint `invalid`s; record the number and the decision on the default (step 5) — 16 distinct / 33 rows; 2 were about us and gained wording; **default kept `invalid`** (the other 14 are recipient-shaped)
+- [x] `Identity` on `Options` (source IP, HELO, MAIL FROM domain); `classifyPermanent` treats a token-bounded match as a sender hint — `Options.SourceIP` + `Helo` + the `MailFrom` domain; `ClassifyAs`; a recipient code (5.1/5.2) or mailbox wording still wins
+- [x] TLS and blocklist prose (steps 2-3); 421 + TLS wording → policy (step 4) — any 4xx demanding STARTTLS/TLS/encryption → policy; greylisting still first
+- [x] Tests alongside: the table above verbatim; IONOS r1601 stays `invalid`; `5.4.1` stays `policy`;
       `192.222.87.971` does not match our IP; a 421 TLS demand never reaches `Observe(throttled=true)`;
-      the corpus file classifies exactly as committed
-- [ ] `docs/03-engineering/patterns/smtp-classification.md` — identity rule, 421 rule, the corpus
-- [ ] Data Scout companion plan written and linked (status mapping + not-connected branch)
+      the corpus file classifies exactly as committed — `internal/prober/identity_test.go`; mutation: identity off → 5 tests fail, the 4xx-TLS rule off → 2 fail
+- [x] `docs/03-engineering/patterns/smtp-classification.md` — identity rule, 421 rule, the corpus — new section
+- [x] Data Scout companion plan written and linked (status mapping + not-connected branch) — status mapping = Data Scout `112` (shipped 2026-10-01); not-connected branch = Data Scout `106`
 
 ## Definition of Done
 
@@ -116,8 +116,8 @@ and the reply entirely (Data Scout tech-debt, 2026-10-01).
       Recorded here
 - [ ] Data Scout companion deployed: `SELECT count(*) … status='valid' AND (signals->>'block')::bool`
       is zero for rows written after it
-- [ ] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok
-- [ ] `pr-checklist.md` — "us ≠ address" is this plan; confirmed against the corpus
+- [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok — 2026-10-02, with Redis
+- [x] `pr-checklist.md` — "us ≠ address" is this plan; confirmed against the corpus — us ≠ address is this plan, confirmed against the corpus; fail-closed and SSRF untouched
 - [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
 
 ## Notes / decisions / deviations

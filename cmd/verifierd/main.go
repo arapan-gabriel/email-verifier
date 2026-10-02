@@ -177,6 +177,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		Resolver:          dns,
 		Helo:              cfg.Probe.Helo,
 		MailFrom:          cfg.Probe.MailFrom,
+		SourceIP:          cfg.Probe.SourceIP,
 		Timeout:           cfg.Probe.Timeout,
 		DialNetwork:       cfg.Probe.DialNetwork,
 		Port:              cfg.Probe.Port,

@@ -78,6 +78,32 @@ forty-nine answers. The counter resets on any non-policy reply.
 None of this reaches the pacer (invariant 6). Remembering the refusal *across* requests is plan 010's
 job, where it belongs with IP health and the alert.
 
+## A refusal that names us is about us (plan 030)
+
+The wording lists can never be complete, so the classifier also checks for a fact it knows: **who we
+are.** `ClassifyAs(code, text, Identity)` receives the node's source IP, HELO name and `MAIL FROM`
+domain (`prober.Options.SourceIP`/`Helo`/`MailFrom`), and a permanent reply that names any of them **as a
+whole token** counts as sender wording — `92.222.87.97` matches in `IP=92.222.87.97 -` and
+`[92.222.87.97]>`, never in `192.222.87.971`. Precedence is unchanged: a recipient code (`5.1.x`, `5.2.x`)
+or explicit mailbox wording still wins, so IONOS's "mailbox unavailable … `v=<our IP>`" (case r1601)
+stays `invalid`. `Classify(code, text)` is the identity-less form the fuzzers and wording tests use.
+
+**A temporary reply demanding encryption is policy, not a throttle.** `421 4.7.0 STARTTLS is mandatory`
+used to class `throttled`, so `IsThrottle()` halved the pacer's rate for a host that refuses us at any
+rate. Any `4xx` mentioning STARTTLS, `tls` as a word, or encryption is now `ClassPolicy` (never a
+throttle, invariant 6); greylisting still wins over it.
+
+**The corpus.** `internal/prober/testdata/corpus.tsv` holds every distinct permanent reply the warm-up
+ladder received (394, from 710 rows, addresses redacted, our identity kept), with its golden class.
+`TestCorpusClassifiesExactlyAsCommitted` fails on any change in what a real reply means; regenerate with
+`go test ./internal/prober -run TestCorpus -update-corpus` and read the diff. At introduction 8 rows moved
+`invalid → policy` and none the other way.
+
+**The default stays `invalid`** (step 5). Of the corpus's no-code, no-hint `invalid`s (16 distinct, 33
+rows) two were about us and gained wording ("you are listed on …", "Sender IP address rejected"); the
+other 14 are recipient-shaped ("Address unknown", "Unknown recipient", "Unroutable address"). Turning
+the default to `unknown` would cost those real verdicts to catch nothing the identity rule does not.
+
 ## Catch-all versus randomiser (plan 005)
 
 A `250` is only worth something if the server would have said `550` to a name that does not exist.

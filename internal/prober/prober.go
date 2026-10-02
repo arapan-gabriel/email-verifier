@@ -93,6 +93,10 @@ type Dialer interface {
 type Options struct {
 	Helo     string
 	MailFrom string
+	// SourceIP is the address this node connects from. With Helo and the
+	// MailFrom domain it makes up the Identity the classifier recognises in a
+	// refusal (plan 030). Optional: without it only the names are matched.
+	SourceIP string
 	// Timeout bounds the whole session, not one command.
 	Timeout time.Duration
 	// DialNetwork must be "tcp4" (invariant 3). A bare "tcp" on a dual-stack
@@ -380,6 +384,12 @@ type Prober struct {
 // New returns a Prober. It never returns an error: every option has a default.
 func New(opts Options) *Prober { return &Prober{opts: opts} }
 
+// identity is who this node is on the wire, for the classifier (plan 030).
+func (p *Prober) identity() Identity {
+	_, domain, _ := strings.Cut(p.opts.MailFrom, "@")
+	return Identity{SourceIP: p.opts.SourceIP, Helo: p.opts.Helo, MailFromDomain: domain}
+}
+
 func ptrBool(b bool) *bool { return &b }
 
 // Probe asks one MX about every address in the request.
@@ -575,7 +585,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	if code != 220 {
 		// A 421 here is the provider throttling the connection itself, and it
 		// is exactly the signal the pacer exists to react to.
-		class := beforeRCPT(code, text)
+		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -588,7 +598,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		return fail(classifyNetErr(netErr), 0, "", netErr.Error())
 	}
 	if code != 250 {
-		class := beforeRCPT(code, text)
+		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -602,7 +612,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	}
 	if code != 250 {
 		// Everything up to and including a failed MAIL FROM is about us.
-		class := beforeRCPT(code, text)
+		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
 	}
@@ -634,7 +644,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 			}
 			return out, catchAllVerdict{}
 		}
-		r := rcptResult(code, text, p.opts.deferralRetry())
+		r := rcptResult(code, text, p.opts.deferralRetry(), p.identity())
 		p.observe(ctx, req.MXHost, r.Class)
 		if r.Class == ClassPolicy && p.opts.Health != nil {
 			// A policy reply is about our client. It never moves the pacer
@@ -732,7 +742,7 @@ func (p *Prober) askCatchAll(ctx context.Context, req Request, addrs []string, o
 			break
 		}
 		answered++
-		if Classify(code, text) == ClassValid {
+		if ClassifyAs(code, text, p.identity()) == ClassValid {
 			accepted++
 		} else if !audit {
 			// A rejected bogus address settles it: either nothing was accepted
@@ -777,8 +787,8 @@ func (p *Prober) countCatchAll(outcome string) {
 // A would-be verdict becomes policy for a 5xx (a permanent refusal of our
 // client, which is what ClassPolicy means) and unknown otherwise (a 2xx that is
 // not the expected 220/250). Every other class already says who it is about.
-func beforeRCPT(code int, text string) Class {
-	c := Classify(code, text)
+func (p *Prober) beforeRCPT(code int, text string) Class {
+	c := ClassifyAs(code, text, p.identity())
 	if c != ClassValid && c != ClassInvalid {
 		return c
 	}
@@ -906,8 +916,8 @@ func (p *Prober) dialAny(ctx context.Context, addrs []netip.Addr) (net.Conn, err
 // rcptResult turns one RCPT reply into a Result. Only ClassValid and
 // ClassInvalid are statements about the mailbox; every other class means the
 // question was not answered, so Accepted stays nil.
-func rcptResult(code int, text string, deferralRetry time.Duration) Result {
-	class := Classify(code, text)
+func rcptResult(code int, text string, deferralRetry time.Duration, id Identity) Result {
+	class := ClassifyAs(code, text, id)
 	r := Result{
 		Connected:         ptrBool(true),
 		Class:             class,

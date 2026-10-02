@@ -1,0 +1,401 @@
+# Real permanent replies from Data Scout's warm-up ladder (days 1-22, 2026-09/10), redacted:
+# every address is <redacted>; our own IP, HELO and MAIL FROM domain are kept, because
+# recognising them is what plan 030 tests. Columns: code, expected class (golden, from
+# ClassifyAs with the production identity), class recorded at the time, rows seen, reply
+# (\n and \t escaped). Regenerate the expected column with:
+#   go test ./internal/prober -run TestCorpus -update-corpus
+# and read the diff — every changed line is a change in what a reply means.
+530	policy	policy	1	530 5.7.0 <<redacted>>: Recipient address rejected: Must use TLS
+530	policy	policy	12	530 5.7.0 STARTTLS is mandatory
+530	policy	policy	3	530 5.7.0 TLS minimum version: TLSv1.2
+550	invalid	invalid	5	550 #5.1.0 Address rejected.
+550	invalid	invalid	2	550 5.1.0 <<redacted>> Recipient not found.  <https://www.secureserver.net/help/fix-rejected-email-with-a-bounce-error-40685?pl_id=3153&prog_id=3153#irb>
+550	invalid	invalid	3	550 5.1.1 <<redacted>> sorry, no mailbox here by that name. #5.5.1
+550	invalid	invalid	3	550 5.1.1 <<redacted>>... User unknown
+550	invalid	invalid	10	550 5.1.1 <<redacted>>: Email address could not be found, or was misspelled (G8)
+550	invalid	invalid	2	550 5.1.1 <<redacted>>: Email address could not be found, or was misspelled (G9)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: Address does not exist
+550	invalid	invalid	4	550 5.1.1 <<redacted>>: Recipient address rejected: User unknown
+550	invalid	invalid	3	550 5.1.1 <<redacted>>: Recipient address rejected: User unknown in local recipient table
+550	invalid	invalid	7	550 5.1.1 <<redacted>>: Recipient address rejected: User unknown in relay recipient table
+550	invalid	invalid	37	550 5.1.1 <<redacted>>: Recipient address rejected: User unknown in virtual alias table
+550	invalid	invalid	64	550 5.1.1 <<redacted>>: Recipient address rejected: User unknown in virtual mailbox table
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: Access denied
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: Recipient address lookup failed
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: Recipient address lookup failed - Empfaenger unbekannt
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: User unknown, servertime=Sep 27 08:47:47, server=maildomain.datevnet.de, client=92.222.87.97
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host 62.159.186.107[62.159.186.107] said: 550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup (in reply to RCPT TO command)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host autohausgossgmbh.mail.protection.outlook.com[52.101.170.1] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0D.DEUP281.…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host autoweeber.mail.protection.outlook.com[52.101.91.159] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008B2.eurprd04.prod.outlook.co…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host elaskoncloud.mail.protection.outlook.com[52.101.170.2] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOO…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host fr-int-smtpin26.hostinger.io[private/dovecot-lmtp] said: 550 5.1.1 <<redacted>> User doesn't exist: <redacted> (in reply to RCPT TO command)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host fr-int-smtpin37.hostinger.io[private/dovecot-lmtp] said: 550 5.1.1 <<redacted>> User doesn't exist: <redacted> (in reply to RCPT TO command)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host globalmail.mail.protection.outlook.com[52.101.181.156] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B3B.eurprd05.prod.outlook.com 202…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host ldbloefflergmbh.mail.protection.outlook.com[52.101.168.0] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056D.DEU…
+550	invalid	invalid	2	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host ldbloefflergmbh.mail.protection.outlook.com[52.101.170.2] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEU…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host ldbloefflergmbh.mail.protection.outlook.com[52.101.170.2] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEU…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host loreleyliniede.mail.protection.outlook.com[52.101.168.0] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056B.DEUP281.PROD.OU…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host mc.bio-austria.at[83.164.168.72] said: 550 5.1.1 <<redacted>>: Recipient address rejected: User unknown in virtual mailbox table (in reply to RCPT TO command)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host neodigitalag.mail.protection.outlook.com[52.101.73.123] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF0000009A.eurprd02.prod.out…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host roemerpelizaeusmuseum.mail.protection.outlook.com[52.101.170.0] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004EF.DEUP281.PROD.OUT…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host suggruppe.mail.protection.outlook.com[52.101.103.36] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008550.eurprd05.prod.outlook.com …
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host suggruppe.mail.protection.outlook.com[52.101.68.27] said: 550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DU2PEPF00028D09.eurprd03.prod.outlook.com 2…
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: host xch-3.ipk-gatersleben.de[194.94.136.92] said: 550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup (in reply to RCPT TO command)
+550	invalid	invalid	1	550 5.1.1 <<redacted>>: user does not exist
+550	invalid	invalid	1	550 5.1.1 Address does not exist. BLaqcKMZPCTd
+550	invalid	invalid	1	550 5.1.1 Address does not exist. eI857WAbdbyb
+550	invalid	invalid	1	550 5.1.1 Mailbox <<redacted>> does not exist
+550	invalid	invalid	1	550 5.1.1 Requested action not taken: mailbox unavailable
+550	invalid	invalid	1	550 5.1.1 Requested action not taken: user unknown (Benutzer unbekannt). [code=n2d81d]
+550	invalid	invalid	1	550 5.1.1 The email account you tried to reach does not exist. Please double-check the recipient's email address for typos or unnecessary spaces. - ImprovMX v2026.09.24
+550	invalid	invalid	4	550 5.1.1 Unknown recipient
+550	invalid	invalid	3	550 5.1.1 User Unknown
+550	invalid	invalid	2	550 5.1.1 User does not exist - <<redacted>>
+550	invalid	invalid	1	550 5.1.1 [R5] Unknown recipient (413ca81b-bca8-11f1-97b1-1d3b36025149)
+550	invalid	invalid	1	550 5.1.1 mailbox unavailable
+550	invalid	invalid	1	550 5.1.1 sorry, no mailbox here by that name (chkuser)
+550	invalid	invalid	43	550 5.1.2 No such mailbox [MSG0031]
+550	invalid	invalid	2	550 5.2.1 <<redacted>>... Mailbox disabled for this recipient
+550	policy	policy	1	550 5.2.1 Mailbox is blocked [MSG0029]
+550	invalid	invalid	1	550 5.2.1 Mailbox is disabled [MSG0030]
+550	policy	policy	1	550 5.4.1  Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509EF.eurprd03.prod.outlook.com 2026-09-20T10:31:18.773Z 08DF146C252A39B0]
+550	policy	policy	1	550 5.4.1  Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008AD.eurprd04.prod.outlook.com 2026-09-25T13:07:17.399Z 08DF19E60BACBD22]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM1PEPF000C1AD5.eurprd02.prod.outlook.com 2026-09-22T12:31:42.433Z 08DF185DF6237F2F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM1PEPF000C1AD6.eurprd02.prod.outlook.com 2026-09-28T09:58:18.085Z 08DF1C8B3E335A4F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM1PEPF000C1AD7.eurprd02.prod.outlook.com 2026-09-28T08:49:33.047Z 08DF1C69DD172C64]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM1PEPF000C1ADB.eurprd02.prod.outlook.com 2026-09-28T07:03:47.261Z 08DF1C7660239F07]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM1PEPF000C1ADC.eurprd02.prod.outlook.com 2026-09-22T08:52:01.686Z 08DF17A3D209E53B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM7PEPF00000050.EURPRD83.prod.outlook.com 2026-09-29T17:52:33.256Z 08DF1B1595364DE6]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM7PEPF00000051.EURPRD83.prod.outlook.com 2026-09-20T18:19:27.593Z 08DF1386603116D6]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AM7PEPF00000053.EURPRD83.prod.outlook.com 2026-09-23T11:56:29.136Z 08DF19453F1FC998]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS0EPF0000056B.eurprd02.prod.outlook.com 2026-10-01T06:25:15.029Z 08DF1EB99A7C8651]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF0000008F.eurprd05.prod.outlook.com 2026-09-21T05:59:19.504Z 08DF14AA187248AA]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF00000091.eurprd05.prod.outlook.com 2026-09-29T16:10:11.451Z 08DF1C999E701001]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF00000098.eurprd02.prod.outlook.com 2026-09-29T10:07:09.596Z 08DF1C970CBE2378]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF0000009D.eurprd02.prod.outlook.com 2026-09-18T12:58:42.925Z 08DF148F1B92D97D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [AMS1EPF0000009E.eurprd02.prod.outlook.com 2026-09-18T15:34:54.327Z 08DF14723EB00255]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056B.DEUP281.PROD.OUTLOOK.COM 2026-09-24T14:09:25.560Z 08DF1454FBD8CBA7]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056B.DEUP281.PROD.OUTLOOK.COM 2026-10-02T07:57:56.405Z 08DF1C4852158058]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056C.DEUP281.PROD.OUTLOOK.COM 2026-09-22T13:00:15.949Z 08DF14B9470C7DC2]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056C.DEUP281.PROD.OUTLOOK.COM 2026-09-24T07:24:58.042Z 08DF14B948381E10]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056C.DEUP281.PROD.OUTLOOK.COM 2026-09-28T06:34:37.515Z 08DF1C8A99228F6E]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056C.DEUP281.PROD.OUTLOOK.COM 2026-10-01T05:56:28.628Z 08DF1C8A9B5758E3]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056D.DEUP281.PROD.OUTLOOK.COM 2026-09-18T12:27:22.784Z 08DF1470DA701AE9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056D.DEUP281.PROD.OUTLOOK.COM 2026-09-29T17:53:15.622Z 08DF1C514318F1D9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056E.DEUP281.PROD.OUTLOOK.COM 2026-09-23T10:25:29.274Z 08DF16A2A2F354F4]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056E.DEUP281.PROD.OUTLOOK.COM 2026-09-24T13:44:32.174Z 08DF16A2A3D58BF1]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056E.DEUP281.PROD.OUTLOOK.COM 2026-09-30T04:35:26.342Z 08DF1C8097E43F13]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [BE1PEPF0000056E.DEUP281.PROD.OUTLOOK.COM 2026-10-02T07:54:15.436Z 08DF1C80998D0E11]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [CPH1EPF0000051F.eurprd04.prod.outlook.com 2026-09-21T05:31:55.154Z 08DF149D11D2C9FF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [CPH1EPF0000051F.eurprd04.prod.outlook.com 2026-09-23T08:48:35.170Z 08DF183A5B8781B0]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [CPH1EPF0000051F.eurprd04.prod.outlook.com 2026-09-24T12:17:01.103Z 08DF183A5DB7FF28]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [CPH1EPF00000525.eurprd05.prod.outlook.com 2026-09-26T11:25:34.831Z 08DF1941734D7BB7]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [CPH1EPF00000530.eurprd05.prod.outlook.com 2026-10-02T07:56:28.802Z 08DF205509C508D9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509E7.eurprd03.prod.outlook.com 2026-09-30T12:47:24.848Z 08DF1C9043771F07]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509E9.eurprd03.prod.outlook.com 2026-09-26T12:30:22.322Z 08DF14A802C8BE50]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509EA.eurprd03.prod.outlook.com 2026-09-22T15:24:48.741Z 08DF1475682D4366]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509EC.eurprd03.prod.outlook.com 2026-09-28T09:40:03.907Z 08DF1CB2C4FA73FF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509EF.eurprd03.prod.outlook.com 2026-09-25T12:52:38.218Z 08DF146C2E0542F5]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509F1.eurprd03.prod.outlook.com 2026-09-22T12:06:01.650Z 08DF1458335F3C08]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509F2.eurprd02.prod.outlook.com 2026-09-20T11:01:11.714Z 08DF146105025F4F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509F3.eurprd02.prod.outlook.com 2026-09-18T17:01:36.655Z 08DF146B1E9D5D26]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509F3.eurprd02.prod.outlook.com 2026-09-25T09:29:39.726Z 08DF146B2919E911]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF000509FF.eurprd03.prod.outlook.com 2026-10-01T05:21:36.898Z 08DF1C957439DCCF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB1PEPF00050A01.eurprd03.prod.outlook.com 2026-10-01T06:19:15.497Z 08DF1C7B4F402AEF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DB3PEPF00008860.eurprd02.prod.outlook.com 2026-10-01T06:10:40.613Z 08DF1C90648515A9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DU2PEPF00028CFF.eurprd03.prod.outlook.com 2026-09-24T06:57:36.059Z 08DF14F8D72AB495]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DU2PEPF00028D00.eurprd03.prod.outlook.com 2026-09-24T07:24:42.999Z 08DF14614CFA7690]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [DU6PEPF0000A7E1.eurprd02.prod.outlook.com 2026-09-21T12:46:29.719Z 08DF147B96107F10]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0D.DEUP281.PROD.OUTLOOK.COM 2026-09-24T09:17:56.615Z 08DF14551FC1295C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0D.DEUP281.PROD.OUTLOOK.COM 2026-09-29T17:51:47.355Z 08DF1DFE5DFE5316]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0D.DEUP281.PROD.OUTLOOK.COM 2026-09-29T17:53:21.777Z 08DF1DFE5DFE7ABB]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0D.DEUP281.PROD.OUTLOOK.COM 2026-10-01T05:35:31.608Z 08DF1DFE5EF8AFBC]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0E.DEUP281.PROD.OUTLOOK.COM 2026-09-24T07:26:03.314Z 08DF145EAD2E3138]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0E.DEUP281.PROD.OUTLOOK.COM 2026-09-27T15:38:05.578Z 08DF1C885B0CC73F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0E.DEUP281.PROD.OUTLOOK.COM 2026-09-29T12:26:49.311Z 08DF1C885C508E1F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0E.DEUP281.PROD.OUTLOOK.COM 2026-09-29T17:43:06.380Z 08DF1C885C7F3AED]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0E.DEUP281.PROD.OUTLOOK.COM 2026-09-30T05:13:46.742Z 08DF1C885CB3C08A]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0F.DEUP281.PROD.OUTLOOK.COM 2026-09-23T14:29:01.358Z 08DF14692F6ABB8E]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0F.DEUP281.PROD.OUTLOOK.COM 2026-09-26T14:43:50.493Z 08DF1469312B5921]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F0F.DEUP281.PROD.OUTLOOK.COM 2026-09-27T17:32:59.560Z 08DF1C705DBA8093]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR1PEPF00000F10.DEUP281.PROD.OUTLOOK.COM 2026-09-24T11:36:39.549Z 08DF148D39E0AAAC]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004EF.DEUP281.PROD.OUTLOOK.COM 2026-09-28T08:33:44.069Z 08DF1C4BBBEA26E4]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004EF.DEUP281.PROD.OUTLOOK.COM 2026-09-30T11:28:36.825Z 08DF1C4BBD855E2C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F0.DEUP281.PROD.OUTLOOK.COM 2026-09-28T10:59:37.198Z 08DF1C63E275D735]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F0.DEUP281.PROD.OUTLOOK.COM 2026-09-29T11:21:54.504Z 08DF1C63E33393F2]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F1.DEUP281.PROD.OUTLOOK.COM 2026-09-23T07:30:19.392Z 08DF17D28A2C015E]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F1.DEUP281.PROD.OUTLOOK.COM 2026-09-24T09:00:26.636Z 08DF17D28AF8BA32]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F1.DEUP281.PROD.OUTLOOK.COM 2026-09-30T08:23:52.730Z 08DF1C586C4EEBEB]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F1.DEUP281.PROD.OUTLOOK.COM 2026-09-30T13:08:55.350Z 08DF1C586C8BF6B9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F2.DEUP281.PROD.OUTLOOK.COM 2026-09-21T13:41:13.503Z 08DF1465B29497BC]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR2PEPF000004F2.DEUP281.PROD.OUTLOOK.COM 2026-09-25T13:07:06.550Z 08DF1465B5656E1D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000484.DEUP281.PROD.OUTLOOK.COM 2026-09-23T13:49:02.726Z 08DF17049E153E8F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000484.DEUP281.PROD.OUTLOOK.COM 2026-09-23T14:10:36.649Z 08DF17049E195813]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000484.DEUP281.PROD.OUTLOOK.COM 2026-09-25T06:23:33.845Z 08DF17049F24409F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000484.DEUP281.PROD.OUTLOOK.COM 2026-09-27T15:38:52.581Z 08DF1C58FC223935]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000484.DEUP281.PROD.OUTLOOK.COM 2026-09-27T15:52:53.515Z 08DF1C58FC22EC29]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000485.DEUP281.PROD.OUTLOOK.COM 2026-09-30T07:38:27.701Z 08DF1C6FD2007DB6]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEUP281.PROD.OUTLOOK.COM 2026-09-18T12:58:12.267Z 08DF146CA544B2D4]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEUP281.PROD.OUTLOOK.COM 2026-09-23T10:10:30.590Z 08DF146CA8016A18]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEUP281.PROD.OUTLOOK.COM 2026-09-27T07:01:58.791Z 08DF1C6418074E59]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEUP281.PROD.OUTLOOK.COM 2026-09-27T08:02:10.576Z 08DF1C64180BC3A7]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000486.DEUP281.PROD.OUTLOOK.COM 2026-09-29T13:12:33.245Z 08DF1C64196D0E60]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOOK.COM 2026-09-20T16:02:25.921Z 08DF144415F1D291]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOOK.COM 2026-09-23T06:54:23.462Z 08DF144417AA95FC]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOOK.COM 2026-09-25T08:13:21.379Z 08DF14441926AD3C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOOK.COM 2026-09-26T13:29:44.792Z 08DF144419C21267]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [FR3PEPF00000487.DEUP281.PROD.OUTLOOK.COM 2026-09-30T09:45:06.757Z 08DF1C4C791CE9FA]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F8.CHEP278.PROD.OUTLOOK.COM 2026-09-25T09:17:27.441Z 08DF146CFD118FD9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F8.CHEP278.PROD.OUTLOOK.COM 2026-09-27T17:46:54.227Z 08DF1C7C632A61C2]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F9.CHEP278.PROD.OUTLOOK.COM 2026-09-20T19:09:15.210Z 08DF1477B908F15F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F9.CHEP278.PROD.OUTLOOK.COM 2026-09-23T10:11:04.171Z 08DF1477B9B063F1]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F9.CHEP278.PROD.OUTLOOK.COM 2026-09-24T08:36:55.052Z 08DF1477B9ED9CA8]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006F9.CHEP278.PROD.OUTLOOK.COM 2026-09-24T08:58:59.988Z 08DF1477B9EF5175]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FA.CHEP278.PROD.OUTLOOK.COM 2026-09-27T17:33:52.902Z 08DF1C5DE738CD1C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FA.CHEP278.PROD.OUTLOOK.COM 2026-09-30T07:17:35.872Z 08DF1C5DE7E144B4]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FA.CHEP278.PROD.OUTLOOK.COM 2026-09-30T12:04:08.717Z 08DF1C5DE7F5E8DF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FB.CHEP278.PROD.OUTLOOK.COM 2026-09-25T11:08:41.552Z 08DF15EDF42863F1]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FB.CHEP278.PROD.OUTLOOK.COM 2026-09-26T12:13:23.612Z 08DF15EDF4580DD5]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [GV1PEPF000006FB.CHEP278.PROD.OUTLOOK.COM 2026-09-30T04:53:53.528Z 08DF1CA6A2DA5DCF]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MA3PEPF00000404.eurprd04.prod.outlook.com 2026-09-29T10:05:36.073Z 08DF1C971B00EAF5]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MA3PEPF00000406.eurprd04.prod.outlook.com 2026-09-24T10:26:39.080Z 08DF18CA448AAC58]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MA3PEPF0000040A.eurprd04.prod.outlook.com 2026-09-19T05:39:36.317Z 08DF147537686CDD]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008A8.eurprd04.prod.outlook.com 2026-09-26T11:42:47.447Z 08DF1A789738C64B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008A9.eurprd04.prod.outlook.com 2026-09-20T17:49:35.773Z 08DF148BF4E18423]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008A9.eurprd04.prod.outlook.com 2026-09-23T15:08:26.644Z 08DF148BF9D9DF24]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008AB.eurprd04.prod.outlook.com 2026-09-30T11:28:07.416Z 08DF1C6D5D91956B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008AD.eurprd04.prod.outlook.com 2026-09-24T10:48:44.715Z 08DF19E6099F94E9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008B4.eurprd04.prod.outlook.com 2026-09-25T11:39:52.763Z 08DF1A8DA7C8DEB0]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008B7.eurprd04.prod.outlook.com 2026-09-18T17:02:00.099Z 08DF14F3CC9D83B3]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008C7.eurprd05.prod.outlook.com 2026-09-22T11:29:46.898Z 08DF1587803BBE90]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MAD0EPF000008C7.eurprd05.prod.outlook.com 2026-09-24T06:57:59.038Z 08DF19FAC9681B9C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008483.eurprd02.prod.outlook.com 2026-09-29T15:42:55.610Z 08DF1C60A253713D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008487.eurprd02.prod.outlook.com 2026-09-27T07:48:55.022Z 08DF1A5FF267924D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008489.eurprd02.prod.outlook.com 2026-09-20T18:19:06.457Z 08DF14D261025282]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008489.eurprd02.prod.outlook.com 2026-09-29T15:20:41.124Z 08DF1C7C91EB2F06]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF0000848C.eurprd02.prod.outlook.com 2026-09-25T11:24:22.028Z 08DF1AC4030FB93C]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008491.eurprd03.prod.outlook.com 2026-09-25T08:29:03.467Z 08DF1AC405270882]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008492.eurprd03.prod.outlook.com 2026-09-23T10:10:37.124Z 08DF147DF31F497B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008494.eurprd03.prod.outlook.com 2026-09-19T05:38:58.925Z 08DF1472344133C6]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008495.eurprd03.prod.outlook.com 2026-09-21T12:46:51.126Z 08DF163449FDAD85]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008499.eurprd03.prod.outlook.com 2026-09-24T09:18:58.013Z 08DF17ED31CF1EE4]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF00008559.eurprd05.prod.outlook.com 2026-09-29T17:10:10.655Z 08DF1C9E88A1367E]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [MI3PEPF0000855E.eurprd05.prod.outlook.com 2026-09-18T16:04:48.276Z 08DF1481D6EE163F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF000099D3.eurprd04.prod.outlook.com 2026-09-28T08:32:49.132Z 08DF1CA7C22EF4EE]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B37.eurprd05.prod.outlook.com 2026-09-25T12:39:10.779Z 08DF19DF09390037]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B39.eurprd05.prod.outlook.com 2026-09-24T12:40:30.528Z 08DF144FEC7C0870]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B39.eurprd05.prod.outlook.com 2026-09-30T08:00:49.223Z 08DF1E88420FAEDD]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B3C.eurprd05.prod.outlook.com 2026-09-26T16:02:34.880Z 08DF1A4512B083C6]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [WA1PEPF00009B3C.eurprd05.prod.outlook.com 2026-09-28T05:50:55.201Z 08DF1CA7E155F6F0]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000077A.CHEP278.PROD.OUTLOOK.COM 2026-09-30T08:22:34.461Z 08DF1CA1ED0C26EB]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000077B.CHEP278.PROD.OUTLOOK.COM 2026-09-24T18:16:36.876Z 08DF1A1A3FE188D1]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000077B.CHEP278.PROD.OUTLOOK.COM 2026-09-30T06:56:29.778Z 08DF1C838FBD8A16]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000077C.CHEP278.PROD.OUTLOOK.COM 2026-09-29T15:45:06.119Z 08DF1C74931D3851]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000077D.CHEP278.PROD.OUTLOOK.COM 2026-09-26T16:30:40.645Z 08DF1A3757E6AC7B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000E45D.eurprd04.prod.outlook.com 2026-09-26T16:16:44.351Z 08DF19E2501E7EF9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000E6B0.eurprd05.prod.outlook.com 2026-09-28T11:27:00.478Z 08DF1C9093B7D1C3]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR1PEPF0000E6BB.eurprd07.prod.outlook.com 2026-09-24T13:17:28.168Z 08DF19C6E40D0DFD]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR2PEPF0000012C.CHEP278.PROD.OUTLOOK.COM 2026-09-28T10:12:46.461Z 08DF1C74114AE7A9]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR2PEPF0000012D.CHEP278.PROD.OUTLOOK.COM 2026-09-27T19:07:44.501Z 08DF1C83330A3F2B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR2PEPF0000012E.CHEP278.PROD.OUTLOOK.COM 2026-09-18T12:59:18.644Z 08DF14F4311E580D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR2PEPF0000012E.CHEP278.PROD.OUTLOOK.COM 2026-09-20T13:17:49.362Z 08DF158BF137893F]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZR2PEPF0000012F.CHEP278.PROD.OUTLOOK.COM 2026-09-28T09:23:12.041Z 08DF1C67CDBE801D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF0000014F.CHEP278.PROD.OUTLOOK.COM 2026-09-29T16:20:15.167Z 08DF1C6B589CBD05]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF0000014F.CHEP278.PROD.OUTLOOK.COM 2026-10-01T06:21:01.402Z 08DF1C6B58FDF22D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000150.CHEP278.PROD.OUTLOOK.COM 2026-09-21T08:38:32.675Z 08DF158A3DD95F30]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000150.CHEP278.PROD.OUTLOOK.COM 2026-09-24T09:19:51.607Z 08DF1A057AEF9E13]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000150.CHEP278.PROD.OUTLOOK.COM 2026-09-30T10:46:17.311Z 08DF1CE70C8564E7]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000150.CHEP278.PROD.OUTLOOK.COM 2026-10-01T06:18:54.131Z 08DF1CE70CB8BD6B]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000151.CHEP278.PROD.OUTLOOK.COM 2026-09-25T08:46:41.543Z 08DF19E91FFF522D]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000152.CHEP278.PROD.OUTLOOK.COM 2026-09-24T08:37:55.915Z 08DF19D43611A717]
+550	policy	policy	1	550 5.4.1 Recipient address rejected: Access denied. For more information see https://aka.ms/EXOSmtpErrors [ZRH2EPF00000152.CHEP278.PROD.OUTLOOK.COM 2026-09-29T16:01:31.542Z 08DF1CD7ED623E7E]
+550	policy	policy	7	550 5.4.4 Unable to relay
+550	invalid	invalid	1	550 5.5.0 no such recipient - <redacted>
+550	policy	policy	1	550 5.7.0 Server IP 92.222.87.97 listed as abusive. See http://spamauditor.org/best-practices/ip-reputation/ for more information.. Protection provided by MagicSpam 2.2.3-1 http://www.magicspam.com
+550	policy	policy	1	550 5.7.0 Your country has been blacklisted. See http://spamauditor.org/best-practices/empowering-your-users/ for more information. Protection provided by MagicSpam 2.2.6-2 https://magicspam.com
+550	invalid	invalid	5	550 5.7.1 Recipient address rejected: User unknown in local recipient table
+550	policy	policy	1	550 5.7.1 Service unavailable; client [92.222.87.97] blocked using spamsources.fabel.dk
+550	policy	policy	24	550 5.7.1 Session encryption is required
+550	policy	policy	1	550 5.7.1 TLS 1.2+ required by recipient
+550	policy	policy	1	550 5.7.1 Unable to deliver to <<redacted>>
+550	policy	policy	7	550 5.7.1 XGEMAIL_0011 Command rejected
+550	policy	policy	31	550 5.7.4 XGEMAIL_0006 Command rejected : The rejection of the message occurred due to a mismatch in TLS versions between the configured TLS version is Preferred TLS 1.3 for the recipient: <redacted> and the sender: probe.datascoutmail.com TLS version is not available
+550	policy	policy	1	550 5.7.64 TenantAttribution; Relay Access Denied [No TLS] [LO1PEPF000022FF.GBRP265.PROD.OUTLOOK.COM 2026-09-23T08:46:52.550Z 08DF1524AD9709E6]
+550	policy	invalid	1	550 550_20 your mails are denied here because you are listed on blue-shield.at
+550	policy	policy	1	550 A TLS connection is required
+550	invalid	invalid	1	550 Address invalid (ID:550:1:1 (mi004.mc1.hosteurope.de))
+550	invalid	invalid	1	550 Address invalid (ID:550:1:1 (mi012.mc1.hosteurope.de))
+550	invalid	invalid	2	550 Address invalid (ID:550:1:1 (mi015.mc1.hosteurope.de))
+550	invalid	invalid	1	550 Address invalid (ID:550:1:1 (mi017.mc1.hosteurope.de))
+550	invalid	invalid	1	550 Address unknown
+550	policy	invalid	3	550 Encryption needed
+550	policy	policy	2	550 Invalid RDNS entry for 92.222.87.97
+550	policy	invalid	1	550 Listed https://www.spamsources.fabel.dk/ip/92.222.87.97
+550	policy	policy	2	550 Must issue STARTTLS
+550	invalid	invalid	2	550 No Such User Here
+550	invalid	invalid	2	550 No Such User Here"
+550	invalid	invalid	5	550 No mailbox by that name is currently available
+550	invalid	invalid	1	550 No such recipient
+550	invalid	invalid	1	550 No such recipient here
+550	invalid	invalid	1	550 Recipient verification problem
+550	invalid	invalid	1	550 Requested action not taken: mailbox unavailable or not local
+550	policy	invalid	1	550 Sender IP address rejected
+550	policy	invalid	1	550 TLS encryption required for mails from 92.222.87.97
+550	policy	policy	1	550 TLS required to proceed for this domain
+550	invalid	invalid	1	550 Unknown recipient (<redacted>)
+550	invalid	invalid	1	550 Unknown user
+550	invalid	invalid	6	550 Unroutable address
+550	invalid	invalid	2	550 User unknown - denied by SecuMail valid-address-filter - https://secumail.de/smtp-err/3F
+550	invalid	invalid	1	550 cuda_nsu Requested action not taken: mailbox unavailable or not local.
+550	invalid	invalid	1	550 delivery denied: no valid recipient or authentication missing
+550	invalid	invalid	8	550 no such address here
+550	invalid	invalid	1	550 relay not permitted
+550	invalid	invalid	1	550 unknown user
+550	invalid	invalid	12	550-5.1.1 <<redacted>>: Recipient address rejected:\n550 User unknown in virtual mailbox table
+550	invalid	invalid	1	550-5.1.1 <t5kx1a==e#e!<redacted>>:\n550 Recipient address rejected: User unknown in virtual mailbox table
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser d9443c01a7336-2df91402448si29156385ad…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48724425f08si11094357f8…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4872457c0f0si8395121f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4872459a66dsi2827902f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-487245a97c6si8458307f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-487245b4375si2628164f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4885fc57237si1025460f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-488627bfc3asi2991117f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4886846bc40si8072636f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4886846c1cdsi4436273f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-488688ae21dsi10683963f8…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-488688b6634si4206354f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-488688ce6e9si3604087f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4887a30b0f0si5622975f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4887a84d7e1si13566205f8…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4887a84df1asi3091137f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-4887a8850b2si19069154f8…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48af50950efsi2688246f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48af5095642si2281936f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48af5095db7si1348643f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b029c3172si2801863f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b02a05b70si1038930f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b06920dfbsi3642799f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b06a2e46bsi3263993f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b06b4bea7si3237677f8f…
+550	invalid	invalid	1	550-5.1.1 The email account that you tried to reach does not exist. Please try\n550-5.1.1 double-checking the recipient's email address for typos or\n550-5.1.1 unnecessary spaces. For more information, go to\n550 5.1.1  https://support.google.com/mail/?p=NoSuchUser ffacd0b85a97d-48b5b315c8csi2833514f8f…
+550	policy	policy	1	550-5.4.1 Recipient address rejected: Access denied. For more information see\n550-https://aka.ms/EXOSmtpErrors [DB1PEPF000509EB.eurprd03.prod.outlook.com\n550 2026-09-30T06:54:50.697Z 08DF1C52E7128998]
+550	invalid	invalid	1	550-AF-Rejected: Address does not exist [Support Info:\n550-BL-N2?id=0925-Lx7JfgepD-1]\n550-***************************************************************\n550-*  Contact Support with this: BL-N2?id=0925-Lx7JfgepD-1  *\n550 ***************************************************************
+550	invalid	invalid	1	550-AF-Rejected: Address does not exist [Support Info:\n550-BL-N2?id=0929-xHuekEIoS-1]\n550-***************************************************************\n550-*  Contact Support with this: BL-N2?id=0929-xHuekEIoS-1  *\n550 ***************************************************************
+550	invalid	invalid	1	550-AF-Rejected: Address does not exist [Support Info:\n550-BL-N2?id=1001-Omr87i2BG-1]\n550-***************************************************************\n550-*  Contact Support with this: BL-N2?id=1001-Omr87i2BG-1  *\n550 ***************************************************************
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M1sbY-1x9hqd2uoS-00EHOB
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M2hkf-1x98qM2yoJ-001mAN
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M4Li5-1xBPgQ0BSD-00GQh2
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M4ccq-1x8QIN2Bew-004G2e
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M6oMI-1x6dcU1JaY-00Gnuo
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M7MaY-1x7sNJ3uge-0048qP
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M9YVm-1x4xNF2ONo-00EFnz
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1M9pQZ-1x53Ns0kM9-001eUA
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MAv4z-1x0MMI3wM5-002mrI
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MAv97-1x0HrW1BKj-0059rs
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MBT2t-1x1vaT1Gb1-003Lb2
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MCHiu-1wzdSL4BbW-00DWMw
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MCpxA-1wz3Yg0KBc-000s0G
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MD78T-1x2QpK0L3J-007fJo
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MEku3-1wvRRL2CwF-000EoT
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MEku3-1wvWOL0OK3-000EEF
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MF1ke-1wvGPm19Cq-0013Tr
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MF1ke-1wwCUT15k8-00132S
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MFJ05-1wvt4D4853-000yBD
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MFqhT-1wzvlN1GjX-001VtD
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MGfVi-1wxoMW0p9u-002Soq
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MHUrB-1wy4Fx3llh-003Hc8
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MI2t7-1wyjym0iV5-009vtr
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MIJwA-1wvjq21QBg-005U8y
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MIaeb-1wxXBi2gNB-0045Hw
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MJH23-1xTmYp2kVX-00VKwq
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MKNA1-1xQevq2jqJ-00JJHU
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MKdwa-1xSmUx1X3M-00Wtm9
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MKeLK-1xTCaO0qpY-00TZ8l
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MLSxH-1xT6AS1gJ9-00QTXE
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MMpro-1xSaaT2oR2-00SP8D
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MNeYP-1xP9Jy3nB5-00Jspf
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MRDee-1xPpKg3zlM-00UUwp
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MRUlp-1xMGPO14gX-00UgPQ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MRlXe-1xJCLF3G5C-00KBSD
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MSaQJ-1xL6Yj29kn-00LdED
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MT8if-1xJbb337tP-00YCcC
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MTgQ1-1xIw7J03UT-00LZ9k
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MTx00-1xHeNJ2VSk-00TRb6
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MTx8G-1xII5v3MsE-00VCIN
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MV3Sa-1xKSwr0ouE-00UXz8
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MWQJP-1xEqK23syp-00Hku0
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MWQJP-1xEs650NPH-00Hkxb
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MWyD3-1xDVg70QTB-00OsuT
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MXWF5-1xDm1B41lv-00IrhR
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MXnQI-1xD9In06pA-00UdjV
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MY4Cr-1xEidT23Qr-00JPa0
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MYt9M-1xCpmZ2nqa-00KXPu
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MZAGX-1xGBVl2VKj-00Kohz
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MZiIT-1xCv7r0cK7-00RbgZ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MafKE-1warUY3Loo-00mSBT
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MbDYW-1wacON21lo-00n1ZX
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MblWK-1wa4QJ1ydq-00kXqE
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1McJoo-1waC673IxI-00aqCr
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mcqyy-1watnG24Mk-00cUUz
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MdPDK-1wawMC2GcS-00bwJN
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MemG5-1wbhJo2fjB-00jnYa
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mg9F2-1wXAoh172E-00oxw5
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MghXW-1wV6af1u7I-00fDnh
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MhVor-1wXjrt3aCp-00ZLDu
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MjAFH-1wYcH425ll-00azPJ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mjyyu-1wR0kJ20mO-00eAQJ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MkG65-1wRJwW0gjR-00eRao
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MkWgI-1wSSGl0IpC-00eigF
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MkWsg-1wQxec2YTm-00cwnO
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MkX96-1wSf5m0zRm-00qAi5
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MkX96-1wTesy0bs6-00qAhS
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mltr9-1wRtT81rv9-00frz7
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MmAdi-1wSCHG2q3c-00kh57
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MpBiT-1wMs1g3mbX-00oGLn
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MpSpe-1wR2LW1DAa-00mJUQ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mq03w-1wOIce2qrS-00f5q9
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mq03w-1wOIeE2lne-00f5xl
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MqHFF-1wP46F2NUZ-00iAUX
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mr6iu-1wMuWp1YkI-00jXjb
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MthmR-1wrtZy3TQd-015UVs
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mvcmm-1wqrMW2WcY-01004W
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MwiaY-1wo1702SIU-00zvbT
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MxXXL-1wp10i3ts1-017s2M
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mxoqm-1woV7Y2znS-00ub8W
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MydX3-1wrHdq3znZ-0184zr
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MydnX-1wp86S2y8D-00urUO
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mydvn-1wpvEG1vrh-00wU2u
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Myu72-1wojgU0XQ2-00yOek
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MyuJO-1wojFj2Zt4-011ocw
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1MzjST-1wp7Cy2H2X-014lq5
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1Mzjer-1wmxuh1aHh-012e5I
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N00NK-1wpx5q00Jy-013EqD
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N0Hcf-1wn99M1FF1-0141h5
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N2TGx-1wkvwv1AeV-00uL6m
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N78J8-1wfMYD3nki-00yHt7
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N7PMB-1wdsfw1vwL-015F6N
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N7PQJ-1wg0v31149-00y0jJ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N8Dlm-1wfmlU3440-016bhs
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N8Dlm-1wgWSw0Yl6-016bwI
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N9Jtk-1wgrNO26j6-00uhbe
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N9KAE-1wfJh40bci-00w5YJ
+550	invalid	invalid	1	550-Requested action not taken: mailbox unavailable\n550 For explanation visit https://postmaster.1und1.de/en/case?c=r1601&i=ip&v=92.222.87.97&r=1N9b0v-1wh2bl0C3B-00v06O
+550	invalid	invalid	1	550-This recipient is not allowed to receive e-mail from other servers.\n550-.\n550 Dieser Empfänger darf keine E-Mails von anderen Servern empfangen.
+551	policy	policy	1	551 5.7.1 <mail.datascoutmail.com[92.222.87.97]>: Client host rejected: Error Protokoll (DSGVO)
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1M2z06-1xCc1A27Om-001Tta
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1MA5jY-1x3ZjO1ilW-009j0X
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1MBC3y-1wvbXY0cN4-003cBg
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1MGwh1-1wyPeQ2mdH-004Sw1
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1MVsLF-1xIfOv1nRV-00PzKW
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1MZR38-1xGRXw0gWE-00NVbY
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1Mg9B0-1wVM7W36Ew-00q7zQ
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1N5TcC-1wdrt32zjm-00yq1I
+552	policy	policy	1	552-Requested mail action aborted: exceeded storage allocation\n552-Quota exceeded.\n552 For explanation visit https://postmaster.1und1.de/en/case?c=r1503&i=ip&v=92.222.87.97&r=1N92md-1wgpks2dxX-00uRwV
+553	policy	invalid	1	553 This route requires encryption (TLS) - https://community.mimecast.com/docs/DOC-1369#553 [FMf5RSQXMSOpe4YC8BHewA.de65]
+553	invalid	invalid	1	553 Unknown envelope recipient
+554	invalid	invalid	1	554 5.1.1 <<redacted>>: Recipient address rejected: User unknown in virtual mailbox table
+554	invalid	invalid	1	554 5.1.1 <<redacted>>: Recipient address rejected: undeliverable address: No such recipient address. Die Empfaenger-Adresse existiert nicht.
+554	policy	policy	13	554 5.7.1 <<redacted>>: Relay access denied
+554	policy	policy	1	554 5.7.1 Relay access denied
+554	invalid	invalid	9	554 Sorry, no mailbox here by that name.

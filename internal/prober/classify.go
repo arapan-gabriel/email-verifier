@@ -137,6 +137,19 @@ var senderHints = []string{
 	"starttls", "tls connection is required", "tls is required",
 	"tls required", "requires tls", "session encryption is required",
 	"encryption is required",
+	// The TLS demands plan 024 missed, measured after it shipped (plan 030):
+	// "550 TLS encryption required for mails from <our IP>" (day 16), "550 Must
+	// use TLS" (day 17), "550 Encryption needed" and Mimecast's "553 This route
+	// requires encryption (TLS)" (day 14) all came back invalid.
+	"tls encryption", "must use tls", "encryption required", "encryption needed",
+	"requires encryption",
+	// Blocklists named in prose with no code (plan 030): MagicSpam's
+	// "550 Error: listed as abusive by MagicSpam", and the public lists by name.
+	"listed as abusive", "magicspam", "abusix", "uceprotect", "spamcop",
+	// Two of the corpus's no-code, no-hint invalids were about us (plan 030
+	// step 5): "550 550_20 your mails are denied here because you are listed on
+	// blue-shield.at" and "550 Sender IP address rejected".
+	"you are listed", "sender ip",
 }
 
 // mailboxHints say plainly that the recipient is the problem. They are what
@@ -216,10 +229,85 @@ func hasAny(t string, hints []string) bool {
 	return false
 }
 
-// Classify turns one SMTP reply into a Class. It is the single place in this
+// Identity is who this node is on the wire: the address it connects from, the
+// name it says HELO with, and the domain of its envelope sender (plan 030).
+//
+// A permanent refusal that *names* any of them is about us. Receivers rarely
+// say so in a code: "550 Your IP 92.222.87.97 is not allowed to send mail here",
+// "554 IP=92.222.87.97 - Dialup/transient IP not allowed" and "550 TLS
+// encryption required for mails from 92.222.87.97" carry no enhanced code and
+// no wording on any list, and each fell through to invalid. Every one names our
+// address. The prose lists can never be complete; our own identity is a fact
+// the classifier can check for, so it does.
+type Identity struct {
+	SourceIP       string
+	Helo           string
+	MailFromDomain string
+}
+
+// tokens are the identity's non-empty parts, lower-cased.
+func (id Identity) tokens() []string {
+	var out []string
+	for _, v := range []string{id.SourceIP, id.Helo, id.MailFromDomain} {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// namedIn reports whether t (lower-cased) mentions any part of the identity as
+// a whole token: 92.222.87.97 matches in "ip=92.222.87.97 -" and in
+// "[92.222.87.97]>", never in "192.222.87.971".
+func (id Identity) namedIn(t string) bool {
+	for _, tok := range id.tokens() {
+		if containsToken(t, tok) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenByte is a byte that continues an IP address or a host name. A '.' does
+// too, except where it ends a sentence (followed by nothing that does).
+func tokenByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '-' || b == '_'
+}
+
+func containsToken(t, tok string) bool {
+	for from := 0; ; {
+		i := strings.Index(t[from:], tok)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(tok)
+		before := start == 0 || !tokenByte(t[start-1]) && t[start-1] != '.'
+		after := end == len(t) || !tokenByte(t[end]) &&
+			(t[end] != '.' || end+1 == len(t) || !tokenByte(t[end+1]))
+		if before && after {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+// tlsRe finds a demand for encryption in a temporary reply. A 421 or 454 that
+// insists on STARTTLS is a refusal of our session, not "slow down": read as
+// throttling it halved the pacer's rate for a host that will refuse us at any
+// rate (plan 030; `421 4.7.0 STARTTLS is mandatory`, mx1.gesundheitswelt.de).
+var tlsRe = regexp.MustCompile(`starttls|(^|[^a-z0-9])tls([^a-z0-9]|$)|encryption`)
+
+// Classify turns one SMTP reply into a Class with no identity to recognise.
+// The prober calls ClassifyAs with the node's own; this form serves the tests
+// and fuzzers that exercise the wording rules alone.
+func Classify(code int, text string) Class {
+	return ClassifyAs(code, text, Identity{})
+}
+
+// ClassifyAs turns one SMTP reply into a Class. It is the single place in this
 // service where a code becomes a meaning
 // (docs/03-engineering/patterns/smtp-classification.md).
-func Classify(code int, text string) Class {
+func ClassifyAs(code int, text string, id Identity) Class {
 	// Outside 200–599 the peer is not speaking SMTP, and a peer that does not
 	// speak SMTP may never condemn an address (invariant 1, plan 027). This
 	// sits first so nothing later — least of all classifyPermanent, which used
@@ -239,6 +327,10 @@ func Classify(code int, text string) Class {
 	}
 
 	switch {
+	case code >= 400 && code < 500 && tlsRe.MatchString(t):
+		// A demand for encryption is about our session, whatever the code says
+		// about timing — and ClassPolicy never moves the pacer (invariant 6).
+		return ClassPolicy
 	case code == 421:
 		return ClassThrottled
 	case code == 503:
@@ -258,7 +350,7 @@ func Classify(code int, text string) Class {
 		return ClassUnknown // 3xx: never a reply to RCPT
 	}
 
-	return classifyPermanent(t)
+	return classifyPermanent(t, id)
 }
 
 // classifyPermanent decides who a 5xx is about. The enhanced status code is
@@ -266,10 +358,15 @@ func Classify(code int, text string) Class {
 // the prose: "550 5.4.1 Recipient address rejected: Access denied" is
 // Microsoft refusing the *connection*, and treating it as a missing mailbox
 // deletes every address at that domain.
-func classifyPermanent(t string) Class {
+func classifyPermanent(t string, id Identity) Class {
 	ec := EnhancedCode(t)
-	sender := hasAny(t, senderHints)
 	mailbox := hasAny(t, mailboxHints)
+	// Our identity in the reply is a sender hint — except under a recipient
+	// code (5.1.x, 5.2.x): servers that append "client=<ip>" to every reply
+	// append it to "550 5.1.1 no such user" too, and that code has already
+	// said who the reply is about.
+	named := id.namedIn(t) && subject(ec) != 1 && subject(ec) != 2
+	sender := hasAny(t, senderHints) || named
 
 	// Codes that cannot be about the recipient, whatever the text says.
 	if senderCodes[ec] {

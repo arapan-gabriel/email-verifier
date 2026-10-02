@@ -3,6 +3,22 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-10-02 — Plan 030: a refusal that names us is about us
+
+Invariant 1 had been mended one phrase at a time (022, 024, 027). This adds a structural check: the
+classifier is given the node's own identity — source IP, HELO, MAIL FROM domain — and a permanent reply
+that names any of them as a whole token is sender wording. That alone catches "Your IP … not allowed",
+T-Online's "IP=… Dialup/transient IP not allowed" at `RCPT`, and "TLS encryption required for mails
+from <our IP>", none of which any list matched. A recipient code or mailbox wording still wins (IONOS
+r1601 stays `invalid`). Separately, a temporary reply demanding STARTTLS/TLS/encryption is now `policy`:
+as `throttled` it halved the pacer's rate for a host that refuses us at any rate.
+
+Measured on a corpus of every permanent reply the warm-up ladder received (394 distinct / 710 rows,
+redacted, committed as a golden file): 8 rows move `invalid → policy`, none the other way. **Decided:
+the default for a no-code, no-hint 5xx stays `invalid`** — 2 of its 16 distinct cases were about us and
+got wording; the other 14 are real recipient answers that `unknown` would throw away.
+
+
 ## 2026-10-01 — Plans 022 and 024 complete
 
 **022 — the whole reply, on the record.** The gate was re-aimed at the first multi-line reply the
