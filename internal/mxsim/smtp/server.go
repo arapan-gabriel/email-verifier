@@ -8,10 +8,17 @@ package smtp
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"strings"
 	"sync"
@@ -85,6 +92,7 @@ type session struct {
 	helo  bool
 	mail  bool
 	rcpts int
+	tls   bool
 }
 
 func (s *Server) handle(ctx context.Context, conn net.Conn) {
@@ -180,8 +188,12 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 			return true
 		}
 		ses.write("250-" + host)
-		for i, c := range prof.EhloCaps {
-			if i == len(prof.EhloCaps)-1 {
+		caps := prof.EhloCaps
+		if offersTLS(prof.StartTLS) && !ses.tls {
+			caps = append(append([]string{}, caps...), "STARTTLS")
+		}
+		for i, c := range caps {
+			if i == len(caps)-1 {
 				ses.write("250 " + c)
 			} else {
 				ses.write("250-" + c)
@@ -197,6 +209,10 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 		}
 		if !strings.HasPrefix(strings.ToUpper(arg), "FROM:") {
 			ses.write("501 5.5.4 Syntax: MAIL FROM:<address>")
+			return true
+		}
+		if prof.StartTLS == "required" && !ses.tls {
+			ses.write("530 5.7.0 Must issue a STARTTLS command first")
 			return true
 		}
 		ses.mail, ses.rcpts = true, 0
@@ -259,7 +275,29 @@ func (ses *session) dispatch(ctx context.Context, line string) bool {
 		return true
 
 	case "STARTTLS":
-		ses.write("454 4.7.0 TLS not available")
+		if !offersTLS(prof.StartTLS) || ses.tls {
+			ses.write("454 4.7.0 TLS not available")
+			return true
+		}
+		ses.write("220 2.0.0 Ready to start TLS")
+		if prof.StartTLS == "broken" {
+			// Agree, then never hold up our end of the handshake.
+			ses.hardClose()
+			return false
+		}
+		cert, err := serverCert()
+		if err != nil {
+			return false
+		}
+		tc := tls.Server(ses.conn, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+		_ = ses.conn.SetDeadline(time.Now().Add(10 * time.Second))
+		if err := tc.HandshakeContext(ctx); err != nil {
+			return false
+		}
+		_ = ses.conn.SetDeadline(time.Time{})
+		// RFC 3207 §4.2: everything learned before TLS is forgotten.
+		ses.conn, ses.r = tc, bufio.NewReaderSize(tc, maxLineBytes)
+		ses.tls, ses.helo, ses.mail, ses.rcpts = true, false, false, 0
 		return true
 
 	case "DATA":
@@ -361,4 +399,53 @@ func hostFromBanner(banner, fallback string) string {
 		return f[1]
 	}
 	return "mx." + fallback + ".test"
+}
+
+func offersTLS(mode string) bool {
+	return mode == "offered" || mode == "required" || mode == "broken"
+}
+
+var (
+	certOnce sync.Once
+	certVal  tls.Certificate
+	certErr  error
+)
+
+// serverCert is the simulator's one self-signed certificate, made on first use.
+// It names nothing in particular on purpose: a real MX certificate rarely names
+// the MX either, and the prober must complete the session regardless (plan 031).
+func serverCert() (tls.Certificate, error) {
+	certOnce.Do(func() {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			certErr = err
+			return
+		}
+		tmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "mxsim.invalid"},
+			DNSNames:     []string{"mxsim.invalid"},
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(24 * time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			certErr = err
+			return
+		}
+		certVal = tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	})
+	return certVal, certErr
+}
+
+// Certificate is the simulator's certificate, for a test that wants to trust
+// it and see the prober report "verified".
+func Certificate() (*x509.Certificate, error) {
+	c, err := serverCert()
+	if err != nil {
+		return nil, err
+	}
+	return x509.ParseCertificate(c.Certificate[0])
 }

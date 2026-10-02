@@ -62,6 +62,10 @@ func TestValidateEveryRule(t *testing.T) {
 		// ...and a wait plus a session must still answer inside Data Scout's 90 s.
 		{"lease wait plus session past the caller", func(c *Config) { c.Pacer.LeaseWait = 75 * time.Second }, "pacer.lease_wait"},
 		{"catch-all audit above one", func(c *Config) { c.Probe.CatchAllAuditRate = 1.5 }, "probe.catch_all_audit_rate"},
+		// Plan 031: two modes only, and a handshake that fits inside the session.
+		{"starttls unknown mode", func(c *Config) { c.Probe.StartTLS = "required" }, "probe.starttls"},
+		{"tls handshake zero", func(c *Config) { c.Probe.TLSHandshakeTimeout = 0 }, "probe.tls_handshake_timeout"},
+		{"tls handshake not inside the session", func(c *Config) { c.Probe.TLSHandshakeTimeout = c.Probe.Timeout }, "probe.tls_handshake_timeout"},
 		{"randomiser ttl", func(c *Config) { c.Probe.RandomiserTTL = 0 }, "probe.randomiser_ttl"},
 		{"policy stop one", func(c *Config) { c.Probe.PolicyStop = 1 }, "probe.policy_stop must"},
 		{"policy stop negative", func(c *Config) { c.Probe.PolicyStop = -1 }, "probe.policy_stop must"},
@@ -180,6 +184,8 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		EnvPrefix + "PROBE_MAX_RCPT_PER_SESSION":   "16",
 		EnvPrefix + "PROBE_CATCH_ALL_PROBES":       "4",
 		EnvPrefix + "PROBE_CATCH_ALL_AUDIT_RATE":   "0.25",
+		EnvPrefix + "PROBE_STARTTLS":               "off",
+		EnvPrefix + "PROBE_TLS_HANDSHAKE_TIMEOUT":  "7s",
 		EnvPrefix + "PROBE_POLICY_STOP":            "6",
 		EnvPrefix + "PROBE_POLICY_STOP_MAX":        "12",
 		EnvPrefix + "PROBE_RANDOMISER_TTL":         "17s",
@@ -203,6 +209,7 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		"probe":         cfg.Probe.Port == "2525" && cfg.Probe.PolicyStopMax == 12 && cfg.Probe.MaxEmailsPerRequest == 19,
 		"probe timings": cfg.Probe.RandomiserTTL == 17*time.Second && cfg.Probe.DeferralRetry == 18*time.Second,
 		"catch-all":     cfg.Probe.CatchAllProbes == 4 && cfg.Probe.CatchAllAuditRate == 0.25,
+		"starttls":      cfg.Probe.StartTLS == "off" && cfg.Probe.TLSHandshakeTimeout == 7*time.Second,
 		"pacer":         cfg.Pacer.MaxTracked == 13 && cfg.Pacer.PromoteAfter == 14 && cfg.Pacer.IdleTTL == 12*time.Second,
 		"pacer leases":  cfg.Pacer.SessionLease == 45*time.Second && cfg.Pacer.LeaseWait == 40*time.Second,
 		"log":           cfg.Log.Level == "warn" && cfg.Log.Format == "text",

@@ -50,19 +50,20 @@ type Pacer interface {
 type Registry struct {
 	mu sync.Mutex
 
-	results    map[string]uint64 // class
-	replies    map[[2]string]uint64
-	blocked    map[string]uint64  // reason
-	catchAll   map[string]uint64  // catch-all probe outcome (plan 029)
-	leaseWaits map[string]uint64  // session lease outcome (plan 028)
-	pauses     map[string]uint64  // mx host
-	listed     map[[2]string]bool // {ip, list} -> listed
-	sent       map[string]uint64  // relay delivery outcome (plan 014)
-	qDepth     [3]int             // relay queue: ready, later, dead
-	complaints uint64             // spam complaints reported by the caller (plan 015)
-	counts     []uint64           // duration histogram, one per bucket plus +Inf
-	sum        float64
-	observed   uint64
+	results     map[string]uint64 // class
+	replies     map[[2]string]uint64
+	blocked     map[string]uint64  // reason
+	catchAll    map[string]uint64  // catch-all probe outcome (plan 029)
+	leaseWaits  map[string]uint64  // session lease outcome (plan 028)
+	tlsSessions map[string]uint64  // STARTTLS outcome per session (plan 031)
+	pauses      map[string]uint64  // mx host
+	listed      map[[2]string]bool // {ip, list} -> listed
+	sent        map[string]uint64  // relay delivery outcome (plan 014)
+	qDepth      [3]int             // relay queue: ready, later, dead
+	complaints  uint64             // spam complaints reported by the caller (plan 015)
+	counts      []uint64           // duration histogram, one per bucket plus +Inf
+	sum         float64
+	observed    uint64
 
 	pacer Pacer
 }
@@ -71,16 +72,17 @@ type Registry struct {
 // simply absent rather than wrong.
 func New(pacer Pacer) *Registry {
 	return &Registry{
-		results:    map[string]uint64{},
-		replies:    map[[2]string]uint64{},
-		blocked:    map[string]uint64{},
-		catchAll:   map[string]uint64{},
-		leaseWaits: map[string]uint64{},
-		pauses:     map[string]uint64{},
-		listed:     map[[2]string]bool{},
-		sent:       map[string]uint64{},
-		counts:     make([]uint64, len(buckets)+1),
-		pacer:      pacer,
+		results:     map[string]uint64{},
+		replies:     map[[2]string]uint64{},
+		blocked:     map[string]uint64{},
+		catchAll:    map[string]uint64{},
+		leaseWaits:  map[string]uint64{},
+		tlsSessions: map[string]uint64{},
+		pauses:      map[string]uint64{},
+		listed:      map[[2]string]bool{},
+		sent:        map[string]uint64{},
+		counts:      make([]uint64, len(buckets)+1),
+		pacer:       pacer,
 	}
 }
 
@@ -136,6 +138,14 @@ func (r *Registry) LeaseWait(outcome string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.leaseWaits[outcome]++
+}
+
+// TLSSession records how one SMTP session was encrypted (plan 031): none,
+// verified, unverified or failed. Bounded.
+func (r *Registry) TLSSession(outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tlsSessions[outcome]++
 }
 
 // Pause records the pacer standing an MX down.
@@ -209,6 +219,7 @@ func (r *Registry) Render() string {
 	blocked := maps.Clone(r.blocked)
 	catchAll := maps.Clone(r.catchAll)
 	leaseWaits := maps.Clone(r.leaseWaits)
+	tlsSessions := maps.Clone(r.tlsSessions)
 	pauses := maps.Clone(r.pauses)
 	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
@@ -231,6 +242,8 @@ func (r *Registry) Render() string {
 		"How each domain's catch-all question was settled, by outcome.", catchAll, "outcome")
 	counter(&b, "verify_lease_waits_total",
 		"How session leases were obtained, by outcome (plan 028).", leaseWaits, "outcome")
+	counter(&b, "verify_tls_sessions_total",
+		"How SMTP sessions were encrypted, by STARTTLS outcome (plan 031).", tlsSessions, "outcome")
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
 

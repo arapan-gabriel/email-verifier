@@ -1,6 +1,6 @@
 # Plan 031 — STARTTLS on the probe
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy and the manual-test gate pending
 **Phase:** B
 **Depends on:** 002 (SSRF guard — unaffected, the upgrade runs over the vetted connection), 024 and
 030 (a TLS demand is classed `policy` meanwhile)
@@ -77,20 +77,20 @@ relay path.
 
 ## Tasks
 
-- [ ] `EHLO` capability parse; STARTTLS → `tls.Client` over the vetted conn → re-`EHLO`
-- [ ] `VerifyConnection` that records rather than enforces; SNI = MX host; TLS ≥ 1.2
-- [ ] `ClassTLSFailed` (`tls_failed`): IsTemp, not IsThrottle, never a verdict; in `docs/06-generated/api.md`
-- [ ] Config `probe.starttls`, `probe.tls_handshake_timeout` + validation
-- [ ] `tls` field on `Result`; metric `verify_tls_sessions_total`; `tls=` on the session log
-- [ ] mxsim: STARTTLS with a generated cert and the four profile modes
-- [ ] Tests alongside: advertised → upgraded and re-EHLO'd (the second EHLO's capabilities are the
+- [x] `EHLO` capability parse; STARTTLS → `tls.Client` over the vetted conn → re-`EHLO` — `advertisesSTARTTLS`, `Prober.upgrade`; the second EHLO's capabilities are the ones used
+- [x] `VerifyConnection` that records rather than enforces; SNI = MX host; TLS ≥ 1.2 — `tls: verified | unverified`; TLS 1.3 offered
+- [x] `ClassTLSFailed` (`tls_failed`): IsTemp, not IsThrottle, never a verdict; in `docs/06-generated/api.md` — also gets a retry hint (`retryHint`)
+- [x] Config `probe.starttls`, `probe.tls_handshake_timeout` + validation — env `PROBE_STARTTLS`, `PROBE_TLS_HANDSHAKE_TIMEOUT`; the timeout must be below `probe.timeout`
+- [x] `tls` field on `Result`; metric `verify_tls_sessions_total`; `tls=` on the session log — the log field rides the `smtp_reply` line (`tls`), there being no other per-session line
+- [x] mxsim: STARTTLS with a generated cert and the four profile modes — `starttls: absent|offered|required|broken`, one self-signed ECDSA cert per process, `smtp.Certificate()` for tests
+- [x] Tests alongside: advertised → upgraded and re-EHLO'd (the second EHLO's capabilities are the — `starttls_integration_test.go` (mxsim: offered/absent/required/broken, trusted cert → verified, one dial) and `starttls_test.go` (capability parse, a declined STARTTLS, the handshake timeout, `off`, no TLS field without a session)
       ones used); not advertised → plaintext, unchanged; `required` profile answers at RCPT only
       after the upgrade; broken handshake → `tls_failed`, zero `Observe(throttled=true)`, no
       address with `accepted` set; an untrusted / mismatched cert still completes with
       `tls: unverified`; the handshake respects its timeout; SSRF: the TLS layer is given the
       vetted `net.Conn` and the dialler is called exactly once
-- [ ] `docs/03-engineering/patterns/` — a short `starttls.md` (policy, why opportunistic, why no fallback)
-- [ ] `tech-debt.md` — the STARTTLS item resolved
+- [x] `docs/03-engineering/patterns/` — a short `starttls.md` (policy, why opportunistic, why no fallback)
+- [x] `tech-debt.md` — the STARTTLS item resolved
 
 ## Definition of Done
 
@@ -100,8 +100,8 @@ relay path.
       of `policy`**, Sophos included; `verify_tls_sessions_total{outcome="failed"}` is recorded
       with the hosts behind it; the day's `rcpt_paced` rate per family is unchanged (plan 026's
       gate still holds). Numbers recorded here
-- [ ] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok
-- [ ] `pr-checklist.md` — SSRF (no second dial), IPv4 (unchanged dial), fail-closed (unchanged),
+- [x] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok — 2026-10-02 with `VERIFIERD_TEST_REDIS_ADDR`; golangci-lint 0 issues; prober 96.3% (floor 92), total 93.2%
+- [x] `pr-checklist.md` — SSRF (no second dial), IPv4 (unchanged dial), fail-closed (unchanged),
       "us ≠ address" (`tls_failed` is never a verdict) confirmed
 - [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
 
@@ -113,6 +113,12 @@ relay path.
 - **Why a new class rather than `conn_error`.** `conn_error` is `IsThrottle()`; a TLS mismatch at
   one host would halve that host's rate. It must be visible as its own thing and must not move the
   pacer.
-- **Open question:** whether to *offer* TLS 1.3 only to Sophos-like filters that ask for it, or
-  always (Go's default negotiates 1.3 whenever the server can). The plan assumes always; the gate
-  shows whether any host fails the 1.3 handshake that it would have passed at 1.2.
+- ~~**Open question:** whether to offer TLS 1.3 only to Sophos-like filters, or always.~~ **Decided
+  2026-10-02: always** — TLS 1.3 and 1.2 offered, 1.2 the floor, Go's default negotiation. Sophos's
+  refusal was "TLS version is not available" — we offered none — and a modern stack is what such
+  filters expect. The gate's `failed` count shows any host that a 1.3-first handshake loses.
+- **Implementation notes (2026-10-02).** The TLS outcome rides the existing `smtp_reply` journal
+  line (`tls`) rather than a new per-session line; the counter covers every session. An old prober
+  test whose scripted server listed `STARTTLS` and answered `250 ok` to it now (rightly) produced
+  `tls_failed`; its script lists `8BITMIME` instead, keeping the multi-line EHLO it was about.
+  Mutation check: with the STARTTLS step disabled, 6 tests fail.

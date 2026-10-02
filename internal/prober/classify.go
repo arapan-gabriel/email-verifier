@@ -67,7 +67,14 @@ const (
 	// one: it is the only class that is a statement about the *request* rather
 	// than about the network.
 	ClassSuppressed Class = "suppressed"
-	ClassUnknown    Class = "unknown"
+	// ClassTLSFailed is a STARTTLS upgrade the server advertised and then did
+	// not complete — a non-220 answer to STARTTLS, or a failed handshake (plan
+	// 031). It is about the conversation between the two machines, never about
+	// the mailbox (invariant 1), and never a rate signal: a TLS mismatch is not
+	// our pace, so it must not halve this host's rate the way conn_error would
+	// (invariant 6). There is no plaintext retry in the same session.
+	ClassTLSFailed Class = "tls_failed"
+	ClassUnknown   Class = "unknown"
 )
 
 // IsTemp reports whether the sample means "try again later" rather than
@@ -75,7 +82,7 @@ const (
 func (c Class) IsTemp() bool {
 	switch c {
 	case ClassDeferred, ClassThrottled, ClassTimeout, ClassConnError, ClassPolicy,
-		ClassNoBudget, ClassPaused, ClassIPBurned:
+		ClassNoBudget, ClassPaused, ClassIPBurned, ClassTLSFailed:
 		return true
 	}
 	return false

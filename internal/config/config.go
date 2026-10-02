@@ -182,6 +182,12 @@ type Probe struct {
 	// old sequence of three regardless of the answers, so the randomiser rate the
 	// early stop could miss stays measured. In [0, 1]; 0 disables the audit.
 	CatchAllAuditRate float64 `yaml:"catch_all_audit_rate"`
+	// StartTLS is "opportunistic" (upgrade when the server advertises STARTTLS)
+	// or "off" (plaintext always — the escape hatch). Plan 031.
+	StartTLS string `yaml:"starttls"`
+	// TLSHandshakeTimeout bounds one STARTTLS handshake. It must fit inside
+	// probe.timeout, which bounds the whole session.
+	TLSHandshakeTimeout time.Duration `yaml:"tls_handshake_timeout"`
 	// PolicyStop ends a session after this many consecutive replies that are
 	// about our client rather than about a recipient. Zero disables it.
 	PolicyStop int `yaml:"policy_stop"`
@@ -310,6 +316,8 @@ func defaults() Config {
 			MaxRCPTPerSession:   50,
 			CatchAllProbes:      2,
 			CatchAllAuditRate:   0.05,
+			StartTLS:            "opportunistic",
+			TLSHandshakeTimeout: 10 * time.Second,
 			PolicyStop:          5,
 			PolicyStopMax:       10,
 			RandomiserTTL:       24 * time.Hour,
@@ -440,6 +448,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	str("PROBE_MAIL_FROM", &cfg.Probe.MailFrom)
 	str("PROBE_SOURCE_IP", &cfg.Probe.SourceIP)
 	str("PROBE_DIAL_NETWORK", &cfg.Probe.DialNetwork)
+	str("PROBE_STARTTLS", &cfg.Probe.StartTLS)
 	str("PROBE_PORT", &cfg.Probe.Port)
 	str("AUTH_API_KEY", &cfg.Auth.APIKey)
 	str("LOG_LEVEL", &cfg.Log.Level)
@@ -466,6 +475,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
 		func() error { return float("PROBE_CATCH_ALL_AUDIT_RATE", &cfg.Probe.CatchAllAuditRate) },
+		func() error { return dur("PROBE_TLS_HANDSHAKE_TIMEOUT", &cfg.Probe.TLSHandshakeTimeout) },
 		func() error { return integer("PROBE_POLICY_STOP", &cfg.Probe.PolicyStop) },
 		func() error { return integer("PROBE_POLICY_STOP_MAX", &cfg.Probe.PolicyStopMax) },
 		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
@@ -600,6 +610,15 @@ func (c Config) Validate() error {
 	}
 	if c.Probe.CatchAllAuditRate < 0 || c.Probe.CatchAllAuditRate > 1 {
 		add("probe.catch_all_audit_rate must be in [0, 1], got %g", c.Probe.CatchAllAuditRate)
+	}
+	if c.Probe.StartTLS != "opportunistic" && c.Probe.StartTLS != "off" {
+		add("probe.starttls must be \"opportunistic\" or \"off\", got %q", c.Probe.StartTLS)
+	}
+	// The handshake runs inside the session, so it must leave room for the
+	// questions the session exists to ask.
+	if c.Probe.TLSHandshakeTimeout <= 0 || c.Probe.TLSHandshakeTimeout >= c.Probe.Timeout {
+		add("probe.tls_handshake_timeout must be positive and below probe.timeout (%s), got %s",
+			c.Probe.Timeout, c.Probe.TLSHandshakeTimeout)
 	}
 	if c.Probe.RandomiserTTL <= 0 {
 		add("probe.randomiser_ttl must be positive")

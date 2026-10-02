@@ -3,6 +3,31 @@
 One entry per plan (always), newest first: decisions made, deviations, library/provider choices,
 trade-offs.
 
+## 2026-10-02 — Plan 031: STARTTLS on the probe (code complete)
+
+The prober had no STARTTLS step, so every server that demands encryption — `530 Must issue a
+STARTTLS command first`, Sophos's `TLS version is not available` — answered *us* and never the
+mailbox: 110 rows over 51 hosts on the warm-up ladder, unverifiable on this path forever. When the
+first EHLO lists `STARTTLS` the session now upgrades over the connection already dialled to a vetted
+address (no second dial, no lookup — invariants 2 and 3 untouched), repeats EHLO over TLS, and goes on
+as before inside the same lease and budget.
+
+Decisions:
+- **Opportunistic, like Postfix at `may`:** SNI is the MX name, TLS 1.2 is the floor and 1.3 is
+  offered; the certificate is checked for the record (`tls: verified | unverified` on each result)
+  and never refused, because most MX certificates do not name the MX.
+- **A failed upgrade is `tls_failed`:** temporary, a retry hint, never a verdict (invariant 1),
+  never a throttle (invariant 6 — `conn_error` would have halved the host's rate), and **no
+  plaintext retry** in that session; `verify_tls_sessions_total{outcome="failed"}` is the evidence
+  a fallback would need.
+- `probe.starttls: opportunistic | off` (default opportunistic; `off` is the escape hatch) and
+  `probe.tls_handshake_timeout` (10 s, below `probe.timeout`).
+- mxsim learned STARTTLS (`starttls: absent | offered | required | broken`, one self-signed cert),
+  so every path is tested end to end. Mutation: STARTTLS disabled → 6 tests fail.
+
+Data Scout needs no change: it ignores `tls`, and `tls_failed` arrives with `connected:false`,
+`accepted:null` and a retry hint, which it already turns into `unknown` and a recheck.
+
 ## 2026-10-02 — Plan 028: one session per receiving system, enforced
 
 Every band carried `min/max_concurrency` and the AIMD loop moved a working `conc`, but nothing read

@@ -169,6 +169,24 @@ func TestCatchAllProbesCounter(t *testing.T) {
 	}
 }
 
+// Plan 031: one count per session by how it was encrypted.
+func TestTLSSessionsCounter(t *testing.T) {
+	r := New(nil)
+	r.TLSSession("unverified")
+	r.TLSSession("unverified")
+	r.TLSSession("failed")
+	out := r.Render()
+	for _, want := range []string{
+		"# TYPE verify_tls_sessions_total counter",
+		`verify_tls_sessions_total{outcome="unverified"} 2`,
+		`verify_tls_sessions_total{outcome="failed"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q", want)
+		}
+	}
+}
+
 // Plan 028: the lease gauge per pace key and the wait counter by outcome.
 func TestLeaseMetrics(t *testing.T) {
 	r := New(fakePacer{states: []MXState{{Host: "@microsoft-eop", Rate: 1, Conc: 1, State: "STEADY", Inflight: 1}}})

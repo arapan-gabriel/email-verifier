@@ -77,46 +77,6 @@ later plan closes it.
   counting and `ObservePolicy` — and a 4xx `policy` needs a decision on each. Smallest honest fix: a
   4xx whose text matches `senderHints` blocklist wording returns no retry hint.
 
-- **The prober cannot do STARTTLS, so an MX that requires it is permanently unanswerable.**
-  Measured in production on 2026-09-11, warm-up ladder day 3: `gw.art-trier.de` answered
-  `530 5.7.0 STARTTLS is mandatory`, which `Classify` correctly calls `policy` — a rejection of
-  *us*, invariant 1 — and the caller therefore stores `block: true` with a verdict derived from DNS
-  alone. The address is not merely unverified today; it is unverifiable, on this path, for ever.
-
-  `Probe` runs `connect → EHLO → MAIL FROM → RCPT × N → RSET → QUIT` (`prober.go:338`) and has no
-  STARTTLS step. The relay does — `sender.go:99-123`, offered-only and deliberately unverified,
-  because almost no MX presents a certificate matching the name we dialled (`SECURITY.md`,
-  `mail-relay.md`). The same reasoning applies unchanged to the prober; it simply never got the
-  code.
-
-  **The fix is two parts, and the first is the one that is easy to miss.** `readReply`
-  (`classify.go:299`) walks every continuation line but keeps only the last (`last = line`,
-  overwritten each turn), so the EHLO capability list is read off the socket and thrown away — the
-  prober cannot see `250-STARTTLS` even when it is announced. That is the exact hazard the relay
-  records at `sender.go:202`. So: have the reply reader surface the full text (or the capability
-  set), then add the STARTTLS step and the mandatory second EHLO after the upgrade, which the relay
-  already does.
-
-  **Why it is worth more than its raw share.** One address in 100 on the day it was found — small.
-  But the warm-up ladder's stop rule is *any movement in* `block`, and every such MX contributes a
-  permanent, non-reputational `block` to every day's count. It degrades the signal the ladder
-  advances on, which is the one number this service exists to keep honest. It is also silent: the
-  row looks like every other policy block until someone reads the reply text, which only became
-  possible with plan 018.
-
-  **First half closed 2026-09-15** (plan 022): `readReply` now keeps every line, so the capability
-  list reaches `step`'s caller; nothing reads `250-STARTTLS` from it yet.
-
-  **The verdict half closed 2026-09-16** (plan 024): a TLS demand carrying **no enhanced code** used
-  to fall through to `invalid`. Warm-up ladder day 6 recorded a live mailbox dead on
-  `550 A TLS connection is required`, and the row also inflated the day's invalid share — the number
-  the ladder advances on. Those replies now class `policy`. The gap itself is unchanged: an MX that
-  requires STARTTLS is still unanswerable, and the honest answer is `unknown`.
-
-  **Nothing records a decision to omit it,** so this is read as an omission rather than a trade-off.
-  If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
-  in writing here, and the item can be closed as accepted instead of fixed.
-
 - **`ip_health` watches two blocklists, and the one that refused us was not among them.**
   Measured in production 2026-09-12, warm-up ladder day 4: `glowfish.de` answered
   `550 5.7.1 Service unavailable; client [92.222.87.97] blocked using mail.abusix.zone`. At that
@@ -228,6 +188,46 @@ Known deferrals baked into the roadmap (not debt, but tracked so they are not fo
   re-proposed.
 
 ## Resolved
+
+- ~~**The prober cannot do STARTTLS, so an MX that requires it is permanently unanswerable.**~~ — **resolved 2026-10-02 (plan 031):** opportunistic STARTTLS over the vetted connection, certificate recorded not enforced, `tls_failed` for an upgrade that does not complete; see `docs/03-engineering/patterns/starttls.md`.
+  Measured in production on 2026-09-11, warm-up ladder day 3: `gw.art-trier.de` answered
+  `530 5.7.0 STARTTLS is mandatory`, which `Classify` correctly calls `policy` — a rejection of
+  *us*, invariant 1 — and the caller therefore stores `block: true` with a verdict derived from DNS
+  alone. The address is not merely unverified today; it is unverifiable, on this path, for ever.
+
+  `Probe` runs `connect → EHLO → MAIL FROM → RCPT × N → RSET → QUIT` (`prober.go:338`) and has no
+  STARTTLS step. The relay does — `sender.go:99-123`, offered-only and deliberately unverified,
+  because almost no MX presents a certificate matching the name we dialled (`SECURITY.md`,
+  `mail-relay.md`). The same reasoning applies unchanged to the prober; it simply never got the
+  code.
+
+  **The fix is two parts, and the first is the one that is easy to miss.** `readReply`
+  (`classify.go:299`) walks every continuation line but keeps only the last (`last = line`,
+  overwritten each turn), so the EHLO capability list is read off the socket and thrown away — the
+  prober cannot see `250-STARTTLS` even when it is announced. That is the exact hazard the relay
+  records at `sender.go:202`. So: have the reply reader surface the full text (or the capability
+  set), then add the STARTTLS step and the mandatory second EHLO after the upgrade, which the relay
+  already does.
+
+  **Why it is worth more than its raw share.** One address in 100 on the day it was found — small.
+  But the warm-up ladder's stop rule is *any movement in* `block`, and every such MX contributes a
+  permanent, non-reputational `block` to every day's count. It degrades the signal the ladder
+  advances on, which is the one number this service exists to keep honest. It is also silent: the
+  row looks like every other policy block until someone reads the reply text, which only became
+  possible with plan 018.
+
+  **First half closed 2026-09-15** (plan 022): `readReply` now keeps every line, so the capability
+  list reaches `step`'s caller; nothing reads `250-STARTTLS` from it yet.
+
+  **The verdict half closed 2026-09-16** (plan 024): a TLS demand carrying **no enhanced code** used
+  to fall through to `invalid`. Warm-up ladder day 6 recorded a live mailbox dead on
+  `550 A TLS connection is required`, and the row also inflated the day's invalid share — the number
+  the ladder advances on. Those replies now class `policy`. The gap itself is unchanged: an MX that
+  requires STARTTLS is still unanswerable, and the honest answer is `unknown`.
+
+  **Nothing records a decision to omit it,** so this is read as an omission rather than a trade-off.
+  If plain-text probing was in fact deliberate — session fingerprint, cost, anything — that belongs
+  in writing here, and the item can be closed as accepted instead of fixed.
 
 - **`TestConcurrentSessionsAreIsolated` is timing-flaky under load.** **Resolved 2026-09-22 by plan 027:** the test now waits (bounded, 2s) for the server's active count to reach zero instead of sampling it once; a real leak still fails. Proven with `go test -race -count=50 ./internal/mxsim/smtp/ -run TestConcurrentSessionsAreIsolated` (green, 50/50). Original entry: Seen once on 2026-09-11 during
   a full `-race` run of all 15 packages — `connections leaked: 1 still active` — and not reproduced

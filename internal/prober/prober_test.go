@@ -177,7 +177,9 @@ func TestAMultiLineRefusalAtRCPTIsReadWhole(t *testing.T) {
 	d := scriptedMX("220 mx.test ESMTP", func(cmd string) string {
 		switch {
 		case strings.HasPrefix(cmd, "EHLO"):
-			return "250-mx.test greets you\r\n250-PIPELINING\r\n250 STARTTLS"
+			// Multi-line on purpose; not STARTTLS, which this script does not
+			// implement and which plan 031 would now (rightly) try to use.
+			return "250-mx.test greets you\r\n250-PIPELINING\r\n250 8BITMIME"
 		case strings.HasPrefix(cmd, "RCPT TO"):
 			return strings.ReplaceAll(hetznerRBL, "\n", "\r\n")
 		}

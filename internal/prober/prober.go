@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -184,6 +186,35 @@ type Options struct {
 	// Rand draws a float in [0, 1) for the audit sample. Nil uses math/rand/v2;
 	// tests inject their own.
 	Rand func() float64
+
+	// StartTLS is "opportunistic" (upgrade when the server advertises STARTTLS,
+	// the default) or "off" (plaintext always — the escape hatch). Plan 031.
+	StartTLS string
+	// TLSHandshakeTimeout bounds the handshake inside the session deadline.
+	// Zero uses defaultTLSHandshakeTimeout.
+	TLSHandshakeTimeout time.Duration
+	// TLSRootCAs verifies the server's certificate *for the record* — the
+	// outcome is reported, never enforced. Nil uses the host's roots; tests
+	// inject a pool to exercise "verified".
+	TLSRootCAs *x509.CertPool
+}
+
+// defaultTLSHandshakeTimeout bounds a STARTTLS handshake when none is set.
+const defaultTLSHandshakeTimeout = 10 * time.Second
+
+// The TLS outcomes a session reports on its results and in the metric (plan
+// 031). Bounded.
+const (
+	TLSNone       = "none"
+	TLSVerified   = "verified"
+	TLSUnverified = "unverified"
+	TLSFailed     = "failed"
+)
+
+// TLSRecorder counts how sessions were encrypted (plan 031). Optional on top
+// of Recorder, like CatchAllRecorder.
+type TLSRecorder interface {
+	TLSSession(outcome string)
 }
 
 // auditProbes is the sequence an audit sample asks: the length every domain
@@ -377,6 +408,14 @@ type Result struct {
 	// greylisted address seconds later, when the window has not opened, and
 	// burns a token to be told the same thing.
 	RetryAfterSeconds int `json:"retry_after_seconds,omitempty"`
+	// TLS is how the session that produced this result was encrypted (plan
+	// 031): "none" (the server did not offer STARTTLS, or it is off),
+	// "verified" (upgraded, and the certificate chains to a trusted root for
+	// the MX name), "unverified" (upgraded, certificate not trusted or not for
+	// this name — recorded, never enforced, as an opportunistic MTA does) or
+	// "failed" (the upgrade was offered and did not complete). Empty when no
+	// session was opened at all.
+	TLS string `json:"tls,omitempty"`
 }
 
 // Response carries one Result per requested address.
@@ -505,6 +544,23 @@ type catchAllVerdict struct {
 func (p *Prober) session(ctx context.Context, req Request, addrs []string, probeCatchAll bool) (map[string]Result, catchAllVerdict) {
 	out := make(map[string]Result, len(addrs))
 
+	// How this session was encrypted (plan 031), stamped on every result it
+	// produced once it reached a server. Empty while no session exists, so our
+	// own refusals before the socket carry no TLS field at all.
+	tlsOutcome := ""
+	defer func() {
+		if tlsOutcome == "" {
+			return
+		}
+		for a, r := range out {
+			r.TLS = tlsOutcome
+			out[a] = r
+		}
+		if rec, ok := p.opts.Metrics.(TLSRecorder); ok {
+			rec.TLSSession(tlsOutcome)
+		}
+	}()
+
 	// fail records the same non-answer for every address in the chunk. It is
 	// the shape invariant 1 demands: a refusal of *us* is never a statement
 	// about a mailbox, so Accepted stays nil and Connected is false.
@@ -626,6 +682,42 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		class := p.beforeRCPT(code, text)
 		p.observe(ctx, req.MXHost, class)
 		return fail(class, code, text, "")
+	}
+
+	// STARTTLS when offered (plan 031). The upgrade runs over the connection
+	// already dialled to a vetted address — no new dial, no new lookup
+	// (invariant 2) — and the EHLO is repeated over TLS, because RFC 3207
+	// discards the pre-TLS extension list. A failed upgrade is ClassTLSFailed:
+	// about us, never a verdict, never a throttle, and never retried in
+	// plaintext in this session.
+	tlsOutcome = TLSNone
+	if p.opts.startTLS() && advertisesSTARTTLS(text) {
+		if code, text, ok = step("STARTTLS"); !ok || code != 220 {
+			tlsOutcome = TLSFailed
+			errText := ""
+			if !ok {
+				errText = netErr.Error()
+			}
+			return fail(ClassTLSFailed, code, text, errText)
+		}
+		tlsConn, verified, err := p.upgrade(ctx, conn, req.MXHost)
+		if err != nil {
+			tlsOutcome = TLSFailed
+			return fail(ClassTLSFailed, 0, "", "tls handshake: "+err.Error())
+		}
+		conn, r = tlsConn, bufio.NewReader(tlsConn)
+		tlsOutcome = TLSUnverified
+		if verified {
+			tlsOutcome = TLSVerified
+		}
+		if code, text, ok = step("EHLO " + helo); !ok {
+			return fail(classifyNetErr(netErr), 0, "", netErr.Error())
+		}
+		if code != 250 {
+			class := p.beforeRCPT(code, text)
+			p.observe(ctx, req.MXHost, class)
+			return fail(class, code, text, "")
+		}
 	}
 
 	from := req.MailFrom
@@ -934,6 +1026,7 @@ func (p *Prober) explain(mxHost string, r Result) {
 		EnhancedCode: r.EnhancedCode,
 		Reply:        redactReply(r.Reply, limit),
 		Err:          redactReply(r.Err, limit),
+		TLS:          r.TLS,
 	})
 }
 
@@ -998,4 +1091,73 @@ func chunks[T any](s []T, n int) [][]T {
 		s = s[n:]
 	}
 	return append(out, s)
+}
+
+func (o Options) startTLS() bool {
+	return o.StartTLS != "off"
+}
+
+func (o Options) tlsHandshakeTimeout() time.Duration {
+	if o.TLSHandshakeTimeout > 0 {
+		return o.TLSHandshakeTimeout
+	}
+	return defaultTLSHandshakeTimeout
+}
+
+// advertisesSTARTTLS reports whether an EHLO reply lists the STARTTLS
+// extension. The reply is read whole (plan 022); the first line is the
+// greeting, every later line one keyword with optional parameters.
+func advertisesSTARTTLS(ehlo string) bool {
+	for i, line := range strings.Split(ehlo, "\n") {
+		if i == 0 || len(line) < 5 {
+			continue
+		}
+		fields := strings.Fields(line[4:])
+		if len(fields) > 0 && strings.EqualFold(fields[0], "STARTTLS") {
+			return true
+		}
+	}
+	return false
+}
+
+// upgrade runs the client side of a STARTTLS handshake over conn, the
+// connection already dialled to a vetted address.
+//
+// The policy is an opportunistic MTA's (RFC 7435; Postfix's
+// smtp_tls_security_level = may): SNI is the MX name, TLS 1.2 is the floor and
+// 1.3 is offered, and the certificate is checked **for the record only** — most
+// MX certificates do not name the MX, and a sender that refused them would
+// refuse half the internet. verified reports whether the chain and the name
+// check passed.
+func (p *Prober) upgrade(ctx context.Context, conn net.Conn, mxHost string) (net.Conn, bool, error) {
+	name := strings.TrimSuffix(mxHost, ".")
+	verified := false
+	roots := p.opts.TLSRootCAs
+	cfg := &tls.Config{
+		ServerName: name,
+		MinVersion: tls.VersionTLS12,
+		// Verification is recorded in VerifyConnection, never enforced here.
+		InsecureSkipVerify: true, //nolint:gosec // opportunistic STARTTLS, plan 031
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return nil
+			}
+			inter := x509.NewCertPool()
+			for _, c := range cs.PeerCertificates[1:] {
+				inter.AddCert(c)
+			}
+			_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{
+				DNSName: name, Roots: roots, Intermediates: inter,
+			})
+			verified = err == nil
+			return nil
+		},
+	}
+	hctx, cancel := context.WithTimeout(ctx, p.opts.tlsHandshakeTimeout())
+	defer cancel()
+	tlsConn := tls.Client(conn, cfg)
+	if err := tlsConn.HandshakeContext(hctx); err != nil {
+		return nil, false, err
+	}
+	return tlsConn, verified, nil
 }

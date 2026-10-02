@@ -16,7 +16,7 @@
   the whole story and they are the common case — logging them would bury the rest. Everything else
   is a verdict somebody later has to explain: a `block` that moved a rollout's stop rule, a throttle
   that halved a rate. Off with `log.replies: false`; capped by `log.reply_max_chars`. Since plan
-  026 each line also carries `pace_key`.
+  026 each line also carries `pace_key`, and since plan 031 `tls` (the session's STARTTLS outcome).
 - **When each question was asked** (plan 026). One `rcpt_paced` line per token the pacer granted
   — every `RCPT`, catch-all probes included — with `mx_host` and `pace_key`. It is the only record
   of the rate a receiving system actually saw, because `smtp_reply` skips the `250`s: a family's

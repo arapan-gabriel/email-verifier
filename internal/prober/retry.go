@@ -33,7 +33,7 @@ var explicitHint = regexp.MustCompile(
 // question that has been answered.
 func retryHint(class Class, reply string, fallback time.Duration) int {
 	switch class {
-	case ClassDeferred, ClassThrottled, ClassNoBudget, ClassPaused:
+	case ClassDeferred, ClassThrottled, ClassNoBudget, ClassPaused, ClassTLSFailed:
 	default:
 		return 0
 	}

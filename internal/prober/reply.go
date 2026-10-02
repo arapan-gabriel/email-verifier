@@ -17,6 +17,9 @@ type ReplyEvent struct {
 	// refusals, in which case Err carries the reason.
 	Reply string
 	Err   string
+	// TLS is the session's encryption outcome (plan 031), empty when no session
+	// was opened.
+	TLS string
 }
 
 // DefaultReplyMaxChars caps a logged reply. Long enough for the enhanced code

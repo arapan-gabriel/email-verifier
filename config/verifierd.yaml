@@ -177,6 +177,15 @@ probe:
   # of the answers, so the randomiser rate the early stop could miss stays
   # measured (verify_catch_all_probes_total{outcome="audit_full"}).
   catch_all_audit_rate: 0.05
+  # STARTTLS when the server advertises it (plan 031): "opportunistic" upgrades
+  # over the already-vetted connection, records whether the certificate checks
+  # out and never refuses one that does not, as an MTA with
+  # smtp_tls_security_level = may does. "off" is the escape hatch (plaintext
+  # always). A failed upgrade is class tls_failed — never a verdict, never a
+  # throttle, no plaintext retry in that session.
+  starttls: opportunistic
+  # Bound on one handshake; must stay below probe.timeout.
+  tls_handshake_timeout: 10s
   # End a session after this many *consecutive* replies that are about our
   # client rather than about a recipient (5.7.x and friends). A server that
   # refuses us refuses us for the whole session, so the rest of the batch would

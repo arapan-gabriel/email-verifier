@@ -104,11 +104,17 @@ type Chaos struct {
 }
 
 type Profile struct {
-	Name       string     `yaml:"name" json:"name"`
-	Domains    []string   `yaml:"domains" json:"domains"`
-	Listen     []string   `yaml:"listen" json:"listen"`
-	Banner     string     `yaml:"banner" json:"banner"`
-	EhloCaps   []string   `yaml:"ehlo_caps" json:"ehlo_caps"`
+	Name     string   `yaml:"name" json:"name"`
+	Domains  []string `yaml:"domains" json:"domains"`
+	Listen   []string `yaml:"listen" json:"listen"`
+	Banner   string   `yaml:"banner" json:"banner"`
+	EhloCaps []string `yaml:"ehlo_caps" json:"ehlo_caps"`
+	// StartTLS is how this simulated MX handles STARTTLS (plan 031):
+	// "absent" (not advertised, 454 if asked — the default), "offered"
+	// (advertised, upgrades with a self-signed certificate), "required"
+	// (as offered, and MAIL FROM before TLS is refused with 530) or "broken"
+	// (advertised, answers 220, then drops the connection mid-handshake).
+	StartTLS   string     `yaml:"starttls" json:"starttls"`
 	Limits     Limits     `yaml:"limits" json:"limits"`
 	Behaviour  Behaviour  `yaml:"behaviour" json:"behaviour"`
 	Recipients Recipients `yaml:"recipients" json:"recipients"`
@@ -186,6 +192,11 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chaos.DropRate < 0 || p.Chaos.DropRate > 1 {
 		return fmt.Errorf("profile %q: drop_rate must be within 0..1", p.Name)
+	}
+	switch p.StartTLS {
+	case "", "absent", "offered", "required", "broken":
+	default:
+		return fmt.Errorf("profile %q: starttls must be absent|offered|required|broken, got %q", p.Name, p.StartTLS)
 	}
 	return nil
 }

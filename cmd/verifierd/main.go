@@ -179,24 +179,26 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 	})
 
 	p := prober.New(prober.Options{
-		Pacer:             pace,
-		Resolver:          dns,
-		Helo:              cfg.Probe.Helo,
-		MailFrom:          cfg.Probe.MailFrom,
-		SourceIP:          cfg.Probe.SourceIP,
-		Timeout:           cfg.Probe.Timeout,
-		DialNetwork:       cfg.Probe.DialNetwork,
-		Port:              cfg.Probe.Port,
-		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
-		CatchAllProbes:    cfg.Probe.CatchAllProbes,
-		CatchAllAuditRate: cfg.Probe.CatchAllAuditRate,
-		PolicyStop:        cfg.Probe.PolicyStop,
-		PolicyStopMax:     cfg.Probe.PolicyStopMax,
-		DeferralRetry:     cfg.Probe.DeferralRetry,
-		Profiles:          mxprofile.New(store, cfg.Probe.RandomiserTTL),
-		Metrics:           reg,
-		Health:            health,
-		Suppress:          suppressionOrNil(suppression),
+		Pacer:               pace,
+		Resolver:            dns,
+		Helo:                cfg.Probe.Helo,
+		MailFrom:            cfg.Probe.MailFrom,
+		SourceIP:            cfg.Probe.SourceIP,
+		Timeout:             cfg.Probe.Timeout,
+		DialNetwork:         cfg.Probe.DialNetwork,
+		Port:                cfg.Probe.Port,
+		MaxRCPTPerSession:   cfg.Probe.MaxRCPTPerSession,
+		CatchAllProbes:      cfg.Probe.CatchAllProbes,
+		CatchAllAuditRate:   cfg.Probe.CatchAllAuditRate,
+		StartTLS:            cfg.Probe.StartTLS,
+		TLSHandshakeTimeout: cfg.Probe.TLSHandshakeTimeout,
+		PolicyStop:          cfg.Probe.PolicyStop,
+		PolicyStopMax:       cfg.Probe.PolicyStopMax,
+		DeferralRetry:       cfg.Probe.DeferralRetry,
+		Profiles:            mxprofile.New(store, cfg.Probe.RandomiserTTL),
+		Metrics:             reg,
+		Health:              health,
+		Suppress:            suppressionOrNil(suppression),
 		OnSuppressionError: func(err error) {
 			// Loud, but not fatal: this is a redundancy and the authoritative
 			// check has already run upstream.
@@ -358,6 +360,7 @@ func replyLogger(enabled bool, logger *slog.Logger) func(prober.ReplyEvent) {
 			"smtp_code", ev.SMTPCode,
 			"enhanced_code", ev.EnhancedCode,
 			"reply", ev.Reply,
+			"tls", ev.TLS,
 			"err", ev.Err)
 	}
 }

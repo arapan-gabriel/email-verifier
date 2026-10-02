@@ -61,7 +61,7 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 
 `class` is the prober's classification, and it is the field that carries who a failure was about:
 `valid`, `invalid`, `deferred`, `throttled`, `timeout`, `conn_error`, `bad_sequence`, `policy`,
-`guarded`, `no_budget`, `paused`, `unknown`. The last three are all our own refusals to send:
+`tls_failed`, `guarded`, `no_budget`, `paused`, `unknown`. The last three are all our own refusals to send:
 
 - `guarded` — the `mx_host` resolved only to addresses the SSRF guard rejects (invariant 2).
 - `no_budget` — the shared token bucket could not be consulted, so the probe failed closed
@@ -75,8 +75,20 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 
 All three return `connected:false` and `accepted:null`.
 
+- `tls_failed` (plan 031) — the server advertised `STARTTLS` and the upgrade did not complete: a
+  non-`220` answer to `STARTTLS`, or a failed handshake. About the conversation, never about the
+  mailbox, and never a throttle — it does not move the pacer. `connected:false`, `accepted:null`,
+  a retry hint; no plaintext retry in that session.
+
+**`tls`** (plan 031) is how the session behind a result was encrypted, additive and omitted when no
+session was opened (our own refusals before the socket): `none` (the server did not offer `STARTTLS`,
+or `probe.starttls: off`), `verified` (upgraded; the certificate chains to a trusted root and names
+the MX), `unverified` (upgraded; the certificate was not trusted or not for this name — recorded,
+never enforced, as an opportunistic MTA does) or `failed` (offered, not completed — the class is
+`tls_failed`). Callers may ignore it; the classes they map are unchanged.
+
 **`retry_after_seconds`** is present only on classes that mean "come back later" — `deferred`,
-`throttled`, `no_budget`, `paused`. For `paused` it is exact, because the pacer knows when the
+`throttled`, `no_budget`, `paused`, `tls_failed`. For `paused` it is exact, because the pacer knows when the
 cooldown ends; otherwise it is parsed from the server's reply when it offers a number and falls back
 to `probe.deferral_retry`. It is always clamped, so a server does not get to set the caller's
 schedule. An answered address (`valid`, `invalid`) carries no hint.
