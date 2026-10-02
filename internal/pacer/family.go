@@ -20,12 +20,19 @@ var familiesJSON []byte
 type family struct {
 	Suffix string `json:"suffix"`
 	Key    string `json:"key"`
+	// MultiDomain says the system answers RCPTs for several of its domains in
+	// one session (plan 033). Measured per system, never assumed.
+	MultiDomain bool `json:"multi_domain"`
 }
 
 // families is parsed once at start-up. The file ships inside the binary, so a
 // malformed table is a build defect and fails loudly rather than pacing every
 // tenant alone again.
 var families = mustFamilies(familiesJSON)
+
+// multiDomain is the set of keys whose system may be asked about several domains
+// in one session (plan 033).
+var multiDomain = multiDomainKeys(families)
 
 func mustFamilies(raw []byte) []family {
 	var doc struct {
@@ -34,14 +41,32 @@ func mustFamilies(raw []byte) []family {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		panic(fmt.Sprintf("pacer: families.json: %v", err))
 	}
+	multi := map[string]bool{}
 	for i, f := range doc.Families {
 		f.Suffix = normaliseHost(f.Suffix)
 		if f.Suffix == "" || !strings.HasPrefix(f.Key, "@") || len(f.Key) < 2 {
 			panic(fmt.Sprintf("pacer: families.json entry %d: want a suffix and an @key, got %+v", i, f))
 		}
+		// A system either answers for several domains or it does not; a key
+		// whose entries disagree would group or not by which MX name the
+		// resolver happened to return.
+		if seen, ok := multi[f.Key]; ok && seen != f.MultiDomain {
+			panic(fmt.Sprintf("pacer: families.json entry %d: multi_domain disagrees with an earlier %s entry", i, f.Key))
+		}
+		multi[f.Key] = f.MultiDomain
 		doc.Families[i] = f
 	}
 	return doc.Families
+}
+
+func multiDomainKeys(fs []family) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range fs {
+		if f.MultiDomain {
+			out[f.Key] = true
+		}
+	}
+	return out
 }
 
 func normaliseHost(h string) string {
@@ -67,4 +92,13 @@ func PaceKey(mxHost string) string {
 		}
 	}
 	return mxHost
+}
+
+// MultiDomain returns the pace key of mxHost and whether its system may be asked
+// about several domains in one session (plan 033). An unlisted host is its own
+// key and never groups: whether a receiver answers for a foreign domain is
+// measured, not assumed.
+func MultiDomain(mxHost string) (key string, ok bool) {
+	key = PaceKey(mxHost)
+	return key, multiDomain[key]
 }

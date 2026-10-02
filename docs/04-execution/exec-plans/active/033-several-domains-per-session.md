@@ -1,6 +1,6 @@
 # Plan 033 — Several domains per session
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy, the EOP measurement (Design 4) and the manual-test gate pending (written 2026-10-01)
 **Phase:** B
 **Depends on:** 026 (pace keys), 028 (one connection per pace key), 029 (catch-all asked once) —
 026 complete, 028 and 029 planned. Has a **Data Scout companion** (below).
@@ -96,24 +96,26 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
 
 ## Tasks
 
-- [ ] `internal/api/probe.go` — `domains` field, validation (exclusive with `domain`/`emails`,
+- [x] `internal/api/probe.go` — `domains` field, validation (exclusive with `domain`/`emails`,
       every domain non-empty, total ≤ `max_emails`), mapping to the prober
-- [ ] `prober.Request` — per-domain groups; `Probe` / `session` iterate them; per-domain catch-all
+- [x] `prober.Request` — per-domain groups; `Probe` / `session` iterate them; per-domain catch-all
       verdicts stamped on each domain's results
-- [ ] `families.json` + `PaceKey` companion — `multi_domain` flag; `@google` true
-- [ ] Relay-refusal detection on a foreign-domain `RCPT` → `ClassPolicy` + node-local fallback
-- [ ] Metrics: `verify_session_domains`, `verify_multi_domain_fallbacks_total`
-- [ ] EOP measurement (Design 4), recorded here; follow-up change only if it passes
-- [ ] Tests alongside:
+- [x] `families.json` + `PaceKey` companion — `multi_domain` flag; `@google` true
+- [x] Relay-refusal detection on a foreign-domain `RCPT` → `ClassPolicy` + node-local fallback
+- [x] Metrics: `verify_session_domains`, `verify_multi_domain_fallbacks_total`
+- [ ] EOP measurement (Design 4), recorded here; follow-up change only if it passes — **pending: a node
+      step, not done in this change** (needs the node and a known second-tenant answer)
+- [x] Tests alongside:
   - mxsim: one session, three domains, each domain's results and catch-all verdict correct
   - a family without `multi_domain`: one session per domain, results identical
   - foreign-domain relay refusal → `policy` for that address (never `invalid`), fallback engaged
   - policy-stop mid-session ends every domain's remaining `RCPT`s as unattempted
   - tokens: exactly one per `RCPT` across domains, under the family key
   - old-shape request byte-for-byte unchanged; both shapes at once → 400
-- [ ] `docs/06-generated/api.md` — the `domains` shape and its rules
-- [ ] `docs/06-generated/metrics.md`; ADR-006 note (the seam stays one MX per request)
-- [ ] Deploy, then the Data Scout companion with its flag off → on
+- [x] `docs/06-generated/api.md` — the `domains` shape and its rules
+- [x] `docs/06-generated/metrics.md`; ADR-006 note (the seam stays one MX per request)
+- [ ] Deploy, then the Data Scout companion with its flag off → on — the companion is built
+      (data-scout `27d05b7`, `VERIFY_MULTI_DOMAIN_SESSIONS`, default off); deploy not done here
 
 ## Definition of Done
 
@@ -122,11 +124,11 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
       30, every Google domain's verdict matches what a one-domain session gives (re-probe a sample
       of 10 the old way), and Google's wall clock per domain before/after is recorded. The EOP
       measurement's outcome is recorded either way
-- [ ] `go test -race -count=1 ./...` green, including real-Redis tests
-- [ ] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok
-- [ ] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address (relay refusal), SSRF (one vetted
+- [x] `go test -race -count=1 ./...` green, including real-Redis tests
+- [x] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok
+- [x] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address (relay refusal), SSRF (one vetted
       host), fail-closed, central bucket
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
@@ -142,3 +144,33 @@ Not in this repo; its own small Data Scout plan, written when this one is picked
   `max_rcpt_per_session` cap is the ceiling and is not raised by this plan.
 - **Order.** 029 → 028 → 033. Without 028, Data Scout already overlaps handshakes across domains,
   so 033's gain mostly exists *because* 028 serialises a family onto one connection.
+
+### Implementation (2026-10-02)
+
+- **Contract** exactly as Data Scout's companion sends it: `{"mx_host", "domains": [{"domain",
+  "emails", "need_catch_all"}]}`. `domains` with `domain`, `emails` or `need_catch_all` is a 400;
+  each address must be at its entry's domain; the total is within `max_emails_per_request`.
+  `policy_stop` stays allowed (the plan names it in neither shape; Data Scout omits it). A repeated
+  domain is merged rather than refused: Data Scout's per-host queue can put two callers' batches for
+  one domain in one request.
+- **Prober.** `session` now takes per-domain groups; the single-domain path is one group, so the old
+  shape runs the same code it did. `probeDomains` packs whole domains up to `MaxRCPTPerSession` for a
+  family `Options.MultiDomain` clears (main wires `pacer.MultiDomain`), else one domain per session;
+  a domain bigger than the cap is split exactly as before. Catch-all is asked per domain after all
+  real `RCPT`s, with that domain's bogus address; a randomiser verdict marks every domain.
+- **Relay refusal** (`relay(ing) (access) denied|not permitted|not allowed|prohibited`, `unable to
+  relay`, `not permitted to relay`, `we do not relay`, `5.7.64`, code ≥ 400) on a non-first domain of a
+  grouped session: `ClassPolicy` with no `accepted`, the session stops, its unasked addresses are
+  re-queued and asked one domain per session, and the family is off for grouping on this node until
+  restart (`verify_multi_domain_fallbacks_total{family}` once, log `multi_domain_fallback` with the
+  reply redacted). It does not feed IP health or the stand-down (032). After it, only the first
+  domain gets its catch-all question in that session.
+- **families.json:** `multi_domain: true` on all three `@google` entries; the loader panics if a
+  key's entries disagree.
+- **mxsim:** `behaviour.catch_all_domains`, `behaviour.relay_denied`, `stats.relay_denied`; profile
+  `config/mxsim/google-workspace.yaml`.
+- **Mutation check:** dropping the relay→policy override makes
+  `TestARelayRefusalIsPolicyAndEndsGrouping` fail with `relay refusal = invalid` — the invariant-1
+  defect this exists to prevent.
+- **Enabling:** nothing on the node (`@google` ships cleared; no config key). Turn on Data Scout's
+  `VERIFY_MULTI_DOMAIN_SESSIONS` only after this deploys. Turning it off again is the kill switch.

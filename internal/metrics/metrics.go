@@ -23,6 +23,10 @@ import (
 // session is under a second, and anything past ten is a server tarpitting us.
 var buckets = []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
+// domainBuckets are the upper bounds for domains asked per SMTP session (plan
+// 033). 1 is every ungrouped session; the rest show how much grouping happens.
+var domainBuckets = []int{1, 2, 3, 5, 10, 20, 50}
+
 // MXState is one row of what the pacer is currently tracking.
 type MXState struct {
 	Host string
@@ -52,12 +56,15 @@ type Registry struct {
 
 	results     map[string]uint64 // class
 	replies     map[[2]string]uint64
-	blocked     map[string]uint64  // reason
-	catchAll    map[string]uint64  // catch-all probe outcome (plan 029)
-	leaseWaits  map[string]uint64  // session lease outcome (plan 028)
-	tlsSessions map[string]uint64  // STARTTLS outcome per session (plan 031)
-	pauses      map[string]uint64  // mx host
-	refusals    map[string]uint64  // refusals of us per pace key (plan 032)
+	blocked     map[string]uint64 // reason
+	catchAll    map[string]uint64 // catch-all probe outcome (plan 029)
+	leaseWaits  map[string]uint64 // session lease outcome (plan 028)
+	tlsSessions map[string]uint64 // STARTTLS outcome per session (plan 031)
+	pauses      map[string]uint64 // mx host
+	refusals    map[string]uint64 // refusals of us per pace key (plan 032)
+	fallbacks   map[string]uint64 // multi-domain fallbacks per family (plan 033)
+	domCounts   []uint64          // domains-per-session histogram, cumulative, plus +Inf
+	domSum      uint64
 	listed      map[[2]string]bool // {ip, list} -> listed
 	sent        map[string]uint64  // relay delivery outcome (plan 014)
 	qDepth      [3]int             // relay queue: ready, later, dead
@@ -88,6 +95,8 @@ func New(pacer Pacer) *Registry {
 		tlsSessions: map[string]uint64{},
 		pauses:      map[string]uint64{},
 		refusals:    map[string]uint64{},
+		fallbacks:   map[string]uint64{},
+		domCounts:   make([]uint64, len(domainBuckets)+1),
 		listed:      map[[2]string]bool{},
 		sent:        map[string]uint64{},
 		counts:      make([]uint64, len(buckets)+1),
@@ -183,6 +192,29 @@ func (r *Registry) TLSSession(outcome string) {
 	r.tlsSessions[outcome]++
 }
 
+// SessionDomains records how many domains one SMTP session asked about (plan
+// 033).
+func (r *Registry) SessionDomains(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, b := range domainBuckets {
+		if n <= b {
+			r.domCounts[i]++
+		}
+	}
+	r.domCounts[len(domainBuckets)]++
+	r.domSum += uint64(max(n, 0))
+}
+
+// MultiDomainFallback records a family switched to one domain per session on
+// this node after a relay refusal (plan 033). Only cleared families can fall
+// back, so the label is bounded by families.json.
+func (r *Registry) MultiDomainFallback(family string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fallbacks[family]++
+}
+
 // Pause records the pacer standing an MX down.
 func (r *Registry) Pause(mxHost string) {
 	r.mu.Lock()
@@ -257,6 +289,8 @@ func (r *Registry) Render() string {
 	tlsSessions := maps.Clone(r.tlsSessions)
 	pauses := maps.Clone(r.pauses)
 	refusals := maps.Clone(r.refusals)
+	fallbacks := maps.Clone(r.fallbacks)
+	domCounts, domSum := slices.Clone(r.domCounts), r.domSum
 	standDown, policyHosts := r.standDown, r.policyHosts
 	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
@@ -283,6 +317,17 @@ func (r *Registry) Render() string {
 		"How SMTP sessions were encrypted, by STARTTLS outcome (plan 031).", tlsSessions, "outcome")
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
+
+	counter(&b, "verify_multi_domain_fallbacks_total",
+		"Families switched to one domain per session after a relay refusal (plan 033).", fallbacks, "family")
+	fmt.Fprint(&b, "# HELP verify_session_domains Domains asked about per SMTP session (plan 033).\n")
+	fmt.Fprint(&b, "# TYPE verify_session_domains histogram\n")
+	for i, bound := range domainBuckets {
+		fmt.Fprintf(&b, "verify_session_domains_bucket{le=\"%d\"} %d\n", bound, domCounts[i])
+	}
+	fmt.Fprintf(&b, "verify_session_domains_bucket{le=\"+Inf\"} %d\n", domCounts[len(domainBuckets)])
+	fmt.Fprintf(&b, "verify_session_domains_sum %d\n", domSum)
+	fmt.Fprintf(&b, "verify_session_domains_count %d\n", domCounts[len(domainBuckets)])
 
 	counter(&b, "verify_refusals_of_us_total",
 		"Refusals of us that count toward a stand-down, per family key (lone hosts share one label).", refusals, "mx_host")

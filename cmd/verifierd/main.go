@@ -229,6 +229,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 			defer cancel()
 			guard.Observe(rctx, mxHost, reply)
 		},
+		// Plan 033: several domains per session for the families cleared in
+		// families.json, until a receiver refuses a foreign domain as relay.
+		MultiDomain: pacer.MultiDomain,
+		OnFallback: func(family, mxHost, reply string) {
+			logger.Warn("multi_domain_fallback", "family", family, "mx_host", mxHost, "reply", reply)
+		},
 	})
 
 	// Outbound mail (plan 014). Nil unless configured, which leaves POST /send

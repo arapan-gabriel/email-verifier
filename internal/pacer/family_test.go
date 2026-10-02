@@ -55,6 +55,8 @@ func TestMalformedFamiliesTableIsABuildDefect(t *testing.T) {
 		"key without @": `{"families":[{"suffix":"x.com","key":"x"}]}`,
 		"bare @":        `{"families":[{"suffix":"x.com","key":"@"}]}`,
 		"empty suffix":  `{"families":[{"suffix":" . ","key":"@x"}]}`,
+		"multi_domain disagrees": `{"families":[{"suffix":"a.com","key":"@x","multi_domain":true},` +
+			`{"suffix":"b.com","key":"@x"}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -64,6 +66,29 @@ func TestMalformedFamiliesTableIsABuildDefect(t *testing.T) {
 			}()
 			mustFamilies([]byte(raw))
 		})
+	}
+}
+
+// Only Google ships able to group (plan 033); EOP waits for the node measurement,
+// and an unlisted host never groups.
+func TestMultiDomainShipsForGoogleOnly(t *testing.T) {
+	cases := []struct {
+		host, key string
+		ok        bool
+	}{
+		{"aspmx.l.google.com", "@google", true},
+		{"alt1.aspmx.l.google.com", "@google", true},
+		{"aspmx3.googlemail.com", "@google", true},
+		{"smtp.google.com", "@google", true},
+		{"@google", "@google", true},
+		{tenantA, "@microsoft-eop", false},
+		{"mx00.ionos.de", "@ionos", false},
+		{"mx.example.de", "mx.example.de", false},
+	}
+	for _, c := range cases {
+		if key, ok := MultiDomain(c.host); key != c.key || ok != c.ok {
+			t.Errorf("MultiDomain(%q) = %q, %v; want %q, %v", c.host, key, ok, c.key, c.ok)
+		}
 	}
 }
 

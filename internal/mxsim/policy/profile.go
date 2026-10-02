@@ -80,6 +80,14 @@ type Behaviour struct {
 	CatchAll      bool     `yaml:"catch_all" json:"catch_all"`
 	RejectUnknown string   `yaml:"reject_unknown" json:"reject_unknown"`
 	Accept        string   `yaml:"accept" json:"accept"`
+	// CatchAllDomains accept any local part at these domains only, so one
+	// server can host a catch-all domain beside honest ones (plan 033).
+	CatchAllDomains []string `yaml:"catch_all_domains" json:"catch_all_domains"`
+	// RelayDenied, when set, is the reply to a RCPT at a domain not in the
+	// profile's domains — a receiver that answers for its own domains only and
+	// refuses to relay for the rest (plan 033). Empty accepts every domain,
+	// which is how mxsim behaved before.
+	RelayDenied string `yaml:"relay_denied" json:"relay_denied"`
 	// TimeoutHold is how long a "timeout" recipient is left hanging before the
 	// server gives up on the connection. The client should time out first.
 	TimeoutHold Duration `yaml:"timeout_hold" json:"timeout_hold"`
@@ -178,6 +186,9 @@ func (p *Profile) ApplyDefaults() {
 		p.Domains[i] = strings.ToLower(strings.TrimSpace(d))
 	}
 	sort.Strings(p.Domains)
+	for i, d := range p.Behaviour.CatchAllDomains {
+		p.Behaviour.CatchAllDomains[i] = strings.ToLower(strings.TrimSpace(d))
+	}
 }
 
 func (p *Profile) Validate() error {

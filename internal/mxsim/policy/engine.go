@@ -3,6 +3,7 @@ package policy
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,7 @@ type Stats struct {
 	Rcpt              int64             `json:"rcpt"`
 	Accepted          int64             `json:"accepted"`
 	Rejected          int64             `json:"rejected"`
+	RelayDenied       int64             `json:"relay_denied"`
 	Throttled         int64             `json:"throttled"`
 	TempErrors        int64             `json:"temp_errors"`
 	Greylisted        int64             `json:"greylisted"`
@@ -404,6 +406,14 @@ func (e *Engine) OnRcpt(ip, addr string, perConn int) Verdict {
 
 	local, domain := split(addr)
 
+	if e.prof.Behaviour.RelayDenied != "" && len(e.prof.Domains) > 0 && !slices.Contains(e.prof.Domains, domain) {
+		e.st.RelayDenied++
+		v := reply(rejectFor(e.prof.Behaviour.RelayDenied, addr))
+		v.Reason = "relay_denied"
+		e.countCode(v)
+		return v
+	}
+
 	if e.prof.Chaos.DropRate > 0 && e.rng.Float64() < e.prof.Chaos.DropRate {
 		e.st.Drops++
 		return Verdict{Action: ActionDrop, Reason: "chaos_drop"}
@@ -444,7 +454,7 @@ func (e *Engine) OnRcpt(ip, addr string, perConn int) Verdict {
 
 	known := normalizeLocals(e.prof.Recipients.Exists)[local]
 	bounce := normalizeLocals(e.prof.Recipients.Bounce)[local]
-	_ = domain
+	catchAll := e.prof.Behaviour.CatchAll || slices.Contains(e.prof.Behaviour.CatchAllDomains, domain)
 
 	switch {
 	case bounce:
@@ -453,7 +463,7 @@ func (e *Engine) OnRcpt(ip, addr string, perConn int) Verdict {
 		v.Reason = "bounce_list"
 		e.countCode(v)
 		return v
-	case known || e.prof.Behaviour.CatchAll:
+	case known || catchAll:
 		e.st.Accepted++
 		v := reply(e.prof.Behaviour.Accept)
 		v.Reason = "accept"

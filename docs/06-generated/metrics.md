@@ -32,6 +32,8 @@ it directly — as this repository already does for RESP and for SMTP.
 
 | `verify_key_stood_down` | gauge | `mx_host` (pace key) | 1 while a key is stood down for refusals of us (plan 032), 0 once it came back; only keys stood down since start appear. **Data Scout's `deploy/probe-standing.py` reads this exact line** and the hourly host check mails it |
 | `verify_refusals_of_us_total` | counter | `mx_host` | refusals of us that count toward a stand-down: a family key is its own label, every lone host shares `host` — bounded by construction |
+| `verify_session_domains` | histogram | `le` (1, 2, 3, 5, 10, 20, 50) | domains asked about per SMTP session that reached a server (plan 033). `1` is every ungrouped session; the rest is how much grouping happens |
+| `verify_multi_domain_fallbacks_total` | counter | `family` | a family switched to one domain per session on this node after a receiver refused a foreign domain as relay (plan 033). At most once per family per process; bounded by `families.json` |
 | `ip_health_policy_hosts` | gauge | — | distinct MX hosts that refused our client in the last hour (the `iphealth` count that had no reader until plan 032) |
 | `ip_health_listed` | gauge | `ip`, `list` | 1 if this sending address is on the named blocklist |
 

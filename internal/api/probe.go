@@ -37,6 +37,16 @@ type probeRequest struct {
 	// is quietly bounded rather than refused — a 400 here would reach the
 	// caller as a transport failure and turn a whole batch into non-answers.
 	PolicyStop int `json:"policy_stop,omitempty"`
+	// Domains asks about several domains answered by this one MX (plan 033).
+	// When present it replaces domain/emails/need_catch_all; sending both is
+	// a 400. Whether the domains share a session is the service's decision.
+	Domains []probeDomain `json:"domains,omitempty"`
+}
+
+type probeDomain struct {
+	Domain       string   `json:"domain"`
+	Emails       []string `json:"emails"`
+	NeedCatchAll bool     `json:"need_catch_all"`
 }
 
 type probeResponse struct {
@@ -46,6 +56,9 @@ type probeResponse struct {
 }
 
 func (r probeRequest) validate(maxEmails int) error {
+	if r.Domains != nil {
+		return r.validateDomains(maxEmails)
+	}
 	switch {
 	case strings.TrimSpace(r.MXHost) == "":
 		return errors.New("mx_host is required")
@@ -62,6 +75,43 @@ func (r probeRequest) validate(maxEmails int) error {
 		if !strings.Contains(e, "@") {
 			return errors.New("every entry in emails must be an address")
 		}
+	}
+	return nil
+}
+
+// validateDomains checks the multi-domain shape (plan 033): exclusive with the
+// single-domain fields, every group a named domain with its own addresses, and
+// the request as a whole within the same per-request limit.
+func (r probeRequest) validateDomains(maxEmails int) error {
+	switch {
+	case strings.TrimSpace(r.MXHost) == "":
+		return errors.New("mx_host is required")
+	case r.Domain != "" || r.Emails != nil || r.NeedCatchAll:
+		return errors.New("domains replaces domain, emails and need_catch_all; send one shape")
+	case len(r.Domains) == 0:
+		return errors.New("domains must not be empty")
+	case r.PolicyStop < 0:
+		return errors.New("policy_stop must not be negative")
+	}
+	total := 0
+	for _, d := range r.Domains {
+		domain := strings.TrimSuffix(strings.TrimSpace(d.Domain), ".")
+		if domain == "" {
+			return errors.New("every entry in domains needs a domain")
+		}
+		if len(d.Emails) == 0 {
+			return errors.New("every entry in domains needs emails")
+		}
+		for _, e := range d.Emails {
+			_, at, ok := strings.Cut(e, "@")
+			if !ok || !strings.EqualFold(strings.TrimSuffix(at, "."), domain) {
+				return errors.New("every address in a domains entry must be at that domain")
+			}
+		}
+		total += len(d.Emails)
+	}
+	if total > maxEmails {
+		return errors.New("emails exceeds the per-request limit")
 	}
 	return nil
 }
@@ -87,7 +137,7 @@ func handleProbe(p Prober, sourceIP string, maxEmails int) http.HandlerFunc {
 			return
 		}
 
-		resp, err := p.Probe(r.Context(), prober.Request{
+		preq := prober.Request{
 			MXHost:       req.MXHost,
 			Domain:       req.Domain,
 			Emails:       req.Emails,
@@ -95,7 +145,15 @@ func handleProbe(p Prober, sourceIP string, maxEmails int) http.HandlerFunc {
 			Helo:         req.Helo,
 			MailFrom:     req.MailFrom,
 			PolicyStop:   req.PolicyStop,
-		})
+		}
+		for _, d := range req.Domains {
+			preq.Domains = append(preq.Domains, prober.DomainGroup{
+				Domain:       d.Domain,
+				Emails:       d.Emails,
+				NeedCatchAll: d.NeedCatchAll,
+			})
+		}
+		resp, err := p.Probe(r.Context(), preq)
 		if err != nil {
 			WriteError(w, http.StatusBadGateway, "probe_failed", err.Error())
 			return

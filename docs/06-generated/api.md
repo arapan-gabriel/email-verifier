@@ -146,6 +146,43 @@ audit sample (`probe.catch_all_audit_rate`, default 0.05) asks the full old sequ
 so the randomiser rate the early stop could miss stays measured. The verdict for a server is
 remembered, so a later request for a different domain on that host carries it without re-probing.
 
+**Several domains in one request (plan 033).** Instead of `domain`/`emails`/`need_catch_all`, a
+caller may send `domains` — several domains answered by the same `mx_host`:
+
+```jsonc
+{
+  "mx_host": "aspmx.l.google.com",
+  "domains": [
+    {"domain": "a.example", "emails": ["x@a.example", "y@a.example"], "need_catch_all": true},
+    {"domain": "b.example", "emails": ["z@b.example"],                "need_catch_all": false}
+  ]
+}
+```
+
+Rules: the two shapes are exclusive (`domains` with any of `domain`/`emails`/`need_catch_all` is a
+`400`); every entry names a domain and has at least one address, every address is at its entry's
+domain (case-insensitive); the total across entries is within `server.max_emails_per_request`.
+`helo`, `mail_from` and `policy_stop` keep their meaning. An entry repeating a domain is merged,
+and an address is asked once. **The response is unchanged**: `results` keyed by address, and each
+result's `catch_all`/`randomiser` are its own domain's (a randomiser, being about the server, marks
+every domain in the request).
+
+Whether the domains share an SMTP session is **this service's decision, per receiving system**:
+only a family with `multi_domain: true` in `internal/pacer/families.json` (`@google` today) is
+asked about several domains in one session — whole domains packed up to
+`probe.max_rcpt_per_session`, then each asked domain's catch-all question after the real `RCPT`s.
+Any other host is served one session per domain: the same answers, leases and tokens as separate
+requests. One lease per session and one token per `RCPT` either way. A policy-stop ends the session
+for every domain in it. A receiver refusing a domain other than the session's first **as relay**
+(`relay access denied`, `relaying denied`, `5.7.64`, `not permitted to relay`, …) gets that address
+`class:policy` — never `invalid` — the rest of the session is asked again one domain per session,
+and grouping is switched off for that family on this node until restart (counter
+`verify_multi_domain_fallbacks_total`, log `multi_domain_fallback`). A relay refusal does not feed
+IP health or the stand-down: it is about the question, not our reputation.
+
+A caller must not send `domains` to a service older than plan 033 — `DisallowUnknownFields` makes it
+a `400` — which is why Data Scout gates it behind `VERIFY_MULTI_DOMAIN_SESSIONS`.
+
 A batch is split at `probe.max_rcpt_per_session` — an unbounded recipient list is itself a
 harvesting signal, and servers commonly cap it near 100. Catch-all is probed once per request, not
 once per chunk: it is a property of the domain — in the first chunk with a `250`.

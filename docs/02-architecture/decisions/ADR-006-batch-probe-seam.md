@@ -94,6 +94,16 @@ as a second factor inside the tunnel for operator routes (`/admin/calibrate`, pl
 - The queue vocabulary is now unambiguous: **verification jobs** live in Data Scout, the
   **greylist retry queue** and the **per-MX token bucket** live here.
 
+### Note — plan 033 (2026-10-02): several domains, still one MX
+
+`POST /probe` may now carry `domains: [...]` — several domains — instead of one `domain`. **The seam
+is unchanged where it matters: one request is still one recipient MX** (`mx_host`), resolved and
+SSRF-guarded once, paced under that MX's key, leased one session at a time. What moved is only
+how many domains one session may ask about, and that is decided here, per receiving system
+(`multi_domain` in `families.json`), not by the caller: Data Scout groups by identical MX host and
+this service serves an uncleared family as one session per domain. Catch-all stays requested per
+domain by the caller (`need_catch_all` per entry), for the reason above.
+
 ## Alternatives rejected
 
 - **Keep `POST /verify {email}`** (ADR-003) — simplest contract, but issues one request per address

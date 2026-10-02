@@ -13,7 +13,9 @@ import (
 	mathrand "math/rand/v2"
 	"net"
 	"net/netip"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arapan-gabriel/email-verifier/internal/pacer"
@@ -157,6 +159,18 @@ type Options struct {
 	// session waited for it (plan 028). Nil means nobody is listening.
 	OnLease func(mxHost string, waited time.Duration)
 
+	// MultiDomain says whether the receiving system behind an MX host may be
+	// asked about several domains in one session, and names its family (plan
+	// 033; pacer.MultiDomain). Nil means never: a `Domains` request is then
+	// served as one session per domain, correct and just not faster.
+	MultiDomain func(mxHost string) (family string, ok bool)
+
+	// OnFallback is called once per family, the first time a receiver refuses
+	// a foreign domain as relay and grouping is switched off for that family on
+	// this node until restart (plan 033). The reply arrives redacted. Nil means
+	// nobody is listening.
+	OnFallback func(family, mxHost, reply string)
+
 	// OnPaced is called once per token the pacer granted — one per question
 	// asked, real or catch-all — with the real MX host. A 250 is never logged
 	// by OnReply, so without this the rate a receiving system actually saw
@@ -221,6 +235,14 @@ const (
 // of Recorder, like CatchAllRecorder.
 type TLSRecorder interface {
 	TLSSession(outcome string)
+}
+
+// MultiDomainRecorder counts how many domains each session asked about and
+// every family that fell back to one domain per session (plan 033). Optional
+// on top of Recorder, like TLSRecorder.
+type MultiDomainRecorder interface {
+	SessionDomains(n int)
+	MultiDomainFallback(family string)
 }
 
 // auditProbes is the sequence an audit sample asks: the length every domain
@@ -388,6 +410,18 @@ type Request struct {
 	//
 	// Zero means "use the configured default".
 	PolicyStop int
+	// Domains, when set, replaces Domain/Emails/NeedCatchAll with several
+	// domains answered by the same MX (plan 033). Whether they share a session
+	// is the prober's decision (Options.MultiDomain); the response is the same
+	// shape either way.
+	Domains []DomainGroup
+}
+
+// DomainGroup is one domain's addresses in a multi-domain request (plan 033).
+type DomainGroup struct {
+	Domain       string
+	Emails       []string
+	NeedCatchAll bool
 }
 
 // Result is what the session established about one address.
@@ -436,6 +470,9 @@ const teardownTimeout = 2 * time.Second
 // Prober runs batched RCPT sessions. It is safe for concurrent use.
 type Prober struct {
 	opts Options
+	// fallen holds the families a receiver refused a foreign domain for (plan
+	// 033): grouping stays off for them on this node until restart.
+	fallen sync.Map
 }
 
 // New returns a Prober. It never returns an error: every option has a default.
@@ -458,6 +495,9 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 	if req.MXHost == "" {
 		return Response{}, errors.New("prober: mx_host is required")
 	}
+	if len(req.Domains) > 0 {
+		return p.probeDomains(ctx, req)
+	}
 	if len(req.Emails) == 0 {
 		return Response{}, errors.New("prober: emails is empty")
 	}
@@ -466,36 +506,12 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 
 	// Refuse the forgotten before anything else — before the guard, before the
 	// budget, before a socket could exist (invariant 9).
-	emails := req.Emails
-	if p.opts.Suppress != nil && p.opts.Suppress.Enforcing() {
-		var allowed []string
-		for _, addr := range emails {
-			hit, reason, err := p.opts.Suppress.Suppressed(ctx, addr)
-			switch {
-			case err != nil:
-				// A redundancy that cannot be read is not a reason to stop
-				// answering: the authoritative check already ran upstream.
-				if p.opts.OnSuppressionError != nil {
-					p.opts.OnSuppressionError(err)
-				}
-				allowed = append(allowed, addr)
-			case hit:
-				out.Results[addr] = Result{
-					Connected: ptrBool(false),
-					Class:     ClassSuppressed,
-					Err:       reason,
-				}
-			default:
-				allowed = append(allowed, addr)
-			}
+	emails := p.unsuppressed(ctx, req.Emails, out.Results)
+	if len(emails) == 0 {
+		for _, r := range out.Results {
+			p.record(req.MXHost, r)
 		}
-		if len(allowed) == 0 {
-			for _, r := range out.Results {
-				p.record(req.MXHost, r)
-			}
-			return out, nil
-		}
-		emails = allowed
+		return out, nil
 	}
 
 	// A host already known to randomise needs no probing: the verdict travels
@@ -515,7 +531,8 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 		// session that had a 250 to qualify (plan 029) — before, only chunk 0
 		// could ask, so a 250 in a later chunk never got a verdict.
 		probeCatchAll := req.NeedCatchAll && !settled
-		results, v := p.session(ctx, req, chunk, probeCatchAll)
+		results, vs, _ := p.session(ctx, req, []sessionGroup{{domain: req.Domain, addrs: chunk, askCatchAll: probeCatchAll}}, false)
+		v := vs[req.Domain]
 		if probeCatchAll && (v.catchAll != nil || v.randomiser != nil) {
 			verdict, settled = v, true
 		}
@@ -539,6 +556,236 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 	return out, nil
 }
 
+// unsuppressed returns the addresses that may be contacted and records a
+// ClassSuppressed result in into for each one that may not (invariant 9).
+func (p *Prober) unsuppressed(ctx context.Context, emails []string, into map[string]Result) []string {
+	if p.opts.Suppress == nil || !p.opts.Suppress.Enforcing() {
+		return emails
+	}
+	var allowed []string
+	for _, addr := range emails {
+		hit, reason, err := p.opts.Suppress.Suppressed(ctx, addr)
+		switch {
+		case err != nil:
+			// A redundancy that cannot be read is not a reason to stop
+			// answering: the authoritative check already ran upstream.
+			if p.opts.OnSuppressionError != nil {
+				p.opts.OnSuppressionError(err)
+			}
+			allowed = append(allowed, addr)
+		case hit:
+			into[addr] = Result{
+				Connected: ptrBool(false),
+				Class:     ClassSuppressed,
+				Err:       reason,
+			}
+		default:
+			allowed = append(allowed, addr)
+		}
+	}
+	return allowed
+}
+
+// sessionGroup is one domain's addresses inside one session.
+type sessionGroup struct {
+	domain      string
+	addrs       []string
+	askCatchAll bool
+}
+
+// probeDomains serves a multi-domain request (plan 033). A family cleared for
+// it (Options.MultiDomain) gets whole domains packed into sessions up to
+// MaxRCPTPerSession; any other host gets one session per domain — the same
+// sessions, leases and tokens three separate requests would have taken. The
+// catch-all question is per domain, and a randomiser verdict, being about the
+// server, condemns every domain in the request (invariant 7).
+func (p *Prober) probeDomains(ctx context.Context, req Request) (Response, error) {
+	groups := mergeGroups(req.Domains)
+	out := Response{Results: map[string]Result{}}
+	domainOf := map[string]string{}
+	need := map[string]bool{}
+	var queue []sessionGroup
+	for _, g := range groups {
+		for _, a := range g.Emails {
+			domainOf[a] = g.Domain
+		}
+		need[g.Domain] = g.NeedCatchAll
+		if allowed := p.unsuppressed(ctx, g.Emails, out.Results); len(allowed) > 0 {
+			queue = append(queue, sessionGroup{domain: g.Domain, addrs: allowed})
+		}
+	}
+	if len(queue) == 0 {
+		if len(out.Results) == 0 {
+			return Response{}, errors.New("prober: emails is empty")
+		}
+		for _, r := range out.Results {
+			p.record(req.MXHost, r)
+		}
+		return out, nil
+	}
+
+	known := p.opts.Profiles != nil && p.opts.Profiles.IsRandomiser(ctx, req.MXHost)
+	verdicts := map[string]catchAllVerdict{}
+	for len(queue) > 0 {
+		_, grouped := p.grouping(req.MXHost)
+		var batch []sessionGroup
+		batch, queue = takeSession(queue, p.opts.maxRCPT(), grouped)
+		for i := range batch {
+			_, settled := verdicts[batch[i].domain]
+			batch[i].askCatchAll = need[batch[i].domain] && !known && !settled
+		}
+		sreq := req
+		sreq.Domain, sreq.Domains = batch[0].domain, nil
+		results, vs, rest := p.session(ctx, sreq, batch, len(batch) > 1)
+		for addr, r := range results {
+			out.Results[addr] = r
+		}
+		for d, v := range vs {
+			if v.catchAll != nil || v.randomiser != nil {
+				verdicts[d] = v
+			}
+		}
+		// What a receiver refused to relay goes again, one domain per session:
+		// the fallback is already in force.
+		queue = append(regroup(rest, domainOf), queue...)
+	}
+
+	var condemned *catchAllVerdict
+	if known {
+		condemned = &catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
+	}
+	for _, v := range verdicts {
+		if v.randomiser != nil && *v.randomiser {
+			v := v
+			condemned = &v
+			if !known && p.opts.Profiles != nil {
+				p.opts.Profiles.MarkRandomiser(ctx, req.MXHost)
+			}
+			break
+		}
+	}
+	for addr, r := range out.Results {
+		v, ok := verdicts[domainOf[addr]]
+		if condemned != nil {
+			v, ok = *condemned, true
+		}
+		if ok {
+			r.CatchAll, r.Randomiser = v.catchAll, v.randomiser
+			out.Results[addr] = r
+		}
+	}
+	for _, r := range out.Results {
+		p.record(req.MXHost, r)
+	}
+	return out, nil
+}
+
+// mergeGroups folds groups naming the same domain into one: two callers'
+// batches can meet in one request. Order is kept; an address is asked once.
+func mergeGroups(in []DomainGroup) []DomainGroup {
+	var out []DomainGroup
+	at := map[string]int{}
+	seen := map[string]bool{}
+	for _, g := range in {
+		d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(g.Domain), "."))
+		i, ok := at[d]
+		if !ok {
+			i = len(out)
+			at[d] = i
+			out = append(out, DomainGroup{Domain: g.Domain})
+		}
+		out[i].NeedCatchAll = out[i].NeedCatchAll || g.NeedCatchAll
+		for _, e := range g.Emails {
+			if !seen[e] {
+				seen[e] = true
+				out[i].Emails = append(out[i].Emails, e)
+			}
+		}
+	}
+	return out
+}
+
+// takeSession takes the next session's groups off the queue: whole domains up
+// to limit addresses when grouped, otherwise one domain. A domain larger than
+// limit is split, as a single-domain request always was.
+func takeSession(queue []sessionGroup, limit int, grouped bool) (batch, rest []sessionGroup) {
+	first := queue[0]
+	if len(first.addrs) > limit {
+		head := sessionGroup{domain: first.domain, addrs: first.addrs[:limit]}
+		queue[0] = sessionGroup{domain: first.domain, addrs: first.addrs[limit:]}
+		return []sessionGroup{head}, queue
+	}
+	batch, queue = []sessionGroup{first}, queue[1:]
+	total := len(first.addrs)
+	for grouped && len(queue) > 0 && total+len(queue[0].addrs) <= limit {
+		total += len(queue[0].addrs)
+		batch, queue = append(batch, queue[0]), queue[1:]
+	}
+	return batch, queue
+}
+
+// regroup turns unasked addresses back into per-domain groups, in order.
+func regroup(addrs []string, domainOf map[string]string) []sessionGroup {
+	var out []sessionGroup
+	for _, a := range addrs {
+		d := domainOf[a]
+		if n := len(out); n > 0 && out[n-1].domain == d {
+			out[n-1].addrs = append(out[n-1].addrs, a)
+			continue
+		}
+		out = append(out, sessionGroup{domain: d, addrs: []string{a}})
+	}
+	return out
+}
+
+// grouping reports whether mxHost's family may be asked about several domains
+// in one session right now: cleared in families.json and not fallen back.
+func (p *Prober) grouping(mxHost string) (string, bool) {
+	if p.opts.MultiDomain == nil {
+		return "", false
+	}
+	family, ok := p.opts.MultiDomain(mxHost)
+	if !ok {
+		return family, false
+	}
+	if _, fell := p.fallen.Load(family); fell {
+		return family, false
+	}
+	return family, true
+}
+
+// fallBack switches grouping off for mxHost's family on this node, once.
+func (p *Prober) fallBack(mxHost, reply string) {
+	family, _ := p.grouping(mxHost)
+	if family == "" {
+		return
+	}
+	if _, already := p.fallen.LoadOrStore(family, true); already {
+		return
+	}
+	if rec, ok := p.opts.Metrics.(MultiDomainRecorder); ok {
+		rec.MultiDomainFallback(family)
+	}
+	if p.opts.OnFallback != nil {
+		limit := p.opts.ReplyMaxChars
+		if limit == 0 {
+			limit = DefaultReplyMaxChars
+		}
+		p.opts.OnFallback(family, mxHost, redactReply(reply, limit))
+	}
+}
+
+// relayRe matches a receiver refusing to answer for a domain it does not host:
+// Postfix's "Relay access denied", Exchange's "5.7.64 TenantAttribution; Relay
+// Access Denied", Sendmail's "Relaying denied", Exim's "relay not permitted".
+var relayRe = regexp.MustCompile(`(?i)relay(ing)? (access )?(denied|not permitted|not allowed|prohibited)|` +
+	`unable to relay|not permitted to relay|we do not relay|5\.7\.64`)
+
+// relayRefusal reports whether a RCPT reply refused a foreign domain as relay.
+func relayRefusal(code int, text string) bool {
+	return code >= 400 && relayRe.MatchString(text)
+}
+
 // catchAllVerdict is what the bogus probes established about this domain and
 // the server behind it.
 type catchAllVerdict struct {
@@ -546,8 +793,20 @@ type catchAllVerdict struct {
 	randomiser *bool
 }
 
-// session runs one SMTP dialogue over one connection.
-func (p *Prober) session(ctx context.Context, req Request, addrs []string, probeCatchAll bool) (map[string]Result, catchAllVerdict) {
+// session runs one SMTP dialogue over one connection, about one domain's
+// addresses or — grouped, plan 033 — several domains' in turn. It returns the
+// results, each asked domain's catch-all verdict, and the addresses it left
+// unasked because the receiver refused a foreign domain as relay; those go
+// again in sessions of their own.
+func (p *Prober) session(ctx context.Context, req Request, groups []sessionGroup, grouped bool) (map[string]Result, map[string]catchAllVerdict, []string) {
+	var addrs []string
+	var groupOf []int
+	for gi, g := range groups {
+		addrs = append(addrs, g.addrs...)
+		for range g.addrs {
+			groupOf = append(groupOf, gi)
+		}
+	}
 	out := make(map[string]Result, len(addrs))
 
 	// How this session was encrypted (plan 031), stamped on every result it
@@ -565,12 +824,15 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		if rec, ok := p.opts.Metrics.(TLSRecorder); ok {
 			rec.TLSSession(tlsOutcome)
 		}
+		if rec, ok := p.opts.Metrics.(MultiDomainRecorder); ok {
+			rec.SessionDomains(len(groups))
+		}
 	}()
 
 	// fail records the same non-answer for every address in the chunk. It is
 	// the shape invariant 1 demands: a refusal of *us* is never a statement
 	// about a mailbox, so Accepted stays nil and Connected is false.
-	fail := func(class Class, code int, reply, errText string) (map[string]Result, catchAllVerdict) {
+	fail := func(class Class, code int, reply, errText string) (map[string]Result, map[string]catchAllVerdict, []string) {
 		hint := retryHint(class, reply, p.opts.deferralRetry())
 		for _, a := range addrs {
 			out[a] = Result{
@@ -583,7 +845,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 				RetryAfterSeconds: hint,
 			}
 		}
-		return out, catchAllVerdict{}
+		return out, nil, nil
 	}
 
 	// Before anything else: if this node's IP is burned, probing produces no
@@ -619,9 +881,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	// the bound comes back unattempted with a retry hint, never a verdict.
 	release, err := p.leaseSession(ctx, req)
 	if err != nil {
-		results, v := fail(budgetClass(err), 0, "", err.Error())
+		results, v, rest := fail(budgetClass(err), 0, "", err.Error())
 		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
-		return results, v
+		return results, v, rest
 	}
 	defer release()
 
@@ -629,9 +891,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	// probe is not sent at all (invariant 5) — the addresses come back
 	// unattempted, never as a verdict.
 	if err := p.acquire(ctx, req); err != nil {
-		results, v := fail(budgetClass(err), 0, "", err.Error())
+		results, v, rest := fail(budgetClass(err), 0, "", err.Error())
 		applyRetryAfter(results, retryAfterFor(err, 0, "", p.opts.deferralRetry()))
-		return results, v
+		return results, v, rest
 	}
 
 	conn, err := p.dialAny(ctx, ips)
@@ -746,6 +1008,8 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 
 	// Only past this point may a 5xx mean "no such mailbox" (invariant 1).
 	policyRun, stopped := 0, false
+	var relayed []string
+	relayStop := false
 	for i, addr := range addrs {
 		// One token per recipient: the band is a rate of questions asked, and
 		// batching many RCPTs down one connection must not spend less budget
@@ -755,7 +1019,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 				for _, rest := range addrs[i:] {
 					out[rest] = Result{Connected: ptrBool(false), Class: budgetClass(err), Err: err.Error()}
 				}
-				return out, catchAllVerdict{}
+				return out, nil, nil
 			}
 		}
 		code, text, ok = step("RCPT TO:<" + addr + ">")
@@ -769,17 +1033,34 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 					Err:       netErr.Error(),
 				}
 			}
-			return out, catchAllVerdict{}
+			return out, nil, nil
 		}
 		r := rcptResult(code, text, p.opts.deferralRetry(), p.identity())
+		// A receiver refusing a domain other than the session's first as relay
+		// answered about our question, not the mailbox (invariant 1): policy,
+		// never invalid — and not about our IP either, so not IP health.
+		relay := grouped && groupOf[i] > 0 && relayRefusal(code, text)
+		if relay {
+			r.Class, r.Accepted, r.RetryAfterSeconds = ClassPolicy, nil, 0
+		}
 		p.observe(ctx, req.MXHost, r.Class)
-		p.refused(req.MXHost, r.Class, text)
-		if r.Class == ClassPolicy && p.opts.Health != nil {
+		if r.Class == ClassPolicy && !relay {
 			// A policy reply is about our client. It never moves the pacer
-			// (invariant 6); it feeds IP health, and nothing else.
-			p.opts.Health.ObservePolicy(req.MXHost)
+			// (invariant 6); it feeds IP health and the stand-down, and
+			// nothing else.
+			p.refused(req.MXHost, r.Class, text)
+			if p.opts.Health != nil {
+				p.opts.Health.ObservePolicy(req.MXHost)
+			}
 		}
 		out[addr] = r
+		if relay {
+			// Asked once: grouping is off for this family from here on, and
+			// what is left of this session goes again one domain at a time.
+			p.fallBack(req.MXHost, text)
+			relayed, relayStop = addrs[i+1:], true
+			break
+		}
 
 		// Consecutive, not cumulative: one policy reply among ordinary answers
 		// is a per-recipient quirk — a distribution list rejecting external
@@ -805,9 +1086,15 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 		}
 	}
 
-	var verdict catchAllVerdict
-	if probeCatchAll && !stopped {
-		verdict = p.askCatchAll(ctx, req, addrs, out, func(rcpt string) (int, string, bool) {
+	// The catch-all question per domain (plan 029), after every real RCPT.
+	// After a relay refusal only the first domain is asked: the receiver has
+	// just said it does not answer for the others.
+	verdicts := map[string]catchAllVerdict{}
+	for gi, g := range groups {
+		if !g.askCatchAll || stopped || (relayStop && gi > 0) {
+			continue
+		}
+		verdicts[g.domain] = p.askCatchAll(ctx, req, g.domain, g.addrs, out, func(rcpt string) (int, string, bool) {
 			return step("RCPT TO:<" + rcpt + ">")
 		})
 	}
@@ -822,7 +1109,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_ = conn.SetWriteDeadline(time.Now().Add(teardownTimeout))
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
-	return out, verdict
+	return out, verdicts, relayed
 }
 
 // askCatchAll settles whether this session's 250s mean anything (plan 029).
@@ -836,7 +1123,7 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 // sample asks the full auditProbes regardless of the answers. Every bogus RCPT
 // takes a pacer token like any other question (invariant 4), and none of them
 // can touch a real address's result (invariant 1): they only feed the verdict.
-func (p *Prober) askCatchAll(ctx context.Context, req Request, addrs []string, out map[string]Result,
+func (p *Prober) askCatchAll(ctx context.Context, req Request, domain string, addrs []string, out map[string]Result,
 	rcpt func(string) (int, string, bool)) catchAllVerdict {
 	anyAccepted := false
 	for _, addr := range addrs {
@@ -857,7 +1144,7 @@ func (p *Prober) askCatchAll(ctx context.Context, req Request, addrs []string, o
 	}
 	accepted, answered := 0, 0
 	for answered < limit {
-		bogus, err := bogusAddress(req.Domain)
+		bogus, err := bogusAddress(domain)
 		if err != nil {
 			break
 		}

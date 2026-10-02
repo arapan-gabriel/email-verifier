@@ -1,0 +1,24 @@
+# Google's MX as plan 033 needs it: one receiving system answering RCPTs for
+# many Workspace domains in one session. ws-c.test is a catch-all domain on the
+# same server, so per-domain catch-all verdicts can be told apart. With
+# relay_denied set (a test tweak) it becomes a receiver that answers for its own
+# domains only and refuses the rest as relay.
+name: google-workspace
+domains: [ws-a.test, ws-b.test, ws-c.test]
+listen: ["127.0.0.1:2531"]
+banner: "220 mx.google-workspace.test ESMTP mxsim - gsmtp"
+ehlo_caps: [PIPELINING, "SIZE 35882577", 8BITMIME, SMTPUTF8]
+
+behaviour:
+  greylist: false
+  catch_all: false
+  catch_all_domains: [ws-c.test]
+  accept: "250 2.1.5 OK"
+  reject_unknown: "550 5.1.1 The email account that you tried to reach does not exist"
+
+recipients:
+  exists: [valid@, ceo@]
+  bounce: [nope@, ghost@]
+
+chaos:
+  seed: 1337

@@ -4,6 +4,39 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 033: several domains per session (code complete)
+
+`POST /probe` accepts `domains: [{domain, emails, need_catch_all}]` in place of
+`domain`/`emails`/`need_catch_all` — the exact body Data Scout's companion (data-scout `27d05b7`,
+behind `VERIFY_MULTI_DOMAIN_SESSIONS`) already sends. The response is unchanged. A family with
+`multi_domain: true` in `families.json` — `@google` only — has whole domains packed into one session
+up to `probe.max_rcpt_per_session`; every other host is served one session per domain, so Data
+Scout grouping by identical MX host can only degrade to today's cost. Inside a grouped session:
+one lease (028), one TLS upgrade (031), one token and one `OnPaced` per `RCPT`, then 029's catch-all
+question per domain that had a `250`, with that domain's bogus address.
+
+Decisions:
+- **Relay refusal of a non-first domain is policy, and it ends grouping for the family on the node.**
+  The address is `class:policy` (never `invalid` — the mutation test shows the classifier alone calls
+  `550 <x>: relay not permitted` invalid), the rest of that session is re-asked one domain per
+  session in the same request, and the family is switched off until restart
+  (`verify_multi_domain_fallbacks_total{family}`, log `multi_domain_fallback`). Node-local on purpose:
+  a restart retries grouping, and one refusal costs one address's answer. A relay refusal feeds
+  neither IP health nor the stand-down — it is about the question, not our reputation.
+- **After a relay refusal only the session's first domain gets its catch-all question**; the others
+  are asked again in their own sessions if they had leftovers, otherwise stay `null` (not
+  established — the safe reading).
+- **A randomiser condemns every domain in the request** (invariant 7: it is a fact about the server).
+- **A repeated domain is merged, not refused.** Data Scout's per-host queue can carry two callers'
+  batches for one domain; a `400` would make both `unknown`.
+- **`policy_stop` stays allowed with `domains`** (the plan names only `domain`/`emails`/
+  `need_catch_all` as replaced); Data Scout does not send it on a grouped request.
+- **`multi_domain` must agree across a key's entries** — a disagreeing table panics at start-up, like
+  any other malformed `families.json`; otherwise grouping would depend on which MX name resolved.
+- **No node switch.** Enabling is the Data Scout flag; `families.json` is embedded, so EOP is a code
+  change after the plan's node measurement, which is still pending.
+- mxsim gained `catch_all_domains` and `relay_denied` and a `google-workspace` profile.
+
 ## 2026-10-02 — Plan 032: a family stands down when refusals of us pile up in it (code complete)
 
 Refusals of us (`ClassPolicy`) are now counted per pace key in Redis (`rt:mx:<key>:refusals`, distinct
