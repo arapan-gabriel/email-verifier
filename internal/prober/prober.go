@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mathrand "math/rand/v2"
 	"net"
 	"net/netip"
 	"strings"
@@ -154,11 +155,41 @@ type Options struct {
 	// answer is already known — and keeps hammering a server that has just told
 	// us to go away.
 	PolicyStop int
-	// CatchAllProbes is how many known-bad local parts to try. One is enough to
-	// catch a plain catch-all but not a host that answers by coin flip, where a
-	// single probe reports catch-all on one run and clean on the next.
+	// CatchAllProbes is the ceiling on known-bad local parts asked per domain
+	// (plan 029). They are asked one at a time and the sequence stops at the
+	// first rejection: a rejected bogus address settles "answers honestly". Only
+	// an accepted one earns the next question, because one 250 cannot tell a
+	// catch-all from a host answering by coin flip; a second can.
 	CatchAllProbes int
+	// CatchAllAuditRate is the share of catch-all questions asked with the full
+	// sequence of auditProbes regardless of the answers (plan 029), so the rate
+	// of randomisers stopping early would miss stays measured, not assumed.
+	CatchAllAuditRate float64
+	// Rand draws a float in [0, 1) for the audit sample. Nil uses math/rand/v2;
+	// tests inject their own.
+	Rand func() float64
 }
+
+// auditProbes is the sequence an audit sample asks: the length every domain
+// was asked before plan 029, so audited outcomes compare with the old record.
+const auditProbes = 3
+
+// CatchAllRecorder counts how each domain's catch-all question was settled.
+// Optional on top of Recorder: a metrics sink that does not implement it simply
+// does not get the count.
+type CatchAllRecorder interface {
+	CatchAllProbes(outcome string)
+}
+
+// The bounded outcomes of a catch-all question (plan 029).
+const (
+	catchAllSkippedNoAccept = "skipped_no_accept"
+	catchAllCleanAfter1     = "clean_after_1"
+	catchAllCatchAll        = "catch_all"
+	catchAllRandomiser      = "randomiser"
+	catchAllAuditFull       = "audit_full"
+	catchAllUnanswered      = "unanswered"
+)
 
 func (o Options) helo() string {
 	if o.Helo != "" {
@@ -247,7 +278,18 @@ func (o Options) catchAllProbes() int {
 	if o.CatchAllProbes > 0 {
 		return o.CatchAllProbes
 	}
-	return 3
+	return 2
+}
+
+func (o Options) auditDrawn() bool {
+	if o.CatchAllAuditRate <= 0 {
+		return false
+	}
+	draw := o.Rand
+	if draw == nil {
+		draw = mathrand.Float64
+	}
+	return draw() < o.CatchAllAuditRate
 }
 
 func (o Options) maxRCPT() int {
@@ -399,13 +441,16 @@ func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
 		verdict = catchAllVerdict{catchAll: ptrBool(true), randomiser: ptrBool(true)}
 	}
 
-	for i, chunk := range chunks(emails, p.opts.maxRCPT()) {
+	settled := known
+	for _, chunk := range chunks(emails, p.opts.maxRCPT()) {
 		// Catch-all is a property of the domain, not of a chunk: establish it
-		// once and apply the answer to every address.
-		probeCatchAll := req.NeedCatchAll && i == 0 && !known
+		// once and apply the answer to every address. It is asked in the first
+		// session that had a 250 to qualify (plan 029) — before, only chunk 0
+		// could ask, so a 250 in a later chunk never got a verdict.
+		probeCatchAll := req.NeedCatchAll && !settled
 		results, v := p.session(ctx, req, chunk, probeCatchAll)
-		if probeCatchAll {
-			verdict = v
+		if probeCatchAll && (v.catchAll != nil || v.randomiser != nil) {
+			verdict, settled = v, true
 		}
 		for addr, r := range results {
 			out.Results[addr] = r
@@ -624,26 +669,9 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 
 	var verdict catchAllVerdict
 	if probeCatchAll && !stopped {
-		accepted, answered := 0, 0
-		for range p.opts.catchAllProbes() {
-			bogus, err := bogusAddress(req.Domain)
-			if err != nil {
-				break
-			}
-			// A question asked is budget spent, bogus or not.
-			if err := p.acquire(ctx, req); err != nil {
-				break
-			}
-			code, text, ok = step("RCPT TO:<" + bogus + ">")
-			if !ok {
-				break
-			}
-			answered++
-			if Classify(code, text) == ClassValid {
-				accepted++
-			}
-		}
-		verdict = decideCatchAll(accepted, answered)
+		verdict = p.askCatchAll(ctx, req, addrs, out, func(rcpt string) (int, string, bool) {
+			return step("RCPT TO:<" + rcpt + ">")
+		})
 	}
 
 	// RSET abandons the transaction explicitly rather than leaving a bare QUIT
@@ -657,6 +685,83 @@ func (p *Prober) session(ctx context.Context, req Request, addrs []string, probe
 	_, _ = io.WriteString(conn, "RSET\r\n")
 	_, _ = io.WriteString(conn, "QUIT\r\n")
 	return out, verdict
+}
+
+// askCatchAll settles whether this session's 250s mean anything (plan 029).
+//
+// The question only qualifies an accepted real address, so it is not asked at
+// all unless one was accepted in this session: a session of rejections, policy
+// refusals (a Microsoft tenant answering 5.4.1 to everything) or deferrals
+// leaves both fields nil, and the next session with a 250 asks instead. Bogus
+// local parts go one at a time and the sequence stops at the first rejection;
+// an accepted one earns the next question, up to catchAllProbes. An audit
+// sample asks the full auditProbes regardless of the answers. Every bogus RCPT
+// takes a pacer token like any other question (invariant 4), and none of them
+// can touch a real address's result (invariant 1): they only feed the verdict.
+func (p *Prober) askCatchAll(ctx context.Context, req Request, addrs []string, out map[string]Result,
+	rcpt func(string) (int, string, bool)) catchAllVerdict {
+	anyAccepted := false
+	for _, addr := range addrs {
+		if r, ok := out[addr]; ok && r.Class == ClassValid {
+			anyAccepted = true
+			break
+		}
+	}
+	if !anyAccepted {
+		p.countCatchAll(catchAllSkippedNoAccept)
+		return catchAllVerdict{}
+	}
+
+	audit := p.opts.auditDrawn()
+	limit := p.opts.catchAllProbes()
+	if audit {
+		limit = max(limit, auditProbes)
+	}
+	accepted, answered := 0, 0
+	for answered < limit {
+		bogus, err := bogusAddress(req.Domain)
+		if err != nil {
+			break
+		}
+		// A question asked is budget spent, bogus or not.
+		if err := p.acquire(ctx, req); err != nil {
+			break
+		}
+		code, text, ok := rcpt(bogus)
+		if !ok {
+			break
+		}
+		answered++
+		if Classify(code, text) == ClassValid {
+			accepted++
+		} else if !audit {
+			// A rejected bogus address settles it: either nothing was accepted
+			// (an honest server) or something was (a coin flip). Asking again
+			// only adds a question to a mailbox that does not exist.
+			break
+		}
+	}
+
+	verdict := decideCatchAll(accepted, answered)
+	switch {
+	case answered == 0:
+		p.countCatchAll(catchAllUnanswered)
+	case audit:
+		p.countCatchAll(catchAllAuditFull)
+	case verdict.randomiser != nil && *verdict.randomiser:
+		p.countCatchAll(catchAllRandomiser)
+	case verdict.catchAll != nil && *verdict.catchAll:
+		p.countCatchAll(catchAllCatchAll)
+	default:
+		p.countCatchAll(catchAllCleanAfter1)
+	}
+	return verdict
+}
+
+func (p *Prober) countCatchAll(outcome string) {
+	if c, ok := p.opts.Metrics.(CatchAllRecorder); ok {
+		c.CatchAllProbes(outcome)
+	}
 }
 
 // beforeRCPT classifies a reply that refused the session before any RCPT was

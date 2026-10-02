@@ -17,6 +17,37 @@ classes `policy` in production (ladder days 17-21). Measured after the deploy an
 for mails from <our IP>" still class `invalid`, and `421` STARTTLS/TLS-version demands class
 `throttled` and move AIMD. Those belong to plan 030; the missing STARTTLS itself to plan 031.
 
+## 2026-10-02 — Plan 029: the catch-all question is asked once (code complete, deploy pending)
+
+Every new domain used to get three bogus `RCPT`s whatever the answers — on Data Scout's warm-up that
+was ~3/4 of Microsoft's paced budget, every one a question to a mailbox that does not exist. Two facts
+from the warm-up record (days 19-21, 6,987 answered rows) made that unnecessary: a randomiser is rare
+(one, on one host) and **not** Microsoft (1,519 EOP domains refused every bogus probe), and the verdict
+only ever qualifies a `250`.
+
+Decisions:
+- **Ask only when a real address was accepted.** A session of rejections, policy refusals (a tenant
+  answering `5.4.1` to everything) or deferrals leaves `catch_all`/`randomiser` `null`, as a dead
+  session does; no separate DBEB list is needed.
+- **Ask in the first session with a `250`**, not unconditionally in chunk 0 — a `250` in a later chunk
+  used to get no verdict at all.
+- **One at a time, stop at the first rejection.** Rejected first → clean; accepted → one more, up to
+  `probe.catch_all_probes` (now 2): accepted again → catch-all, rejected → randomiser.
+- **The cost is measured, not assumed:** an audit sample (`probe.catch_all_audit_rate`, 0.05) asks the
+  full three regardless; `verify_catch_all_probes_total{outcome}` counts every way a domain's question
+  was settled.
+- Every bogus `RCPT` still takes a pacer token and fires `rcpt_paced`; a refused token ends the
+  sequence (invariant 5); bogus answers never touch a real result (invariant 1). No HTTP or Redis change,
+  no Data Scout change, no `ENGINE_VERSION` bump.
+- *Deviation:* the metric's outcomes are `catch_all` / `randomiser` rather than the plan's
+  `…_after_2`, since the sequence length follows the configured ceiling; `unanswered` added for a
+  sequence cut short by a dead session or refused token.
+
+Invariant 7's wording drops "a randomiser (Microsoft)" for "a randomising server", per the measurement.
+Expected on the warm-up's mix: tokens per address ~3.95 → ~2.2, bogus `RCPT`s −60%. Gates: race suite
+with Redis, vet, gofmt, golangci-lint 0, coverage (prober 97.0%); disabling the early stop fails 2 tests,
+disabling the no-`250` skip fails 1.
+
 ## 2026-10-01 — Plan 026 complete: 481 tenants, one bucket, never faster than one a second
 
 Data Scout's burst day (warm-up day 21, part 3: 2,176 addresses in one job, 05:07-06:28 UTC) is

@@ -150,3 +150,21 @@ func TestRenderIsWellFormed(t *testing.T) {
 		}
 	}
 }
+
+// Plan 029: how each domain's catch-all question was settled, by bounded outcome.
+func TestCatchAllProbesCounter(t *testing.T) {
+	r := New(nil)
+	r.CatchAllProbes("clean_after_1")
+	r.CatchAllProbes("clean_after_1")
+	r.CatchAllProbes("audit_full")
+	out := r.Render()
+	for _, want := range []string{
+		"# TYPE verify_catch_all_probes_total counter",
+		`verify_catch_all_probes_total{outcome="clean_after_1"} 2`,
+		`verify_catch_all_probes_total{outcome="audit_full"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q", want)
+		}
+	}
+}

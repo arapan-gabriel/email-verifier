@@ -159,11 +159,15 @@ type Probe struct {
 	Port              string        `yaml:"port"`
 	Timeout           time.Duration `yaml:"timeout"`
 	MaxRCPTPerSession int           `yaml:"max_rcpt_per_session"`
-	// CatchAllProbes is how many known-bad local parts establish whether a
-	// domain takes anything. One catches a plain catch-all but not a host that
-	// answers by coin flip, where a single probe reports catch-all on one run
-	// and clean on the next.
+	// CatchAllProbes is the ceiling on known-bad local parts asked per domain
+	// (plan 029). They go one at a time and stop at the first rejection; only an
+	// accepted one earns the next, because one 250 cannot tell a catch-all from
+	// a host answering by coin flip. At least 2 for that reason.
 	CatchAllProbes int `yaml:"catch_all_probes"`
+	// CatchAllAuditRate is the share of catch-all questions asked with the full
+	// old sequence of three regardless of the answers, so the randomiser rate the
+	// early stop could miss stays measured. In [0, 1]; 0 disables the audit.
+	CatchAllAuditRate float64 `yaml:"catch_all_audit_rate"`
 	// PolicyStop ends a session after this many consecutive replies that are
 	// about our client rather than about a recipient. Zero disables it.
 	PolicyStop int `yaml:"policy_stop"`
@@ -289,7 +293,8 @@ func defaults() Config {
 			Port:                "25",
 			Timeout:             20 * time.Second,
 			MaxRCPTPerSession:   50,
-			CatchAllProbes:      3,
+			CatchAllProbes:      2,
+			CatchAllAuditRate:   0.05,
 			PolicyStop:          5,
 			PolicyStopMax:       10,
 			RandomiserTTL:       24 * time.Hour,
@@ -376,6 +381,18 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		*dst = n
 		return nil
 	}
+	float := func(key string, dst *float64) error {
+		v := getenv(EnvPrefix + key)
+		if v == "" {
+			return nil
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("%w: %s%s: %w", ErrInvalid, EnvPrefix, key, err)
+		}
+		*dst = f
+		return nil
+	}
 	boolean := func(key string, dst *bool) error {
 		v := getenv(EnvPrefix + key)
 		if v == "" {
@@ -431,6 +448,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		func() error { return dur("PROBE_TIMEOUT", &cfg.Probe.Timeout) },
 		func() error { return integer("PROBE_MAX_RCPT_PER_SESSION", &cfg.Probe.MaxRCPTPerSession) },
 		func() error { return integer("PROBE_CATCH_ALL_PROBES", &cfg.Probe.CatchAllProbes) },
+		func() error { return float("PROBE_CATCH_ALL_AUDIT_RATE", &cfg.Probe.CatchAllAuditRate) },
 		func() error { return integer("PROBE_POLICY_STOP", &cfg.Probe.PolicyStop) },
 		func() error { return integer("PROBE_POLICY_STOP_MAX", &cfg.Probe.PolicyStopMax) },
 		func() error { return dur("PROBE_RANDOMISER_TTL", &cfg.Probe.RandomiserTTL) },
@@ -552,6 +570,9 @@ func (c Config) Validate() error {
 	// point of the check.
 	if c.Probe.CatchAllProbes < 2 {
 		add("probe.catch_all_probes must be at least 2, got %d", c.Probe.CatchAllProbes)
+	}
+	if c.Probe.CatchAllAuditRate < 0 || c.Probe.CatchAllAuditRate > 1 {
+		add("probe.catch_all_audit_rate must be in [0, 1], got %g", c.Probe.CatchAllAuditRate)
 	}
 	if c.Probe.RandomiserTTL <= 0 {
 		add("probe.randomiser_ttl must be positive")

@@ -90,7 +90,7 @@ scripts/preflight.sh         cold-IP go/no-go check                             
 | Stops N nodes double-spending a server's budget | `internal/limiter` (central Redis bucket) |
 | Refuses to connect to a private MX | `internal/resolver` (SSRF guard) |
 | Skips a probe when Redis is down (fail closed) | `internal/pacer` |
-| Detects catch-all / randomiser | `internal/prober` (extra RCPT to a bogus local part) |
+| Detects catch-all / randomiser | `internal/prober` (bogus local parts, asked only after a real `250`, one at a time, stopping at the first rejection — plan 029) |
 | Checks the suppression list | `internal/suppress` |
 | Notices the IP got blocklisted | `internal/iphealth` |
 | Signs and sends a real email (phase 2) | `internal/relay` |

@@ -163,12 +163,15 @@ probe:
   # An unbounded recipient list is itself a harvesting signal, and servers
   # commonly cap it near 100.
   max_rcpt_per_session: 50
-  # How many known-bad local parts establish whether a domain takes anything.
-  # One catches a plain catch-all but not a host answering by coin flip, where a
-  # single probe says catch-all on one run and clean on the next. The lab kept
-  # up to 30 available for Microsoft-class hosts; raising it for a host already
-  # suspected of randomising is calibration work (plan 012).
-  catch_all_probes: 3
+  # The ceiling on known-bad local parts asked per domain (plan 029). Asked only
+  # when the session accepted a real address, one at a time, stopping at the
+  # first rejection; an accepted one earns the next, because one 250 cannot tell
+  # a catch-all from a host answering by coin flip. At least 2.
+  catch_all_probes: 2
+  # Share of catch-all questions asked with the full old sequence of 3 regardless
+  # of the answers, so the randomiser rate the early stop could miss stays
+  # measured (verify_catch_all_probes_total{outcome="audit_full"}).
+  catch_all_audit_rate: 0.05
   # End a session after this many *consecutive* replies that are about our
   # client rather than about a recipient (5.7.x and friends). A server that
   # refuses us refuses us for the whole session, so the rest of the batch would

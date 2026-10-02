@@ -50,6 +50,7 @@ type Registry struct {
 	results    map[string]uint64 // class
 	replies    map[[2]string]uint64
 	blocked    map[string]uint64  // reason
+	catchAll   map[string]uint64  // catch-all probe outcome (plan 029)
 	pauses     map[string]uint64  // mx host
 	listed     map[[2]string]bool // {ip, list} -> listed
 	sent       map[string]uint64  // relay delivery outcome (plan 014)
@@ -66,14 +67,15 @@ type Registry struct {
 // simply absent rather than wrong.
 func New(pacer Pacer) *Registry {
 	return &Registry{
-		results: map[string]uint64{},
-		replies: map[[2]string]uint64{},
-		blocked: map[string]uint64{},
-		pauses:  map[string]uint64{},
-		listed:  map[[2]string]bool{},
-		sent:    map[string]uint64{},
-		counts:  make([]uint64, len(buckets)+1),
-		pacer:   pacer,
+		results:  map[string]uint64{},
+		replies:  map[[2]string]uint64{},
+		blocked:  map[string]uint64{},
+		catchAll: map[string]uint64{},
+		pauses:   map[string]uint64{},
+		listed:   map[[2]string]bool{},
+		sent:     map[string]uint64{},
+		counts:   make([]uint64, len(buckets)+1),
+		pacer:    pacer,
 	}
 }
 
@@ -112,6 +114,15 @@ func (r *Registry) Blocked(reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.blocked[reason]++
+}
+
+// CatchAllProbes records how one domain's catch-all question was settled (plan
+// 029). The outcomes are bounded: skipped_no_accept, clean_after_1,
+// catch_all_after_2, randomiser_after_2, audit_full, unanswered.
+func (r *Registry) CatchAllProbes(outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.catchAll[outcome]++
 }
 
 // Pause records the pacer standing an MX down.
@@ -183,6 +194,7 @@ func (r *Registry) Render() string {
 	results := maps.Clone(r.results)
 	replies := maps.Clone(r.replies)
 	blocked := maps.Clone(r.blocked)
+	catchAll := maps.Clone(r.catchAll)
 	pauses := maps.Clone(r.pauses)
 	listed := maps.Clone(r.listed)
 	counts := slices.Clone(r.counts)
@@ -201,6 +213,8 @@ func (r *Registry) Render() string {
 	writeReplies(&b, replies)
 	counter(&b, "verify_probe_blocked_total",
 		"Probes this service declined to send, by reason.", blocked, "reason")
+	counter(&b, "verify_catch_all_probes_total",
+		"How each domain's catch-all question was settled, by outcome.", catchAll, "outcome")
 	counter(&b, "verify_pause_events_total",
 		"Times the pacer stood an MX down after throttling at the floor of its band.", pauses, "mx_host")
 

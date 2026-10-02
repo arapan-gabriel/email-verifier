@@ -1,6 +1,6 @@
 # Plan 029 — Ask the catch-all question once
 
-**Status:** Planned (written 2026-10-01)
+**Status:** Code complete 2026-10-02 — deploy and gate pending
 **Phase:** B
 **Depends on:** 005 (catch-all + randomiser), 026 (pace keys) — both complete. Independent of 028.
 
@@ -101,15 +101,15 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
 
 ## Tasks
 
-- [ ] `session`: bogus loop becomes sequential with early stop (rejected → stop; accepted → one
+- [x] `session`: bogus loop becomes sequential with early stop (rejected → stop; accepted → one
       more; the ceiling is `catchAllProbes()`), and runs only when a real `RCPT` in that session
       was accepted
-- [ ] `Probe`: catch-all asked in the first session with a `250`, not unconditionally chunk 0
-- [ ] Audit sample: `probe.catch_all_audit_rate` (config + env), full sequence of 3 when drawn;
+- [x] `Probe`: catch-all asked in the first session with a `250`, not unconditionally chunk 0
+- [x] Audit sample: `probe.catch_all_audit_rate` (config + env), full sequence of 3 when drawn;
       injectable randomness for tests
-- [ ] Config: `catch_all_probes` default 2 (validator ≥ 2 kept), `catch_all_audit_rate` in [0, 1]
-- [ ] Metric `verify_catch_all_probes_total{outcome}`
-- [ ] Tests alongside:
+- [x] Config: `catch_all_probes` default 2 (validator ≥ 2 kept), `catch_all_audit_rate` in [0, 1]
+- [x] Metric `verify_catch_all_probes_total{outcome}`
+- [x] Tests alongside (`internal/prober/catchall_test.go`; counts on scripted servers, verdicts also on the existing mxsim `gmail`/`catchall` integration tests; config and metrics tests too):
   - clean host: exactly 1 bogus `RCPT` (mxsim `gmail` profile), verdict `false/false`
   - catch-all host: exactly 2, verdict `true/false` (mxsim `catchall`)
   - randomiser stub (accept, reject): 2, verdict `true/true`, host remembered
@@ -118,9 +118,9 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
   - audit drawn: 3 asked regardless of the first answer
   - every bogus `RCPT` still takes a token; Redis down → no bogus `RCPT` (invariant 5)
   - a bogus answer never changes a real address's class (invariant 1)
-- [ ] `docs/06-generated/api.md` — the catch-all paragraph (sequence, skip rule, randomiser wording)
-- [ ] `docs/06-generated/metrics.md` — the counter
-- [ ] `CLAUDE.md` invariant 7 + `ARCHITECTURE.md`: drop "a randomiser (Microsoft)" — say "a
+- [x] `docs/06-generated/api.md` — the catch-all paragraph (sequence, skip rule, randomiser wording)
+- [x] `docs/06-generated/metrics.md` — the counter
+- [x] `CLAUDE.md` invariant 7 + `ARCHITECTURE.md`: drop "a randomiser (Microsoft)" — say "a
       randomising server", per the measured table
 - [ ] Deploy (016's button), between Data Scout warm-up or bulk peaks
 
@@ -131,9 +131,9 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
       tokens per address ≤ 2.4 (day 21: 3.95), EOP tokens per tenant ≤ 2.3 (day 21: 4.04), the
       `accept_all` share of accepted addresses within ±3 points of days 19-21's 16.6%, and the
       metric's `outcome` split recorded here
-- [ ] `go test -race -count=1 ./...` green, including real-Redis tests
-- [ ] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok
-- [ ] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address and fail-closed mandatory
+- [x] `go test -race -count=1 ./...` green, including real-Redis tests — 2026-10-02, `VERIFIERD_TEST_REDIS_ADDR` set
+- [x] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok — 0 issues; prober 97.0%, total 93.0%
+- [x] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address and fail-closed mandatory — us ≠ address: bogus answers never reach a real result (test); fail-closed: a refused token ends the sequence, no bogus RCPT without budget (test); SSRF and tcp4 untouched
 - [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added (and Data Scout's, for the
       randomiser-miss note)
 - [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated

@@ -57,7 +57,7 @@ Stack: **Go 1.25** · net/smtp (hand-rolled state machine, from `ds-smtp-retry/r
    could mean anything. **A consumer of `class` must read `catch_all` — reading one without the
    other is the defect this invariant exists to prevent**, and the scoring that turns the pair into
    `risky` belongs to the caller, which owns the verdict table. Catch-all is a per-domain property;
-   a randomiser (Microsoft) is a per-server property that condemns every domain on that host, and
+   a randomising server is a per-server property that condemns every domain on that host, and
    sets `catch_all` alongside itself so a caller reading only that field is already safe.
 8. **Never send `DATA` during verification.** The probe asks the question and disconnects; no message
    is transmitted. (Outbound relay in phase 2 is a separate, authenticated code path.)

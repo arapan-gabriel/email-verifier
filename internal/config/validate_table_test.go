@@ -55,6 +55,8 @@ func TestValidateEveryRule(t *testing.T) {
 		{"dns server shape", func(c *Config) { c.DNS.Servers = []string{"1.1.1.1"} }, "dns.servers entry"},
 		{"probe port", func(c *Config) { c.Probe.Port = "" }, "probe.port"},
 		{"catch-all probes", func(c *Config) { c.Probe.CatchAllProbes = 1 }, "probe.catch_all_probes"},
+		{"catch-all audit negative", func(c *Config) { c.Probe.CatchAllAuditRate = -0.1 }, "probe.catch_all_audit_rate"},
+		{"catch-all audit above one", func(c *Config) { c.Probe.CatchAllAuditRate = 1.5 }, "probe.catch_all_audit_rate"},
 		{"randomiser ttl", func(c *Config) { c.Probe.RandomiserTTL = 0 }, "probe.randomiser_ttl"},
 		{"policy stop one", func(c *Config) { c.Probe.PolicyStop = 1 }, "probe.policy_stop must"},
 		{"policy stop negative", func(c *Config) { c.Probe.PolicyStop = -1 }, "probe.policy_stop must"},
@@ -170,6 +172,7 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		EnvPrefix + "PROBE_TIMEOUT":                "15s",
 		EnvPrefix + "PROBE_MAX_RCPT_PER_SESSION":   "16",
 		EnvPrefix + "PROBE_CATCH_ALL_PROBES":       "4",
+		EnvPrefix + "PROBE_CATCH_ALL_AUDIT_RATE":   "0.25",
 		EnvPrefix + "PROBE_POLICY_STOP":            "6",
 		EnvPrefix + "PROBE_POLICY_STOP_MAX":        "12",
 		EnvPrefix + "PROBE_RANDOMISER_TTL":         "17s",
@@ -192,6 +195,7 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 		"suppress":      cfg.Suppress.Enabled && cfg.Suppress.Salt == "salt" && cfg.Suppress.MaxHashesPerImport == 21,
 		"probe":         cfg.Probe.Port == "2525" && cfg.Probe.PolicyStopMax == 12 && cfg.Probe.MaxEmailsPerRequest == 19,
 		"probe timings": cfg.Probe.RandomiserTTL == 17*time.Second && cfg.Probe.DeferralRetry == 18*time.Second,
+		"catch-all":     cfg.Probe.CatchAllProbes == 4 && cfg.Probe.CatchAllAuditRate == 0.25,
 		"pacer":         cfg.Pacer.MaxTracked == 13 && cfg.Pacer.PromoteAfter == 14 && cfg.Pacer.IdleTTL == 12*time.Second,
 		"log":           cfg.Log.Level == "warn" && cfg.Log.Format == "text",
 		"http timings":  cfg.HTTP.ShutdownTimeout == 4*time.Second && cfg.HTTP.IdleTimeout == 3*time.Second,
@@ -204,12 +208,13 @@ func TestEnvOverridesEveryKey(t *testing.T) {
 
 func TestEnvParseErrors(t *testing.T) {
 	for key, value := range map[string]string{
-		"DNS_TIMEOUT":         "soon",
-		"PACER_MAX_TRACKED":   "many",
-		"PROBE_POLICY_STOP":   "5.5",
-		"AUTH_ENABLED":        "maybe",
-		"SUPPRESS_ENABLED":    "yes please",
-		"SUPPRESS_MAX_HASHES": "1e9",
+		"DNS_TIMEOUT":                "soon",
+		"PACER_MAX_TRACKED":          "many",
+		"PROBE_POLICY_STOP":          "5.5",
+		"PROBE_CATCH_ALL_AUDIT_RATE": "a twentieth",
+		"AUTH_ENABLED":               "maybe",
+		"SUPPRESS_ENABLED":           "yes please",
+		"SUPPRESS_MAX_HASHES":        "1e9",
 	} {
 		t.Run(key, func(t *testing.T) {
 			_, err := Load("", env(map[string]string{EnvPrefix + key: value}))

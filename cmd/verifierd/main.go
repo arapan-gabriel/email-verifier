@@ -182,6 +182,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stderr 
 		Port:              cfg.Probe.Port,
 		MaxRCPTPerSession: cfg.Probe.MaxRCPTPerSession,
 		CatchAllProbes:    cfg.Probe.CatchAllProbes,
+		CatchAllAuditRate: cfg.Probe.CatchAllAuditRate,
 		PolicyStop:        cfg.Probe.PolicyStop,
 		PolicyStopMax:     cfg.Probe.PolicyStopMax,
 		DeferralRetry:     cfg.Probe.DeferralRetry,

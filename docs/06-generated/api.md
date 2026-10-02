@@ -124,13 +124,19 @@ inconsistently, so no `250` from it means a thing **for any domain it hosts**, i
 has asked about. A randomiser sets `catch_all: true` as well — the conservative reading, and the
 field callers already handle correctly.
 
-Both are established by `probe.catch_all_probes` known-bad local parts: all accepted → catch-all,
-all rejected → the real replies stand, anything in between → randomiser. The verdict for a server is
+Both are established by known-bad local parts, **asked only when the session accepted a real
+address** — the verdict qualifies a `250` and nothing else — and **one at a time, stopping at the
+first rejection** (plan 029): a rejected first one settles *clean*; an accepted one earns the next,
+up to `probe.catch_all_probes` (default 2): all accepted → catch-all, accepted then rejected →
+randomiser. A session with no accepted real address leaves both fields `null` (not established —
+ask again later), and the question moves to the first session in the request that has a `250`. An
+audit sample (`probe.catch_all_audit_rate`, default 0.05) asks the full old sequence of 3 regardless,
+so the randomiser rate the early stop could miss stays measured. The verdict for a server is
 remembered, so a later request for a different domain on that host carries it without re-probing.
 
 A batch is split at `probe.max_rcpt_per_session` — an unbounded recipient list is itself a
 harvesting signal, and servers commonly cap it near 100. Catch-all is probed once per request, not
-once per chunk: it is a property of the domain.
+once per chunk: it is a property of the domain — in the first chunk with a `250`.
 
 `connected`, `accepted`, `catch_all` and `randomiser` are tri-state: `null` means the server never gave a usable
 answer, which is a different fact from `false`. They map one-to-one onto Data Scout's existing

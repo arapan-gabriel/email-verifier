@@ -81,7 +81,10 @@ job, where it belongs with IP health and the alert.
 ## Catch-all versus randomiser (plan 005)
 
 A `250` is only worth something if the server would have said `550` to a name that does not exist.
-Establishing that takes several known-bad local parts, not one:
+Establishing that can take more than one known-bad local part — but since plan 029 only as many as
+the answers need: none unless a real address was accepted, then one at a time, stopping at the
+first rejection (a rejected first one is *clean*; an accepted one earns the next, up to
+`probe.catch_all_probes`), plus a 5% audit sample of the full three:
 
 | Bogus probes | Meaning | Scope |
 |---|---|---|

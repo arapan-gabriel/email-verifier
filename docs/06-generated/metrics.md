@@ -18,6 +18,7 @@ it directly — as this repository already does for RESP and for SMTP.
 | `relay_sent_total` | counter | `outcome` | delivery attempts: `delivered`, `rejected`, `deferred`, and this service's own refusals — `suppressed`, `no_budget`, `no_mx` |
 | `relay_queue_depth` | gauge | `state` | `ready`, `later`, `dead`. A gauge because the question is whether anything is stuck *now*, and `dead` above zero always wants a person |
 | `verify_probe_blocked_total` | counter | `reason` | probes declined: `guarded`, `no_budget`, `paused`, `policy_stop` |
+| `verify_catch_all_probes_total` | counter | `outcome` | how each domain's catch-all question was settled (plan 029): `skipped_no_accept` (no real `250` in the session — nothing to qualify), `clean_after_1`, `catch_all`, `randomiser`, `audit_full` (the audit sample's full sequence of 3), `unanswered` (the session died or budget was refused mid-sequence). Bounded. A rising `randomiser` or `audit_full` share with a non-clean result means hosts the early stop could misread |
 | `verify_pause_events_total` | counter | `mx_host` | the pacer standing a pace key down at the floor of its band — the label is the **pace key** (plan 026): `@microsoft-eop` for every EOP tenant |
 | `verify_rate_per_sec` | gauge | `mx_host` | rate the AIMD loop has settled on |
 | `verify_concurrency` | gauge | `mx_host` | concurrency it has settled on |

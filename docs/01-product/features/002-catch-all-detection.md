@@ -16,11 +16,19 @@ exist.
 
 ## Why one probe is not enough
 
-Microsoft-class hosts answer inconsistently. With a single bogus probe the coin lands on accept or
-reject, so the same domain reports catch-all on one run and clean on the next — and a real mailbox
-behind it gets reported valid on the strength of a `250` that meant nothing. `probe.catch_all_probes`
-(default 3) is what turns "it said yes once" into "it says yes to everything" or "it says yes at
-random".
+Some hosts answer inconsistently. With a single *accepted* bogus probe the coin may have landed on
+accept, so the same domain could report catch-all on one run and clean on the next — and a real
+mailbox behind it be reported valid on a `250` that meant nothing. So an accepted bogus probe earns a
+second (`probe.catch_all_probes`, default 2): accepted again → catch-all, rejected → randomiser.
+
+**Since plan 029 a rejected first probe settles it.** A rejection cannot come from a catch-all, and
+the warm-up's record showed how rare the coin flip is: over 6,987 answered rows (Data Scout days
+19-21) one randomiser, on one host — and **not** Microsoft, whose 1,519 domains refused every bogus
+probe. Asking two more after a rejection only sent questions to mailboxes that do not exist. The cost
+is bounded and measured: a randomiser that rejects first is recorded clean, and a 5% audit sample
+(`probe.catch_all_audit_rate`) asks the full three to keep that rate visible in
+`verify_catch_all_probes_total`. **And nothing is asked unless a real address was accepted** — the
+verdict qualifies a `250` and nothing else.
 
 ## Why the scope matters
 
