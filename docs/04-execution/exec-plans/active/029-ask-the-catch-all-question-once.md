@@ -1,6 +1,6 @@
 # Plan 029 — Ask the catch-all question once
 
-**Status:** Code complete 2026-10-02 — deploy and gate pending
+**Status:** Deployed 2026-10-02 09:47 UTC (`5b0d850`) — the manual-test gate waits for the next ≥ 500-address run (plan 113's first rung)
 **Phase:** B
 **Depends on:** 005 (catch-all + randomiser), 026 (pace keys) — both complete. Independent of 028.
 
@@ -122,7 +122,7 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
 - [x] `docs/06-generated/metrics.md` — the counter
 - [x] `CLAUDE.md` invariant 7 + `ARCHITECTURE.md`: drop "a randomiser (Microsoft)" — say "a
       randomising server", per the measured table
-- [ ] Deploy (016's button), between Data Scout warm-up or bulk peaks
+- [x] Deploy (016's button), between Data Scout warm-up or bulk peaks — **2026-10-02 09:47 UTC**: `5b0d850`, CI green, deploy green, `verifierd` active; no Data Scout job running
 
 ## Definition of Done
 
