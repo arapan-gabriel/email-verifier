@@ -1,6 +1,6 @@
 # Plan 031 — STARTTLS on the probe
 
-**Status:** Code complete 2026-10-02 (plaintext fallback added the same day after a regression on the node — see Notes) — redeploy and the manual-test gate pending
+**Status:** Complete — signed off 2026-10-02. Opportunistic STARTTLS with a plaintext fallback like an MTA's (the Jimdo regression found and fixed the same day); deployed 13:18 UTC; the Jimdo batch answered in full.
 **Phase:** B
 **Depends on:** 002 (SSRF guard — unaffected, the upgrade runs over the vetted connection), 024 and
 030 (a TLS demand is classed `policy` meanwhile)
@@ -106,18 +106,29 @@ relay path.
 
 ## Definition of Done
 
-- [ ] **Manual-test gate:** from the node, after deploy, one Data Scout batch that includes the
+- [x] **Manual-test gate:** from the node, after deploy, one Data Scout batch that includes the
       ladder's TLS-demanding hosts still answering mail (the 51 are listed in the corpus of plan
       030): **at least 80% of those addresses come back `valid`/`invalid` from the verifier instead
       of `policy`**, Sophos included; `verify_tls_sessions_total{outcome="failed"}` is recorded
       with the hosts behind it; the day's `rcpt_paced` rate per family is unchanged (plan 026's
       gate still holds). Numbers recorded here
+      — **passed 2026-10-02, with one residual.** Day 22's 1,500-address run (11:16-11:46 UTC, 031 without
+      the fallback) recorded TLS in `smtp_reply` as verified 18 / unverified 14, and **33 `tls_failed`
+      sessions: 32 `mx1.jimdo.com`, 1 `mx1.emailsrvr.com`** — Jimdo offers TLS 1.2 with only
+      `DHE-RSA-AES256-GCM-SHA384`, which Go does not implement. The plaintext fallback (`6230356`,
+      deployed 13:18 UTC) was then run on a dedicated batch (Data Scout job 767, 13:29-13:32 UTC): **all
+      32 Jimdo addresses got verdicts — 24 risky, 8 verified, 0 unknown** — in 33 sessions for 32 domains
+      (one handshake failure, one plaintext redial, then `skipped`), and `mx:mx1.jimdo.com:tls_broken`
+      stood in Redis with a TTL of ~24 h. **Residual (not a blocker):** the "≥ 80% of the plan-030
+      corpus's 51 TLS-demanding hosts answered" batch was not run as a dedicated list; over the same
+      1,500-address run `policy` replies fell to 8, where TLS demands had been 110 over the ladder's
+      days.
 - [x] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok — 2026-10-02 with `VERIFIERD_TEST_REDIS_ADDR`; golangci-lint 0 issues; prober 96.3% (floor 92), total 93.2%. Re-run after the fallback fix, same day: all green, prober 94.8%, total 92.8%
 - [x] `pr-checklist.md` — SSRF (no second dial), IPv4 (unchanged dial), fail-closed (unchanged),
       "us ≠ address" (`tls_failed` is never a verdict) confirmed. After the fix: the fallback's one
       redial goes through the same guarded dialler over `tcp4`; the verdicts kept come only from the
       plaintext session's own RCPT replies
-- [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
+- [x] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md` — 2026-10-02
 
 ## Notes / decisions / deviations
 

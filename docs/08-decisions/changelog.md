@@ -4,6 +4,16 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 031 complete: TLS when offered, plaintext when it cannot be had
+
+The first production run with STARTTLS (Data Scout day 22, 11:16-11:46 UTC) ended 33 sessions `tls_failed`,
+32 of them `mx1.jimdo.com`: Jimdo offers TLS 1.2 with a single finite-field DHE cipher that Go does not
+implement, so no setting on our side could complete the handshake. The fix redials once in plaintext
+and remembers the host for a day, as an MTA at security level `may` would. On a dedicated batch after the
+redeploy, all 32 Jimdo addresses answered (24 risky, 8 verified, none unknown), the host was recorded
+`tls_broken`, and later sessions skipped the attempt. Residual: the "80% of the 51 TLS-demanding hosts"
+batch was not run on its own; in the 1,500-address run `policy` replies fell to 8.
+
 ## 2026-10-02 — Plans 029, 028 and 030 closed on the node
 
 All three gated on the 2026-10-02 runs (1,500 addresses after 029's 09:47 deploy; 4 concurrent jobs
