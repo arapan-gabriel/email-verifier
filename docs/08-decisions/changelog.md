@@ -22,7 +22,7 @@ Decisions:
   comment "smtp-egress-only-verifierd"`. `verifierd-preflight` runs as `User=verifierd`, so the start
   gate is unaffected. A reset rather than a drop, so a tool fails at once instead of looking like a
   dead MX; the counter shows attempts. Output otherwise stays open, as before. Applied by the owner
-  from a script; verified (verification: pending).
+  from a script; verified 15:12 UTC: the rule is live in `inet filter output` (its counter held the 4 packets of the two test dials, refused locally as the operator and as root), it is in `/etc/nftables.conf` with `nftables.service` enabled so it survives a reboot, and `verifierd` stayed active with `ip:health` = `ok`.
 - **A rule, not just a filter.** RUNBOOK (a warning at the top, and an "IP listed on Spamhaus CSS"
   recovery section), `AGENTS.md` (agents never run manual SMTP tools on the node; same rule in Data
   Scout's `AGENTS.md`, which routes agents here), `deployment.md` and `SECURITY.md` (the rule and
