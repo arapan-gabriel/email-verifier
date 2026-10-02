@@ -1,6 +1,6 @@
 # Plan 034 — Say the receiving system in the answer
 
-**Status:** Active
+**Status:** Complete (2026-10-02)
 **Phase:** B
 **Depends on:** 026 (pace keys), 033 (several domains per session)
 
@@ -43,19 +43,25 @@ without carrying a copy of `families.json`.
 - [x] Tests: a listed multi-domain host → its key + true; a listed non-multi host → key + false; an
       unlisted host → the host + false; after a fallback → false; the handler serialises both
 - [x] `docs/06-generated/api.md`: the two fields and what a caller may do with them
-- [ ] Deploy; `POST /probe` for `aspmx.l.google.com` answers `pace_key: "@google", multi_domain: true`
+- [x] Deploy; `POST /probe` for `aspmx.l.google.com` answers `pace_key: "@google", multi_domain: true` — deployed `83ca941` (run 37054159295, 19:27 UTC); Data Scout's `verify.probe_batch` logged `pace_key=@google multi_domain=True` for both `aspmx.l.google.com` and `smtp.google.com`
 
 ## Definition of Done
 
-- [ ] The manual-test gate passes: a reply from the deployed node carries both fields (above)
-- [ ] `go test -race -count=1 ./...` green
-- [ ] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` items confirmed — no socket, guard, budget or
+- [x] The manual-test gate passes: a reply from the deployed node carries both fields (above)
+- [x] `go test -race -count=1 ./...` green
+- [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean
+- [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed — no socket, guard, budget or
       verdict path changes; the fields describe the node's pacing, never an address
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
 
 ## Notes / decisions / deviations
+
+- **Gate (2026-10-02, with Data Scout plan 114 deployed):** job 801's 160 Google Workspace addresses
+  through Data Scout's engine — **22 `session_leased`** (was 68), all `@google`; 160 `rcpt_paced`; zero
+  `451 4.3.0`, zero "multiple destination", zero `multi_domain_fallback`; 13 requests carried domains of
+  both Google hosts; 160/160 verdicts identical to job 801's. `make gate` green before deploy (prober
+  95.1%); the real-Redis tests were left to CI (no Redis path changed) — CI green on `83ca941`.
 
 - **Why after the session, not before.** A fallback is decided mid-session (a receiver refusing a
   foreign domain). Read before, the reply that *caused* the fallback would still say `true`, and Data
