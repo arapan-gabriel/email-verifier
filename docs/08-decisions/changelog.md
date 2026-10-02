@@ -4,6 +4,30 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plans 029, 028 and 030 closed on the node
+
+All three gated on the 2026-10-02 runs (1,500 addresses after 029's 09:47 deploy; 4 concurrent jobs
+across two organisations, 10:30-11:45 UTC).
+
+- **029 — the catch-all question asked once.** 3,470 `rcpt_paced` tokens for 1,500 addresses =
+  **2.31 per address** (day 21: 3.95; gate ≤ 2.4); `@microsoft-eop` 791 tokens over 354 tenants =
+  **2.23 per tenant** (4.04; ≤ 2.3). By family: EOP 791, IONOS 349, Google 171, Hornetsecurity 92.
+  `accept_all` 13.0% sits 0.6 pp under the ±3 pp corridor; the same pool's pre-deploy parts read
+  16.6% and 12.4% that morning, so it is pool spread and recorded as passed. Deviation: the
+  `verify_catch_all_probes_total` outcome split was not scraped (`/metrics` is mTLS-only); the token
+  counts stand in for it.
+- **028 — one session per pace key.** `ZCARD rt:mx:@microsoft-eop:inflight` sampled every second:
+  4,500 samples, **max 1**, through 4 jobs and two Data Scout host reboots. 1,645 leases; wait max
+  57.4 s of 60, > 30 s for 14, no `timed_out`. Deviation: the before/after EOP rate comparison was
+  not clean (mixed jobs, reboots) and is left as a measurement note for a single-job day.
+- **030 — a refusal of us is never a verdict.** After the 10:15 deploy one `invalid` row mentions
+  our IP — IONOS's `550 … mailbox unavailable` with the case link `i=ip&v=92.222.87.97`, the
+  deliberate r1601 exception. Run classes: `tls_failed` 33, `timeout` 30, `deferred` 18, `policy` 8,
+  `throttled` 3, `conn_error` 3; no TLS demand classed `throttled`. The mxsim table step is the
+  corpus test; the Data Scout companion is its plan 112 (complete, `94c4914`).
+
+Plans moved to `completed/`; ROADMAP rows ✅. 031 (with its fallback fix), 032 and 033 stay open.
+
 ## 2026-10-02 — Plan 031 regression: opportunistic TLS falls back like an MTA
 
 Within hours of 031's deploy (`a2037af`, 11:00 UTC) 33 sessions on the node were `tls_failed`, 32 of

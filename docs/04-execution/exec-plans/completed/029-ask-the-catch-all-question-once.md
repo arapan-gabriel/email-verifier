@@ -1,6 +1,6 @@
 # Plan 029 — Ask the catch-all question once
 
-**Status:** Deployed 2026-10-02 09:47 UTC (`5b0d850`) — the manual-test gate waits for the next ≥ 500-address run (plan 113's first rung)
+**Status:** Complete — signed off 2026-10-02. Deployed 09:47 UTC (`5b0d850`); gate passed on the 1,500-address run of 2026-10-02
 **Phase:** B
 **Depends on:** 005 (catch-all + randomiser), 026 (pace keys) — both complete. Independent of 028.
 
@@ -130,13 +130,15 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
       customer-shaped batch) after deploy, compared with day 21 part 3 from `rcpt_paced`:
       tokens per address ≤ 2.4 (day 21: 3.95), EOP tokens per tenant ≤ 2.3 (day 21: 4.04), the
       `accept_all` share of accepted addresses within ±3 points of days 19-21's 16.6%, and the
-      metric's `outcome` split recorded here
+      metric's `outcome` split recorded here — **passed 2026-10-02** (see Notes): 2.31 tokens/address,
+      EOP 2.23/tenant, `accept_all` 13.0% (0.6 pp under the corridor — pool spread, same-day
+      baselines 16.6% and 12.4%); the `outcome` split was not scraped (`/metrics` is mTLS-only)
 - [x] `go test -race -count=1 ./...` green, including real-Redis tests — 2026-10-02, `VERIFIERD_TEST_REDIS_ADDR` set
 - [x] `go vet ./...`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok — 0 issues; prober 97.0%, total 93.0%
 - [x] `docs/05-quality/checklists/pr-checklist.md` — us ≠ address and fail-closed mandatory — us ≠ address: bogus answers never reach a real result (test); fail-closed: a refused token ends the sequence, no bogus RCPT without budget (test); SSRF and tcp4 untouched
-- [ ] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added (and Data Scout's, for the
-      randomiser-miss note)
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added (and Data Scout's, for the
+      randomiser-miss note) — closing entry 2026-10-02
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated — 2026-10-02
 
 ## Notes / decisions / deviations
 
@@ -150,3 +152,22 @@ instead of ~12.5% — is stated in Data Scout's changelog when this deploys.
 - **What this does not do.** It does not skip the *real* `RCPT` at hosts where a `250` cannot
   mean anything (a known catch-all or randomiser) — that changes stored verdicts (`smtp_check:
   null`) and belongs to Data Scout's product decision noted in its plan 088.
+
+### Gate (2026-10-02)
+
+Run: 1,500 addresses (day 22 parts, 4 concurrent jobs across two orgs) after the 09:47 deploy,
+counted from the journal's `rcpt_paced` lines.
+
+| Measure | Day 21 (before) | 2026-10-02 | Gate |
+|---|---|---|---|
+| `rcpt_paced` tokens per address | 3.95 | **2.31** (3,470 / 1,500) | ≤ 2.4 ✅ |
+| `@microsoft-eop` tokens per tenant | 4.04 | **2.23** (791 / 354) | ≤ 2.3 ✅ |
+| `accept_all` share of accepted | 16.6% (days 19-21) | **13.0%** | 16.6 ± 3 → 0.6 pp under |
+
+- Tokens by family: EOP 791, IONOS 349, Google 171, Hornetsecurity 92.
+- **`accept_all` 0.6 pp under the corridor is pool spread, not a missed catch-all**: the same day's
+  pool baselines were 16.6% (part 01, 07:52, before the deploy) and 12.4% (the org files, 08:32,
+  before the deploy) — a 4-point spread between pre-029 parts of the same pool. Recorded as passed
+  with this note.
+- `verify_catch_all_probes_total{outcome}` was not scraped: `/metrics` is served behind mTLS only
+  and was not read during the run. The token arithmetic above is the evidence instead.

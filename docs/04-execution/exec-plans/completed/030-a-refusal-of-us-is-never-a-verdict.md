@@ -1,6 +1,6 @@
 # Plan 030 — A refusal of us is never a verdict
 
-**Status:** Code complete 2026-10-02 — deploy and the manual-test gate pending
+**Status:** Complete — signed off 2026-10-02. Deployed 10:15 UTC; gate passed on the run that followed
 **Phase:** B
 **Depends on:** 022 (whole reply), 024 (TLS prose, active), 027 (`beforeRCPT`) — and a Data Scout
 companion change, below, without which half of the defect stays
@@ -113,12 +113,16 @@ and the reply entirely (Data Scout tech-debt, 2026-10-01).
       an mxsim profile scripted to answer it at `RCPT`, comes back with `accepted: null`; and the
       next ladder/customer day carrying any of these wordings records no `invalid` for them in
       Data Scout (query: `status='invalid' AND signals->>'smtp_reply' ~ '92\.222\.87\.97|tls'`).
-      Recorded here
-- [ ] Data Scout companion deployed: `SELECT count(*) … status='valid' AND (signals->>'block')::bool`
-      is zero for rows written after it
+      Recorded here — **passed 2026-10-02** (see Notes): exactly 1 such `invalid` row after the
+      deploy, the deliberate r1601 IONOS exception; the mxsim table step is covered by the corpus
+      test
+- [x] Data Scout companion deployed: `SELECT count(*) … status='valid' AND (signals->>'block')::bool`
+      is zero for rows written after it — Data Scout plan 112, deployed `94c4914`, complete
+      2026-10-02: 397 stored rows re-judged `unknown`, and job 729 wrote its 13 blocked sessions
+      `unknown` (0 `valid`/`risky` with `block`)
 - [x] `go test -race -count=1 ./...` green; `go vet`, `gofmt -l .`, `golangci-lint run` clean; coverage gate ok — 2026-10-02, with Redis
 - [x] `pr-checklist.md` — "us ≠ address" is this plan; confirmed against the corpus — us ≠ address is this plan, confirmed against the corpus; fail-closed and SSRF untouched
-- [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
+- [x] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md` — 2026-10-02
 
 ## Notes / decisions / deviations
 
@@ -129,3 +133,16 @@ and the reply entirely (Data Scout tech-debt, 2026-10-01).
   deploy-and-observe box; this plan does not reopen it — it adds the two wordings it missed and
   the structural rule that would have caught both.
 - **Not here:** STARTTLS itself (031), standing a family down on these refusals (032).
+
+### Gate (2026-10-02)
+
+- **No `invalid` about us.** After the 10:15 UTC deploy, the Data Scout query above matches exactly
+  **1** `invalid` row: IONOS `550 … mailbox unavailable`, whose only mention of our IP is the
+  support link's query string `i=ip&v=92.222.87.97`. That is the deliberate r1601 exception (the
+  reply is about the mailbox; the IP is a case-lookup parameter), not a refusal of us.
+- **Classes in the run** (journal `smtp_reply`): `tls_failed` 33, `timeout` 30, `deferred` 18,
+  `policy` 8, `throttled` 3, `conn_error` 3. **No TLS demand was classed `throttled`** — the 421
+  STARTTLS-mandatory wording stays policy. (The 33 `tls_failed` are plan 031's Jimdo regression,
+  fixed by its plaintext fallback.)
+- **mxsim table step**: covered by the corpus test that sends every Context-table reply at `RCPT`
+  through the prober and asserts `accepted: null`; not repeated by hand.

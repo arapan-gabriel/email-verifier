@@ -1,6 +1,6 @@
 # Plan 028 — Enforce `max_concurrency` per pace key
 
-**Status:** Code complete 2026-10-02 — deploy and gate pending
+**Status:** Complete — signed off 2026-10-02. Deployed with the 2026-10-02 release; gate passed on the 4-job run (10:30-11:45 UTC)
 **Phase:** B
 **Depends on:** 003 (central limiter), 026 (pace keys) — both complete
 
@@ -128,14 +128,17 @@ there.
       stay ≥ ~1 s (plan 026's gate still holds). Recorded here with the numbers, plus: EOP
       throughput before/after in tokens per minute (day 21's baseline: 0.40/s mean, 57 in the
       busiest minute), the share of requests that hit `lease_wait` and came back as rechecks,
-      and the longest single EOP session — so the cost of one connection is on record
+      and the longest single EOP session — so the cost of one connection is on record — **passed
+      2026-10-02** (see Notes): 4,500 one-second samples, max in-flight **1**; lease wait max
+      57.4 s (limit 60), no `timed_out`. The clean before/after EOP rate comparison is a
+      measurement note, not a blocker
 - [x] `go test -race -count=1 ./...` green, including the real-Redis tests — 2026-10-02, `VERIFIERD_TEST_REDIS_ADDR=127.0.0.1:56379`
 - [x] `go vet ./...`, `gofmt -l .` clean, `golangci-lint run` clean, coverage gate ok — 0 issues; limiter 95.2%, pacer 96.9%, prober 97.2%, total 93.1%
 - [x] `docs/05-quality/checklists/pr-checklist.md` items confirmed — fail-closed and central
       bucket mandatory; SSRF guard unaffected (the lease is taken before the vetted dial and
       changes nothing about it) — fail-closed: `TestNoLeaseSetMeansNoSession`, `TestNoLeaseNoDial`; central: the lease set is in the shared Redis; SSRF: the lease is taken after the vetted resolve and changes nothing about the dial; us ≠ address: a lease timeout is `paused`, never a verdict
 - [x] Docs updated per `CLAUDE.md` Phase 5; `changelog.md` entry added — redis-contract, metrics, observability, aimd-pacing, changelog, ROADMAP
-- [ ] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated
+- [x] Status set to Complete, plan moved to `completed/`, `ROADMAP.md` row updated — 2026-10-02
 
 ## Notes / decisions / deviations
 
@@ -163,3 +166,17 @@ there.
 - **Data Scout side.** Nothing to change. Its per-job window and platform ceiling stay the
   outer bounds; a lease wait surfaces there as a slower probe or, past `lease_wait`, as a
   rescheduled recheck it already handles.
+
+### Gate (2026-10-02)
+
+- **In-flight never above `conc`.** `ZCARD rt:mx:@microsoft-eop:inflight` sampled every second,
+  10:30-11:45 UTC: **4,500 samples, maximum 1**. The window covered 4 concurrent verify jobs from two
+  organisations and two reboots of the Data Scout host (plan 110) — leases expired and were
+  re-taken without ever overlapping.
+- **Leases.** 1,645 `session_leased` journal lines. Lease wait: max **57.4 s** (limit
+  `lease_wait` 60 s), > 1 s for 344, > 30 s for 14; **no `timed_out`** outcome seen, so no request
+  came back as a lease recheck.
+- **Throughput before/after**: not measured cleanly — the run mixed four jobs and two host reboots,
+  so its EOP tokens per minute are not comparable with day 21's single-job 0.40/s. Left as a
+  measurement note for the next single-job day (plan 113's ladder), not a blocker: the gate's
+  safety property (one connection per key) is what the samples prove.
