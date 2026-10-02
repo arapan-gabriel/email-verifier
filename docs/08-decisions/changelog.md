@@ -4,6 +4,15 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-02 — Plan 034: the answer names the receiving system
+
+`POST /probe` replies gain `pace_key` and `multi_domain`, set by `Prober.Probe` **after** the work from
+the same `grouping()` the session used — so a fallback caused by this request already reads `false`.
+Additive JSON; the request schema is unchanged. Chosen over Data Scout copying `families.json` (two
+tables meeting only in production) and over a `GET /families` endpoint (a new authenticated surface,
+invariant 11, that would not carry a runtime fallback). Consumer: Data Scout plan 114, which groups a
+verify run by `pace_key` instead of exact MX host. No Redis key, metric or config change.
+
 ## 2026-10-02 — A hand-run `openssl` got the IP listed; SMTP now leaves the node only as `verifierd`
 
 At 13:04:48 UTC an agent diagnosing plan 031's Jimdo TLS failure ran `openssl s_client -starttls

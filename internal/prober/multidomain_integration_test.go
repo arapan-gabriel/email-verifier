@@ -453,3 +453,50 @@ func TestTheSameDomainTwiceIsAskedOnce(t *testing.T) {
 		t.Errorf("session_domains %v, want [1]", r.rec.domains)
 	}
 }
+
+// Plan 034: every answer names the receiving system and whether it may be
+// grouped right now — for both request shapes.
+func TestTheAnswerNamesTheSystemAndWhetherItGroups(t *testing.T) {
+	port, _ := startWorkspace(t)
+	for _, multi := range []bool{true, false} {
+		r := newRig(port, multi)
+		grouped := probe(t, r.p, threeDomains())
+		single := probe(t, r.p, prober.Request{
+			MXHost: "aspmx.l.google.com", Domain: "ws-a.test",
+			Emails: []string{"valid@ws-a.test"},
+		})
+		for name, resp := range map[string]prober.Response{"domains": grouped, "single": single} {
+			if resp.PaceKey != "@google" || resp.MultiDomain != multi {
+				t.Errorf("multi=%v %s: pace_key %q multi_domain %v, want @google %v",
+					multi, name, resp.PaceKey, resp.MultiDomain, multi)
+			}
+		}
+	}
+}
+
+// The request that causes a fallback already answers multi_domain=false, so
+// the caller forms no further cross-host group on stale information.
+func TestTheRequestThatFallsBackAlreadySaysSo(t *testing.T) {
+	port, _ := startProfile(t, "one-transaction")
+	r := newRig(port, true)
+	resp := probe(t, r.p, threeDomains())
+	if len(r.fallbacks) != 1 {
+		t.Fatalf("fallbacks %+v, want one", r.fallbacks)
+	}
+	if resp.PaceKey != "@google" || resp.MultiDomain {
+		t.Errorf("pace_key %q multi_domain %v after the fallback, want @google false",
+			resp.PaceKey, resp.MultiDomain)
+	}
+}
+
+// Without a family function (tests, a stripped build) the fields stay empty.
+func TestNoFamilyFunctionNamesNoSystem(t *testing.T) {
+	port, _ := startWorkspace(t)
+	r := newRig(port, true, func(o *prober.Options) { o.MultiDomain = nil })
+	resp := probe(t, r.p, prober.Request{
+		MXHost: "aspmx.l.google.com", Domain: "ws-a.test", Emails: []string{"valid@ws-a.test"},
+	})
+	if resp.PaceKey != "" || resp.MultiDomain {
+		t.Errorf("pace_key %q multi_domain %v, want empty and false", resp.PaceKey, resp.MultiDomain)
+	}
+}

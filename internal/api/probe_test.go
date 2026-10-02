@@ -200,3 +200,34 @@ func TestProbeIsTimed(t *testing.T) {
 		t.Error("negative duration")
 	}
 }
+
+// systemProber answers like the engine does since plan 034.
+type systemProber struct{ fakeProber }
+
+func (s *systemProber) Probe(ctx context.Context, req prober.Request) (prober.Response, error) {
+	out, err := s.fakeProber.Probe(ctx, req)
+	out.PaceKey, out.MultiDomain = "@google", true
+	return out, err
+}
+
+// Plan 034: the 200 carries the receiving system and whether it groups, and an
+// engine that names none leaves pace_key out rather than sending "".
+func TestProbeNamesTheReceivingSystem(t *testing.T) {
+	rec := postProbe(t, routerWith(&systemProber{}), goodBody, "Bearer right-key")
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["pace_key"] != "@google" || got["multi_domain"] != true {
+		t.Errorf("pace_key %v multi_domain %v, want @google true", got["pace_key"], got["multi_domain"])
+	}
+
+	rec = postProbe(t, routerWith(&fakeProber{}), goodBody, "Bearer right-key")
+	got = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, present := got["pace_key"]; present || got["multi_domain"] != false {
+		t.Errorf("no system named: pace_key present=%v multi_domain %v", present, got["multi_domain"])
+	}
+}

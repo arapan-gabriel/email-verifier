@@ -48,6 +48,8 @@ addresses; this endpoint asks one server about several mailboxes in one session.
 {
   "source_ip":  "92.222.87.97",
   "checked_at": "2026-08-28T12:00:00Z",
+  "pace_key":   "@google",      // plan 034: the receiving system behind mx_host
+  "multi_domain": true,         // plan 034: may be asked about several domains per session, now
   "results": {
     "a@gmail.com": {"connected": true, "accepted": true,  "catch_all": false, "randomiser": false,
                     "smtp_code": 250, "enhanced_code": "2.1.5", "class": "valid",
@@ -207,6 +209,15 @@ answer, which is a different fact from `false`. They map one-to-one onto Data Sc
 
 `source_ip` is always present — a verdict is only as good as the IP that produced it, and Data Scout
 stores it in `email_verifications.signals`.
+
+`pace_key` and `multi_domain` (plan 034) describe the **node**, not an address. `pace_key` is the
+receiving system `mx_host` belongs to — the key its bucket, band and concurrency lease are held under
+(`@google`, `@microsoft-eop`, or the host itself when it is in no family). `multi_domain` says whether
+that system may, on this node and right now, be sent a `domains: [...]` request answered in one
+session: cleared in `families.json` **and** not fallen back. It is read after the request, so the
+reply to the request that caused a fallback already says `false`. A caller may group domains whose
+MX hosts share a `pace_key` into one request only while `multi_domain` is `true`; otherwise it should
+group by exact host, as before. `pace_key` is omitted only by a build without a family table.
 
 **A transport failure is not a verdict.** A timeout, a 5xx or a reset from this service means
 `connected=false` on the caller's side, never `invalid` (invariant 1, ADR-006).

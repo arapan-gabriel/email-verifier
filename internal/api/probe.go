@@ -53,6 +53,10 @@ type probeResponse struct {
 	SourceIP  string                   `json:"source_ip"`
 	CheckedAt time.Time                `json:"checked_at"`
 	Results   map[string]prober.Result `json:"results"`
+	// The receiving system behind mx_host and whether it may be grouped right
+	// now (plan 034). Additive: a caller that ignores them loses nothing.
+	PaceKey     string `json:"pace_key,omitempty"`
+	MultiDomain bool   `json:"multi_domain"`
 }
 
 func (r probeRequest) validate(maxEmails int) error {
@@ -160,9 +164,11 @@ func handleProbe(p Prober, sourceIP string, maxEmails int) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, probeResponse{
-			SourceIP:  sourceIP,
-			CheckedAt: time.Now().UTC(),
-			Results:   resp.Results,
+			SourceIP:    sourceIP,
+			CheckedAt:   time.Now().UTC(),
+			Results:     resp.Results,
+			PaceKey:     resp.PaceKey,
+			MultiDomain: resp.MultiDomain,
 		})
 	}
 }

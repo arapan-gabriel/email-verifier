@@ -504,6 +504,15 @@ type Result struct {
 // Response carries one Result per requested address.
 type Response struct {
 	Results map[string]Result `json:"results"`
+	// PaceKey is the receiving system the request's MX belongs to — the key its
+	// bucket, band and concurrency lease are held under (invariant 4, plan 026).
+	// Empty when the prober has no family function (Options.MultiDomain nil).
+	PaceKey string `json:"pace_key,omitempty"`
+	// MultiDomain says whether that system may be asked about several domains
+	// in one session on this node right now: cleared in families.json and not
+	// fallen back (plan 033). Read after the session, so a fallback this very
+	// request caused already reads false (plan 034).
+	MultiDomain bool `json:"multi_domain"`
 }
 
 // teardownTimeout bounds the best-effort RSET/QUIT written after the answers
@@ -537,6 +546,18 @@ func ptrBool(b bool) *bool { return &b }
 // final RSET. **DATA is never sent**
 // (invariant 8): the probe asks the question and disconnects.
 func (p *Prober) Probe(ctx context.Context, req Request) (Response, error) {
+	resp, err := p.probe(ctx, req)
+	if err != nil {
+		return resp, err
+	}
+	// Plan 034: say which receiving system answered, and whether it may be
+	// grouped — after the work, so this request's own fallback is reflected.
+	resp.PaceKey, resp.MultiDomain = p.grouping(req.MXHost)
+	return resp, nil
+}
+
+// probe is Probe without the system fields.
+func (p *Prober) probe(ctx context.Context, req Request) (Response, error) {
 	if req.MXHost == "" {
 		return Response{}, errors.New("prober: mx_host is required")
 	}
