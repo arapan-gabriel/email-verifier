@@ -1,6 +1,6 @@
 # Plan 032 — Stand a family down on refusals of us
 
-**Status:** Code complete 2026-10-02 — deploy and the manual-test gate pending (written 2026-10-01)
+**Status:** Deployed 2026-10-02 (`83ca941`, with plan 034) — mxsim gate passed 2026-10-06; waiting only for the live week to end 2026-10-09 19:27 UTC (written 2026-10-01)
 **Phase:** B
 **Depends on:** 026 (pace keys), 030 (refusals of us classed `policy` reliably — this plan is only
 as good as the class it counts)
@@ -112,9 +112,30 @@ private list and a week of feeding it.
       container, prints the finding; the key resumes at `pause_until` without an operator.
       And on live traffic, a week with zero false stand-downs (any stand-down is investigated and
       its evidence recorded here)
+      - [x] **mxsim half — passed 2026-10-06**, kept as a test that runs again:
+        `internal/prober/standdown_e2e_integration_test.go` wires real mxsim servers, the prober,
+        pacer, guard and metrics registry the way `cmd/verifierd` does, over a real Redis (only the
+        resolver is the test's loopback one — the binary's SSRF guard rightly refuses mxsim, so the
+        gate cannot run through the binary without weakening invariant 2). **Rule B:** three
+        `*.pphosted.com` hosts on three mxsim servers refusing with a policy reply that names no
+        list — two leave the key up, the third stands `@proofpoint` down, `verify_key_stood_down`
+        reads 1, `verify_refusals_of_us_total` 3; the next request to any host of it answers
+        `paused` with a retry hint and no verdict; after `pause_until` (3 s in the test) the gauge
+        reads 0 and the next request reaches the server — nobody resumed it. **Rule A:** one
+        `*.mimecast.com` host answering `… blocked using zen.spamhaus.org` stands `@mimecast` down
+        at once. **Data Scout's side:** the `/metrics` text rendered while the key was down
+        (`STANDDOWN_E2E_METRICS_OUT`), fed to `deploy/probe-standing.py`'s `findings()` in Data
+        Scout's API environment, prints `STOOD_DOWN @proofpoint` — the line `healthcheck.sh` turns
+        into "PROBE verifier stood down @proofpoint …". Not run inside the live api container: that
+        reads the live node, and standing a real key down there would stop the warm-up.
+      - [ ] **Live week — ends 2026-10-09 19:27 UTC.** Deployed `83ca941` 2026-10-02 19:27 UTC.
+        Read on the node 2026-10-06: **0 `stood_down` lines** over 17,761 leased sessions
+        (10-03 3,165 · 10-04 4,047 · 10-05 4,636 · 10-06 5,913 — ladder days 23-26, 20 jobs at
+        once). To close: the same count through 10-09.
 - [x] `go test -race -count=1 ./...` green; vet, gofmt, golangci-lint clean; coverage gate ok — 2026-10-02, with Redis; golangci-lint 0 issues; coverage gate ok (standdown 84.4%, new floor 84)
 - [x] `pr-checklist.md` — fail-closed and central confirmed; "us ≠ address" (paused is never a verdict) — fail-closed: Redis down → nothing counted, nothing paused (test); central: two nodes add up over one Redis (test); us ≠ address: a stood-down key answers `paused` with a retry hint, never a verdict
-- [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md`
+- [ ] Docs per Phase 5; `changelog.md`; Status Complete, moved to `completed/`, `ROADMAP.md` —
+      changelog and ROADMAP updated 2026-10-06 for the gate; the move waits for the live week
 
 ## Notes / decisions / deviations
 

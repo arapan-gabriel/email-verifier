@@ -4,6 +4,21 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-06 — Plan 032: the mxsim gate passes, as a test that can run again
+
+The manual gate was written as a one-off against mxsim. It is now
+`internal/prober/standdown_e2e_integration_test.go`: real mxsim servers, prober, pacer, stand-down
+guard and metrics registry wired as `cmd/verifierd` wires them, over a real Redis. Rule B: three
+`*.pphosted.com` hosts refusing us with a reply that names no list stand `@proofpoint` down on the
+third; the next request answers `paused` with a retry hint and no verdict; after `pause_until` the gauge
+returns to 0 and requests reach the server again with no operator. Rule A: one `zen.spamhaus.org`
+refusal from a `*.mimecast.com` host stands `@mimecast` down at once. Decision: the gate runs in a test,
+not through the binary — the binary's SSRF guard (invariant 2) refuses mxsim on loopback, and the only
+way around it would be a config switch that weakens the guard in production; the test's loopback
+resolver is the existing, visible exception. Data Scout's `probe-standing.py` parsed the rendered
+`/metrics` into `STOOD_DOWN @proofpoint`. Live: 0 stand-downs in 17,761 sessions since the deploy on
+2026-10-02; the plan closes when that holds to 2026-10-09.
+
 ## 2026-10-02 — Plan 034: the answer names the receiving system
 
 `POST /probe` replies gain `pace_key` and `multi_domain`, set by `Prober.Probe` **after** the work from
