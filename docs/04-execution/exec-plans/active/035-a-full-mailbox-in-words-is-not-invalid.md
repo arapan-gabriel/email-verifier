@@ -1,6 +1,6 @@
 # Plan 035 — A full mailbox said in words is not `invalid`
 
-**Status:** In progress — code and tests done 2026-10-06; deploy and the live check next (written 2026-10-06)
+**Status:** Deployed 2026-10-06 14:50 UTC (`8dd8e61`, deploy run 37482278671) — waiting for a live over-quota reply to confirm (written 2026-10-06)
 **Phase:** B
 **Depends on:** 030 (refusals of us classed `policy`)
 
@@ -33,7 +33,7 @@ recipient's address as wrong).
 - [x] `classify_test.go` — bare `550 Mailbox over quota`, `552 … mailbox full`, `552 5.2.2 … storage
       allocation` → valid; `550 5.7.1 Daily sending quota exceeded` and a wordy per-hour quota → policy
 - [x] `docs/03-engineering/patterns/smtp-classification.md`; changelog
-- [ ] Deploy; a live over-quota reply classed `valid` when one next appears (or recorded as not yet seen)
+- [~] Deploy; a live over-quota reply classed `valid` when one next appears — **deployed 2026-10-06 14:50 UTC**; the live reply is waited for (one in 2,939 on day 25)
 
 ## Definition of Done
 
