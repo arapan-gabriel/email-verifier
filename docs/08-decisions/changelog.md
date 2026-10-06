@@ -4,6 +4,14 @@ One entry per plan (always), newest first: decisions made, deviations, library/p
 trade-offs.
 
 
+## 2026-10-06 — Plan 035: a full mailbox said in words is `valid`; a sending quota in words is `policy`
+
+A bare `550 Mailbox over quota` (no enhanced code, Data Scout's warm-up day 25) fell through
+`classifyPermanent` to its default and was classed `invalid` — while `5.2.2` saying the same thing was
+already `valid`. Wording now counts: a full-mailbox phrase with no code or a 5.2.x is `valid`. The same
+fall-through classed a wordy per-hour sending quota as `invalid`, against invariant 1; a quota phrase with
+sending/rate wording and no recipient code is now `policy`. A 5.1.x code still wins.
+
 ## 2026-10-06 — Plan 032: the mxsim gate passes, as a test that can run again
 
 The manual gate was written as a one-off against mxsim. It is now

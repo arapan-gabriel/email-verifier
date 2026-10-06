@@ -21,6 +21,13 @@ func TestClassify(t *testing.T) {
 		{"user unknown, no enhanced code", 550, "550 User unknown", ClassInvalid},
 		// A full mailbox is proof the mailbox exists.
 		{"mailbox full", 550, "550 5.2.2 The recipient mailbox is over quota", ClassValid},
+		// Plan 035: the same, said in words without an enhanced code (warm-up day 25).
+		{"over quota, no enhanced code", 550, "550 Mailbox over quota", ClassValid},
+		{"mailbox full, no code", 552, "552 Requested mail action aborted: mailbox full", ClassValid},
+		{"exceeded storage allocation", 552, "552 5.2.2 Mailbox has exceeded storage allocation", ClassValid},
+		// ...but a quota on *our* sending is about us.
+		{"sending quota is policy", 550, "550 5.7.1 Daily sending quota exceeded", ClassPolicy},
+		{"rate quota, no code", 550, "550 Quota exceeded: too many messages per hour from your IP", ClassPolicy},
 		// Over quota is about the recipient's box, not about our rate.
 		{"over quota 4.2.2", 452, "452 4.2.2 The email account is over quota", ClassDeferred},
 		{"greylisted", 450, "450 4.2.0 Greylisted, please try again later", ClassDeferred},

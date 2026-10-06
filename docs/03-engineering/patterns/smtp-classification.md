@@ -39,6 +39,8 @@ The `5.X.Y` enhanced status answers "who is this about" before the prose. Subjec
 | `550 5.1.1` NoSuchUser | invalid | recipient |
 | `550 5.2.2` mailbox full | valid | mailbox exists |
 | `452 4.2.2` over quota | unknown (retry) | recipient's box — **not our rate** |
+| `550 Mailbox over quota` / `552 … mailbox full` / `… exceeded storage allocation` (no code, or 5.2.x) | valid | the same full mailbox said in words (plan 035) — it exists |
+| `550 Quota exceeded: too many messages per hour …` / `5.7.x … sending quota` | policy | a quota on **our** sending — about us, never the address (invariant 1; plan 035) |
 | `450`/`451` greylisting | unknown (retry) | per-recipient, rate-independent |
 | `550 5.7.x` / `554 …blocked` / reverse DNS | **policy** → unknown | **our IP** |
 | `421 4.7.x` / unusual rate | throttled → unknown (back off) | our rate |

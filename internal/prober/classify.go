@@ -303,6 +303,15 @@ func containsToken(t, tok string) bool {
 // insists on STARTTLS is a refusal of our session, not "slow down": read as
 // throttling it halved the pacer's rate for a host that will refuse us at any
 // rate (plan 030; `421 4.7.0 STARTTLS is mandatory`, mx1.gesundheitswelt.de).
+// overQuotaRe matches a full recipient mailbox in plain words (plan 035). The
+// mailbox exists — exactly what 5.2.2 says in code — so it is never `invalid`.
+// Found on Data Scout's warm-up day 25: a bare "550 Mailbox over quota" (no
+// enhanced code) fell through to the default and was read as "no such mailbox".
+var overQuotaRe = regexp.MustCompile(`over ?quota|quota exceeded|exceeded (its |the |his |her |their )?(storage|quota)|mailbox (is )?full|storage allocation|disk quota|insufficient (system )?storage|mailbox size limit`)
+
+// sendingQuotaRe is the other "quota": a limit on *us* sending, which is policy.
+var sendingQuotaRe = regexp.MustCompile(`send|sent|outbound|rate|per (hour|day|minute)|messages per`)
+
 var tlsRe = regexp.MustCompile(`starttls|(^|[^a-z0-9])tls([^a-z0-9]|$)|encryption`)
 
 // Classify turns one SMTP reply into a Class with no identity to recognise.
@@ -383,6 +392,18 @@ func classifyPermanent(t string, id Identity) Class {
 	// Explicit sender-side wording, with nothing pointing at the recipient.
 	if sender && !mailbox {
 		return ClassPolicy
+	}
+	// A quota in words (plan 035). On our sending — "too many messages per hour" —
+	// it is about us (invariant 1); otherwise it is a full mailbox, said in words
+	// rather than (or as well as) 5.2.x, and the mailbox exists.
+	if overQuotaRe.MatchString(t) {
+		sending := sendingQuotaRe.MatchString(t)
+		if sending && (ec == "" || subject(ec) == 7) {
+			return ClassPolicy
+		}
+		if !sending && (ec == "" || subject(ec) == 2) {
+			return ClassValid
+		}
 	}
 
 	switch subject(ec) {
